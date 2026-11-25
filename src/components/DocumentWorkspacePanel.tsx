@@ -9,6 +9,7 @@ import {
   Maximize2,
   RotateCcw,
   RotateCw,
+  Scan,
   SlidersHorizontal,
   ZoomIn,
   ZoomOut,
@@ -44,6 +45,7 @@ interface DocumentWorkspacePanelProps {
   page2: ScannedPageState | null;
   onSwapPages: () => void;
   onRotateActive: (delta: -90 | 90) => void;
+  onAutoCropActive: () => void;
   onOpenManualCrop: () => void;
   onFilterChange: (filter: ScanFilter) => void;
   onAdjustmentChange: (brightness: number, contrast: number) => void;
@@ -66,6 +68,7 @@ export function DocumentWorkspacePanel({
   page2,
   onSwapPages,
   onRotateActive,
+  onAutoCropActive,
   onOpenManualCrop,
   onFilterChange,
   onAdjustmentChange,
@@ -252,6 +255,16 @@ export function DocumentWorkspacePanel({
               </button>
               <button
                 type="button"
+                onClick={onAutoCropActive}
+                disabled={activePage.isProcessing}
+                title="Deteksi otomatis 4 sudut kertas dan potong rapat dari ujung ke ujung dokumen"
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#D9F99D] px-3 py-1.5 text-xs text-[#111111] disabled:opacity-50"
+              >
+                <Scan className="h-3.5 w-3.5" aria-hidden="true" />
+                Auto-Crop
+              </button>
+              <button
+                type="button"
                 onClick={onOpenManualCrop}
                 disabled={activePage.isProcessing}
                 className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FEF08A] px-3 py-1.5 text-xs text-[#111111] disabled:opacity-50"
@@ -410,9 +423,13 @@ export function DocumentWorkspacePanel({
               </span>
               {activePage.hasAutoContour ? (
                 <span className="inline-flex items-center rounded-full border-2 border-[#111111] bg-[#D9F99D] px-3 py-0.5 text-[11px] font-extrabold tracking-wider text-[#111111] uppercase">
-                  Auto-Crop Aktif
+                  Auto-Crop Full Dokumen
                 </span>
-              ) : null}
+              ) : (
+                <span className="inline-flex items-center rounded-full border-2 border-[#111111] bg-white px-3 py-0.5 text-[11px] font-extrabold tracking-wider text-[#111111] uppercase">
+                  Full Frame
+                </span>
+              )}
             </div>
 
             <div

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Activity,
   BookOpen,
   History,
   Plus,
@@ -18,6 +19,15 @@ import { ManualCropModal } from "./ManualCropModal";
 import { CameraCaptureModal } from "./CameraCaptureModal";
 import { GuideDialog, HistoryDialog } from "./InfoModals";
 import { DriveConfigDialog } from "./DriveConfigDialog";
+import { AiUsageSidebar } from "./AiUsageSidebar";
+import {
+  computeNextAiQuotaReset,
+  createInitialAiUsageStats,
+  loadAiUsageStats,
+  recordAiUsageEvent,
+  saveAiUsageStats,
+  type AiUsageStats,
+} from "@/lib/ai-usage";
 import {
   APPS_SCRIPT_STORAGE_KEY,
   buildDriveFolderUrl,
@@ -102,6 +112,11 @@ export function SuScannerApp() {
   const [aiSource, setAiSource] = useState<AiEngineSource | null>(null);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [aiUsageStats, setAiUsageStats] = useState<AiUsageStats>(() =>
+    createInitialAiUsageStats(),
+  );
+  const [aiUsageOpen, setAiUsageOpen] = useState(false);
+  const [clientNowMs, setClientNowMs] = useState<number | null>(null);
   const [isWrongPageSlot, setIsWrongPageSlot] = useState(false);
   const [namingMode, setNamingMode] = useState<NamingMode>("standard");
   const [fields, setFields] = useState<SuNamingFields>(createEmptyFields);
@@ -172,6 +187,8 @@ export function SuScannerApp() {
       });
 
     Promise.resolve().then(() => {
+      setClientNowMs(Date.now());
+      setAiUsageStats(loadAiUsageStats());
       try {
         const storedUrl = localStorage.getItem(APPS_SCRIPT_STORAGE_KEY) || "";
         const storedRoot = extractDriveFolderId(
@@ -195,6 +212,10 @@ export function SuScannerApp() {
         // Ignore storage unavailable errors
       }
     });
+    const resetTimer = setInterval(() => {
+      setClientNowMs(Date.now());
+    }, 30_000);
+    return () => clearInterval(resetTimer);
   }, []);
 
   const showToast = useCallback((kind: "success" | "error", text: string) => {
@@ -233,6 +254,17 @@ export function SuScannerApp() {
           }
         });
         if (aiTargetIdRef.current !== targetPageId) return;
+
+        setAiUsageStats((prev) => {
+          const updated = recordAiUsageEvent(prev, {
+            engine: "local-ocr",
+            model: "tesseract-ind",
+            status: 200,
+            ok: true,
+          });
+          saveAiUsageStats(updated);
+          return updated;
+        });
 
         const { processed, meanConfidence } = outcome;
         setFields(processed.fields);
@@ -291,6 +323,16 @@ export function SuScannerApp() {
         }
 
         if (!response.ok) {
+          setAiUsageStats((prev) => {
+            const updated = recordAiUsageEvent(prev, {
+              engine: "gemini",
+              model: data?.code || "gemini-error",
+              status: response.status,
+              ok: false,
+            });
+            saveAiUsageStats(updated);
+            return updated;
+          });
           const reason =
             data?.code === "AI_NOT_CONFIGURED"
               ? "API Key Vision AI belum dikonfigurasi."
@@ -298,6 +340,20 @@ export function SuScannerApp() {
           await runLocalOcrExtraction(pageDataUrl, targetPageId, reason);
           return;
         }
+
+        setAiUsageStats((prev) => {
+          const updated = recordAiUsageEvent(prev, {
+            engine: "gemini",
+            model: String(data?.model || "gemini-3.5-flash"),
+            status: response.status,
+            ok: true,
+            promptTokens: data?.usage?.promptTokens,
+            outputTokens: data?.usage?.outputTokens,
+            totalTokens: data?.usage?.totalTokens,
+          });
+          saveAiUsageStats(updated);
+          return updated;
+        });
 
         const extraction = data.extraction as AiExtractionResult;
         const processed = applyExtractionToForm(extraction);
@@ -538,6 +594,33 @@ export function SuScannerApp() {
     },
     [activeTab, page1, page2, reprocessSlot],
   );
+
+  const handleAutoCropActive = useCallback(async () => {
+    const target = activeTab === "page1" ? page1 : page2;
+    if (!target || target.isProcessing) return;
+    try {
+      const rotCanvas = await renderRotatedCanvas(target.rawUrl, target.rotation);
+      const detected = detectPaperCornersFromCanvas(rotCanvas);
+      await reprocessSlot(
+        activeTab,
+        {
+          ...target,
+          corners: detected.corners,
+          autoDetectedCorners: cloneCorners(detected.corners),
+          hasAutoContour: detected.detected,
+        },
+        activeTab === "page1" || !page1,
+      );
+      showToast(
+        "success",
+        detected.detected
+          ? "Auto-crop full dokumen diterapkan (tepi kertas ujung ke ujung)."
+          : "Dokumen sudah memenuhi penuh bingkai (full frame). Gunakan Atur Sudut Crop jika perlu pangkas manual.",
+      );
+    } catch {
+      showToast("error", "Gagal mendeteksi ulang tepi kertas untuk auto-crop.");
+    }
+  }, [activeTab, page1, page2, reprocessSlot, showToast]);
 
   const handleFilterChange = useCallback(
     (filter: ScanFilter) => {
@@ -826,6 +909,7 @@ export function SuScannerApp() {
         guideOpen ||
         cropModalOpen ||
         driveConfigOpen ||
+        aiUsageOpen ||
         cameraSlot !== null
       )
         return;
@@ -876,6 +960,7 @@ export function SuScannerApp() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    aiUsageOpen,
     cameraSlot,
     cropModalOpen,
     driveConfigOpen,
@@ -891,6 +976,21 @@ export function SuScannerApp() {
   const hasWorkspace = Boolean(page1 || page2);
   const activePage = activeTab === "page1" ? page1 : page2;
   const loadedPagesCount = (page1 ? 1 : 0) + (page2 ? 1 : 0);
+  const aiRemaining = Math.max(
+    0,
+    aiUsageStats.dailyQuotaLimit - aiUsageStats.usedTodayRequests,
+  );
+  const aiPct = Math.min(
+    100,
+    Math.round(
+      (aiUsageStats.usedTodayRequests /
+        Math.max(1, aiUsageStats.dailyQuotaLimit)) *
+        100,
+    ),
+  );
+  const aiResetMeta = clientNowMs
+    ? computeNextAiQuotaReset(new Date(clientNowMs))
+    : null;
 
   return (
     <div className="flex min-h-dvh flex-col bg-[#F6F5F0] lg:grid lg:grid-cols-[276px_minmax(0,1fr)]">
@@ -964,7 +1064,7 @@ export function SuScannerApp() {
             <button
               type="button"
               onClick={() => setDriveConfigOpen(true)}
-              className="nb-btn-sm col-span-2 inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:col-span-1 sm:px-3.5 lg:w-full"
+              className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:px-3.5 lg:w-full"
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 <FolderOpen className="h-4 w-4 shrink-0 text-[#D9F99D]" aria-hidden="true" />
@@ -976,6 +1076,20 @@ export function SuScannerApp() {
                 }`}
               >
                 {driveReady ? "Aktif" : "Atur"}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAiUsageOpen(true)}
+              className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:px-3.5 lg:w-full"
+            >
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <Activity className="h-4 w-4 shrink-0 text-[#FEF08A]" aria-hidden="true" />
+                <span className="truncate">Usage AI</span>
+              </span>
+              <span className="rounded-full bg-[#FEF08A] px-2 py-0.5 font-mono text-[10px] font-black text-[#111111]">
+                {aiUsageStats.usedTodayRequests}/{aiUsageStats.dailyQuotaLimit}
               </span>
             </button>
           </nav>
@@ -1003,6 +1117,34 @@ export function SuScannerApp() {
                 </span>
               </div>
             </div>
+
+            {/* Compact Live AI Quota Card in Dark Sidebar */}
+            <button
+              type="button"
+              onClick={() => setAiUsageOpen(true)}
+              className="w-full rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3 text-left transition-colors hover:border-[#FEF08A]"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="nb-micro text-[#FEF08A]">KUOTA AI HARI INI</span>
+                <span className="font-mono text-[11px] font-black text-[#D9F99D]">
+                  Sisa {aiRemaining}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-baseline justify-between gap-2">
+                <span className="font-mono text-lg font-black text-[#F6F5F0]">
+                  {aiUsageStats.usedTodayRequests} / {aiUsageStats.dailyQuotaLimit}
+                </span>
+                <span className="text-[11px] font-semibold text-zinc-300">
+                  Reset {aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}
+                </span>
+              </div>
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full border border-[#52525B] bg-[#141414]">
+                <div
+                  style={{ width: `${aiPct}%` }}
+                  className="h-full bg-[#FEF08A]"
+                />
+              </div>
+            </button>
 
             <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3.5">
               <span className="nb-micro block text-[#FEF08A]">
@@ -1066,6 +1208,7 @@ export function SuScannerApp() {
               page2={page2}
               onSwapPages={handleSwapPages}
               onRotateActive={handleRotateActive}
+              onAutoCropActive={() => void handleAutoCropActive()}
               onOpenManualCrop={() => setCropModalOpen(true)}
               onFilterChange={handleFilterChange}
               onAdjustmentChange={handleAdjustmentChange}
@@ -1245,6 +1388,33 @@ export function SuScannerApp() {
             "success",
             "URL Google Apps Script dikembalikan ke URL bawaan sistem.",
           );
+        }}
+      />
+
+      <AiUsageSidebar
+        key={aiUsageOpen ? "usage-open" : "usage-closed"}
+        open={aiUsageOpen}
+        onClose={() => setAiUsageOpen(false)}
+        stats={aiUsageStats}
+        onUpdateDailyLimit={(newLimit) => {
+          setAiUsageStats((prev) => {
+            const next = { ...prev, dailyQuotaLimit: newLimit };
+            saveAiUsageStats(next);
+            return next;
+          });
+          showToast(
+            "success",
+            `Batas kuota harian AI diperbarui menjadi ${newLimit} request.`,
+          );
+        }}
+        onResetLocalCounters={() => {
+          const fresh = {
+            ...createInitialAiUsageStats(),
+            dailyQuotaLimit: aiUsageStats.dailyQuotaLimit,
+          };
+          saveAiUsageStats(fresh);
+          setAiUsageStats(fresh);
+          showToast("success", "Catatan pemakaian AI lokal telah direset.");
         }}
       />
     </div>

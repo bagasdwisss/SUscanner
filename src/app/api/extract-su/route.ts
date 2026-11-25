@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     if (gatewayKey) {
       const gatewayModel =
         process.env.AI_GATEWAY_MODEL || "google/gemini-3.8-flash";
-      const { output } = await generateText({
+      const { output, usage } = await generateText({
         model: gatewayModel,
         instructions: SU_SYSTEM_INSTRUCTION,
         temperature: 0,
@@ -148,6 +148,11 @@ export async function POST(request: NextRequest) {
         extraction: validated,
         provider: "ai-gateway",
         model: gatewayModel,
+        usage: {
+          promptTokens: usage?.inputTokens ?? 0,
+          outputTokens: usage?.outputTokens ?? 0,
+          totalTokens: usage?.totalTokens ?? 0,
+        },
       });
     }
 
@@ -192,6 +197,11 @@ export async function POST(request: NextRequest) {
           extraction: validated,
           provider: "gemini-direct",
           model: geminiModel,
+          usage: {
+            promptTokens: response.usageMetadata?.promptTokenCount ?? 0,
+            outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
+            totalTokens: response.usageMetadata?.totalTokenCount ?? 0,
+          },
         });
       } catch (err) {
         lastError = err;

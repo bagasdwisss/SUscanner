@@ -14,6 +14,12 @@ import {
 } from "./su-formatter.ts";
 import { suExtractionZodSchema } from "./su-prompt.ts";
 import { parseSuratUkurOcrText } from "./local-ocr-parser.ts";
+import { detectPaperCornersFromRgba } from "./auto-crop.ts";
+import {
+  computeNextAiQuotaReset,
+  createInitialAiUsageStats,
+  recordAiUsageEvent,
+} from "./ai-usage.ts";
 import type { AiExtractionResult } from "./su-types.ts";
 
 describe("SU-Scanner formatter & domain rules", () => {
@@ -319,5 +325,89 @@ describe("SU-Scanner formatter & domain rules", () => {
     const mapOnlyText = "PETA BIDANG TANAH SKALA 1 : 1000";
     const parsedMap = parseSuratUkurOcrText(mapOnlyText, 70);
     assert.equal(parsedMap.is_halaman_data_su, false);
+  });
+
+  it("auto-crops paper edges cleanly from a wooden desk background", () => {
+    const w = 100;
+    const h = 100;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const insidePaper = x >= 15 && x <= 84 && y >= 12 && y <= 88;
+        if (insidePaper) {
+          // Cream/white document with dark inner frame ink
+          const isInk = x === 25 || x === 74 || y === 22 || y === 78;
+          rgba[idx] = isInk ? 25 : 246;
+          rgba[idx + 1] = isInk ? 25 : 244;
+          rgba[idx + 2] = isInk ? 25 : 236;
+          rgba[idx + 3] = 255;
+        } else {
+          // Warm wooden desk border around paper
+          rgba[idx] = 165;
+          rgba[idx + 1] = 132;
+          rgba[idx + 2] = 98;
+          rgba[idx + 3] = 255;
+        }
+      }
+    }
+
+    const res = detectPaperCornersFromRgba(rgba, w, h);
+    assert.equal(res.detected, true);
+    // Detected top-left & bottom-right corners should hug the paper margin (0.15, 0.12 -> 0.85, 0.88), not inner ink (0.25)
+    assert.ok(res.corners[0].x >= 0.12 && res.corners[0].x <= 0.19);
+    assert.ok(res.corners[0].y >= 0.09 && res.corners[0].y <= 0.16);
+    assert.ok(res.corners[2].x >= 0.81 && res.corners[2].x <= 0.88);
+    assert.ok(res.corners[2].y >= 0.84 && res.corners[2].y <= 0.92);
+  });
+
+  it("tracks AI usage counts, token totals, and daily Pacific-Time reset rollover", () => {
+    const day1 = new Date("2026-11-25T10:00:00Z"); // 02:00 PST Nov 25
+    let stats = createInitialAiUsageStats(day1);
+    assert.equal(stats.dailyQuotaLimit, 250);
+
+    stats = recordAiUsageEvent(stats, {
+      engine: "gemini",
+      model: "gemini-3.5-flash",
+      status: 200,
+      ok: true,
+      promptTokens: 320,
+      outputTokens: 90,
+      totalTokens: 410,
+      now: day1,
+    });
+    assert.equal(stats.usedTodayRequests, 1);
+    assert.equal(stats.totalTokensToday, 410);
+
+    stats = recordAiUsageEvent(stats, {
+      engine: "local-ocr",
+      model: "tesseract-ind",
+      status: 200,
+      ok: true,
+      now: day1,
+    });
+    // Local OCR does not consume Gemini quota count
+    assert.equal(stats.usedTodayRequests, 1);
+    assert.equal(stats.localOcrToday, 1);
+
+    const nextDay = new Date("2026-11-26T09:00:00Z"); // 01:00 PST Nov 26 (past 00:00 PT reset)
+    stats = recordAiUsageEvent(stats, {
+      engine: "gemini",
+      model: "gemini-3.6-flash",
+      status: 200,
+      ok: true,
+      promptTokens: 200,
+      outputTokens: 50,
+      totalTokens: 250,
+      now: nextDay,
+    });
+    assert.equal(stats.usedTodayRequests, 1);
+    assert.equal(stats.totalRequestsAllTime, 2);
+    assert.equal(stats.totalTokensToday, 250);
+    assert.equal(stats.totalTokensAllTime, 660);
+
+    const resetInfo = computeNextAiQuotaReset(day1);
+    assert.ok(resetInfo.wibTimeLabel.includes("WIB"));
+    assert.ok(resetInfo.remainingMs > 0);
   });
 });
