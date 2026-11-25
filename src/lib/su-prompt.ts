@@ -1,31 +1,32 @@
 import { z } from "zod";
 
 /**
- * Exact system instruction from PRD Section 10.2 for Indonesian ATR/BPN
- * Surat Ukur (SU) structured entity extraction.
+ * System instruction for Indonesian ATR/BPN Surat Ukur (SU) structured extraction,
+ * including Kecamatan detection for Drive subfolder routing and 1960s legacy 1-sheet SUs.
  */
-export const SU_SYSTEM_INSTRUCTION = `Anda adalah sistem ekstraksi data dokumen pertanahan Indonesia (ATR/BPN) yang sangat presisi. Tugas Anda adalah menganalisis gambar dokumen "SURAT UKUR" (SU) dan mengekstrak informasi kunci untuk penamaan file arsip secara akurat dalam format JSON.
+export const SU_SYSTEM_INSTRUCTION = `Anda adalah sistem ekstraksi data dokumen pertanahan Indonesia (ATR/BPN) yang sangat presisi. Tugas Anda adalah menganalisis gambar dokumen "SURAT UKUR" (SU) — termasuk warkah modern 2 halaman maupun warkah lama era 1960-an (1 lembar ketikan/tulisan tangan) — dan mengekstrak informasi kunci dalam format JSON.
 
 ### ATURAN EKSTRAKSI ENTITAS:
 
 1. **Deteksi Jenis Halaman (\`is_halaman_data_su\`):**
-   - Bernilai \`true\` jika gambar memuat teks informasi Surat Ukur (judul "SURAT UKUR", Nomor SU, Lokasi, Luas, Nomor Hak/NIB).
-   - Bernilai \`false\` jika gambar HANYA berisi denah/peta bidang tanah (Halaman 2) atau bukan dokumen Surat Ukur.
+   - Bernilai \`true\` jika gambar memuat teks informasi Surat Ukur (judul "SURAT UKUR" / "GAMBAR SITUASI", Nomor SU, Lokasi/Kecamatan, Luas, atau Nomor Hak/NIB — termasuk SU 1 lembar era tahun 60-an yang memuat teks dan peta bidang sekaligus dalam 1 halaman).
+   - Bernilai \`false\` HANYA jika gambar murni berupa denah/peta bidang tanpa teks identitas Nomor Surat Ukur.
 
 2. **Nomor Surat Ukur (\`nomor_su_raw\`) dan Tahun Surat Ukur (\`tahun_su\`):**
-   - Cari label "SURAT UKUR" lalu temukan baris "Nomor:" di dekatnya.
-   - Format umum di dokumen: \`[Angka]/[Nama Desa atau Kelurahan]/[Tahun 4 Digit]\`, contoh: \`06/Helvetia Timur/2007\`, \`00125/2018\`, atau \`124/Sunggal/1999\`.
-   - Ambil HANYA angka urutan SU (bagian sebelum garis miring pertama) untuk \`nomor_su_raw\` (contoh: \`"06"\` atau \`"124"\`). Jangan sertakan nama desa/kelurahan.
-   - Ambil 4 digit tahun SU untuk \`tahun_su\` (contoh: \`"2007"\`).
+   - Cari label "SURAT UKUR" atau "GAMBAR SITUASI", lalu temukan baris "Nomor:" atau "No." di dekatnya.
+   - Format modern: \`[Angka]/[Nama Desa atau Kelurahan]/[Tahun 4 Digit]\`, contoh: \`06/Helvetia Timur/2007\`, \`00125/2018\`, \`124/Sunggal/1999\`.
+   - Format lama (era 1960-an): \`No. 12/1964\`, \`Nomor 45 tahun 1962\`, atau \`12 / 1965\`.
+   - Ambil HANYA angka urutan SU (bagian sebelum garis miring pertama atau sebelum kata "tahun") untuk \`nomor_su_raw\` (contoh: \`"06"\`, \`"12"\`). Jangan sertakan nama desa/kelurahan.
+   - Ambil 4 digit tahun SU untuk \`tahun_su\` (contoh: \`"2007"\` atau \`"1964"\`). Jika tahun ditulis 2 digit pada warkah lama (mis. \`/64\` pada berkas era 60-an), ubah menjadi 4 digit bila konteksnya jelas (mis. \`"1964"\`) atau laporkan di catatan.
    - PERINGATAN: JANGAN tertukar dengan nomor "Peta Bidang", "Gambar Ukur", "Daftar Isian 302", "Daftar Isian 307", "Tanggal Validasi", atau "NIP Pejabat".
 
 3. **Nomor Hak (\`nomor_hak_raw\`) & Kode Jenis Hak (\`kode_jenis_hak_huruf\`):**
-   - Cari deret Nomor Hak yang biasanya terletak di bagian kanan atas (di atas judul SURAT UKUR) atau di kolom "Nomor Hak".
+   - Cari deret Nomor Hak yang biasanya terletak di bagian kanan atas (di atas judul SURAT UKUR) atau di kolom "Nomor Hak" / "Penunjuk".
    - **Pola A (Format Standar 14 Digit):** Terdiri dari \`[8 digit kode wilayah]\` + \`[1 digit kode hak]\` + \`[5 digit nomor hak]\`. Pemisah bisa berupa titik, spasi, atau tanda hubung.
      * Contoh: \`02.01.05.04.1.02246-\` atau \`02 01·05·04·1 02246\`.
      * Digit ke-9 (tepat sebelum 5 digit terakhir) adalah **Kode Jenis Hak Angka**.
      * 5 digit terakhir adalah **Nomor Hak** (\`02246\`).
-   - **Pola B (Format Singkatan / SU Lama):** Terkadang ditulis tangan/ketik tanpa kode wilayah, misalnya \`HM. 2246\`, \`M.02246\`, \`HGB 105\`, \`HP. 12\`.
+   - **Pola B (Format Singkatan / SU Tahun 60-an):** Terkadang ditulis tangan/ketik tanpa kode wilayah, misalnya \`HM. 2246\`, \`Hak Milik No. 145\`, \`M.02246\`, \`HGB 105\`, \`HP. 12\`.
    - **PEMBEDAAN KRITIS (NOMOR HAK vs NIB):**
      * NIB (Nomor Identifikasi Bidang) biasanya memiliki label eksplisit "NIB:" dan HANYA terdiri dari **13 digit** (\`[8 digit wilayah].[5 digit nomor bidang]\`, contoh: \`02.01.05.04.03043\`) TANPA 1 digit kode jenis hak di tengahnya.
      * JANGAN PERNAH menggunakan angka NIB sebagai Nomor Hak.
@@ -39,27 +40,28 @@ export const SU_SYSTEM_INSTRUCTION = `Anda adalah sistem ekstraksi data dokumen 
    - Angka \`8\` atau teks \`Wakaf\` / \`W\` -> \`"W"\`
    - Jika tidak ditemukan atau tidak terbaca -> \`null\`
 
-5. **Aturan Kejujuran & Confidence Score:**
-   - JANGAN PERNAH menebak angka yang benar-benar buram, terpotong, atau tertutup stempel pekat. Jika tidak dapat dibaca dengan pasti, kembalikan \`null\` pada field tersebut dan beri \`confidence\` rendah (\`0.0\` - \`0.5\`).
+5. **Nama Kecamatan (\`kecamatan_raw\`):**
+   - Cari label \`"Kecamatan"\`, \`"Kec."\`, atau ejaan lama era 60-an \`"Ketjamatan"\` / \`"Ketj."\` di bagian lokasi bidang tanah.
+   - Contoh di dokumen: \`Kecamatan : Medan Helvetia\` -> \`"Medan Helvetia"\`; \`Kec. Sunggal\` -> \`"Sunggal"\`; \`Ketjamatan : Medan Baru\` -> \`"Medan Baru"\`.
+   - Kembalikan HANYA nama kecamatannya dalam huruf rapi (tanpa kata "Kecamatan", "Kec.", atau "Ketjamatan").
+   - JANGAN tertukar dengan nama "Kelurahan/Desa", "Kampung", "Kabupaten/Kotamadya", atau "Provinsi".
+   - Jika tidak tercantum atau tidak terbaca -> kembalikan \`null\`.
+
+6. **Aturan Kejujuran & Confidence Score:**
+   - JANGAN PERNAH menebak angka atau teks yang benar-benar buram, terpotong, atau tertutup stempel pekat. Jika tidak dapat dibaca dengan pasti, kembalikan \`null\` pada field tersebut dan beri \`confidence\` rendah (\`0.0\` - \`0.5\`).
    - Berikan skor \`confidence\` antara \`0.0\` hingga \`1.0\` untuk masing-masing field secara realistis.
-   - Sertakan teks mentah yang terlihat di dokumen pada field \`raw_evidence\` untuk membantu operator melakukan verifikasi visual.`;
+   - Sertakan teks mentah yang terlihat pada \`raw_evidence\` (termasuk \`teks_lokasi\`) untuk membantu verifikasi visual operator.`;
 
-/**
- * Exact user prompt from PRD Section 10.3.
- */
 export const SU_USER_PROMPT =
-  "Ekstrak Nomor Surat Ukur, Tahun Surat Ukur, Kode Jenis Hak, dan Nomor Hak dari gambar dokumen Surat Ukur terlampir sesuai dengan skema JSON yang ditentukan.";
+  "Ekstrak Nomor Surat Ukur, Tahun Surat Ukur, Kode Jenis Hak, Nomor Hak, dan nama Kecamatan dari gambar dokumen Surat Ukur terlampir sesuai dengan skema JSON yang ditentukan.";
 
-/**
- * Strict JSON Schema from PRD Section 10.4 for Gemini responseJsonSchema.
- */
 export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
   type: "object",
   properties: {
     is_halaman_data_su: {
       type: "boolean",
       description:
-        "True jika ini adalah Halaman 1 (Data SU), False jika ini Halaman 2 (Peta Bidang) atau dokumen lain.",
+        "True jika gambar memuat Halaman Data SU (termasuk SU lama 1 lembar), False jika murni peta bidang tanpa teks identitas SU.",
     },
     nomor_su_raw: {
       type: ["string", "null"],
@@ -69,7 +71,7 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
     tahun_su: {
       type: ["string", "null"],
       description:
-        "4 digit tahun penerbitan Surat Ukur, contoh: '2007'.",
+        "4 digit tahun penerbitan Surat Ukur, contoh: '2007' atau '1964'.",
     },
     kode_jenis_hak_angka: {
       type: ["string", "null"],
@@ -87,6 +89,11 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
       description:
         "Angka nomor hak (maksimal 5 digit terakhir tanpa kode wilayah dan tanpa kode hak), contoh: '02246'.",
     },
+    kecamatan_raw: {
+      type: ["string", "null"],
+      description:
+        "Nama Kecamatan lokasi bidang tanah tanpa awalan 'Kecamatan'/'Ketjamatan', contoh: 'Medan Helvetia'.",
+    },
     nib_terdeteksi: {
       type: ["string", "null"],
       description:
@@ -97,8 +104,9 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
       properties: {
         teks_nomor_su: { type: ["string", "null"] },
         teks_nomor_hak: { type: ["string", "null"] },
+        teks_lokasi: { type: ["string", "null"] },
       },
-      required: ["teks_nomor_su", "teks_nomor_hak"],
+      required: ["teks_nomor_su", "teks_nomor_hak", "teks_lokasi"],
     },
     confidence: {
       type: "object",
@@ -107,13 +115,14 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
         tahun_su: { type: "number", minimum: 0, maximum: 1 },
         jenis_hak: { type: "number", minimum: 0, maximum: 1 },
         nomor_hak: { type: "number", minimum: 0, maximum: 1 },
+        kecamatan: { type: "number", minimum: 0, maximum: 1 },
       },
-      required: ["nomor_su", "tahun_su", "jenis_hak", "nomor_hak"],
+      required: ["nomor_su", "tahun_su", "jenis_hak", "nomor_hak", "kecamatan"],
     },
     catatan_peringatan: {
       type: ["string", "null"],
       description:
-        "Catatan singkat jika ada teks buram, tertimpa stempel, atau kemungkinan salah unggah halaman.",
+        "Catatan singkat jika ada teks buram, ejaan lama, tertimpa stempel, atau kemungkinan salah unggah halaman.",
     },
   },
   required: [
@@ -122,6 +131,7 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
     "tahun_su",
     "kode_jenis_hak_huruf",
     "nomor_hak_raw",
+    "kecamatan_raw",
     "raw_evidence",
     "confidence",
   ],
@@ -134,16 +144,19 @@ export const suExtractionZodSchema = z.object({
   kode_jenis_hak_angka: z.string().nullable().default(null),
   kode_jenis_hak_huruf: z.enum(["M", "U", "B", "P", "L", "W"]).nullable(),
   nomor_hak_raw: z.string().nullable(),
+  kecamatan_raw: z.string().nullable().default(null),
   nib_terdeteksi: z.string().nullable().default(null),
   raw_evidence: z.object({
     teks_nomor_su: z.string().nullable(),
     teks_nomor_hak: z.string().nullable(),
+    teks_lokasi: z.string().nullable().default(null),
   }),
   confidence: z.object({
     nomor_su: z.number().min(0).max(1),
     tahun_su: z.number().min(0).max(1),
     jenis_hak: z.number().min(0).max(1),
     nomor_hak: z.number().min(0).max(1),
+    kecamatan: z.number().min(0).max(1).default(0),
   }),
   catatan_peringatan: z.string().nullable().default(null),
 });

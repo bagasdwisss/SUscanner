@@ -1,110 +1,30 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
-  --surface-canvas-light: #f2f5f7;
-  --surface-canvas-dark: #0c1219;
-  --surface-card-light: #ffffff;
-  --surface-card-dark: #141d27;
-  --surface-muted-light: #e8eef2;
-  --surface-muted-dark: #1c2734;
-  --ink-primary-light: #0f172a;
-  --ink-primary-dark: #e6edf3;
-  --ink-secondary-light: #475569;
-  --ink-secondary-dark: #94a3b8;
-  --border-subtle-light: #cbd5e1;
-  --border-subtle-dark: #2c3b4d;
-  --border-control-light: #64748b;
-  --border-control-dark: #64748b;
+  --nb-canvas: #f6f5f0;
+  --nb-drafting: #eceae2;
+  --nb-sidebar: #141414;
+  --nb-sidebar-elevated: #1f1f24;
+  --nb-ink: #111111;
+  --nb-ink-muted: #3f3f46;
+  --nb-white: #ffffff;
 
-  --accent-light: #0f766e;
-  --accent-dark: #2dd4bf;
-  --accent-ink-light: #ffffff;
-  --accent-ink-dark: #042f2e;
+  --nb-butter: #fef08a;
+  --nb-butter-strong: #fde047;
+  --nb-pink: #fbcfe8;
+  --nb-matcha: #d9f99d;
+  --nb-blue: #bae6fd;
 
-  --danger-light: #b91c1c;
-  --danger-dark: #f87171;
-  --danger-bg-light: #fef2f2;
-  --danger-bg-dark: #451a1a;
+  --nb-danger: #991b1b;
+  --nb-danger-bg: #fecaca;
 
-  --surface-canvas: var(--surface-canvas-light);
-  --surface-card: var(--surface-card-light);
-  --surface-muted: var(--surface-muted-light);
-  --ink-primary: var(--ink-primary-light);
-  --ink-secondary: var(--ink-secondary-light);
-  --border-subtle: var(--border-subtle-light);
-  --border-control: var(--border-control-light);
-  --accent: var(--accent-light);
-  --accent-ink: var(--accent-ink-light);
-  --danger: var(--danger-light);
-  --danger-bg: var(--danger-bg-light);
-  --scrollbar-track: #e2e8f0;
-  --scrollbar-thumb: #64748b;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface-canvas: var(--surface-canvas-dark);
-    --surface-card: var(--surface-card-dark);
-    --surface-muted: var(--surface-muted-dark);
-    --ink-primary: var(--ink-primary-dark);
-    --ink-secondary: var(--ink-secondary-dark);
-    --border-subtle: var(--border-subtle-dark);
-    --border-control: var(--border-control-dark);
-    --accent: var(--accent-dark);
-    --accent-ink: var(--accent-ink-dark);
-    --danger: var(--danger-dark);
-    --danger-bg: var(--danger-bg-dark);
-    --scrollbar-track: #1e293b;
-    --scrollbar-thumb: #64748b;
-  }
-}
-
-@supports (color: light-dark(white, black)) {
-  :root {
-    --surface-canvas: light-dark(
-      var(--surface-canvas-light),
-      var(--surface-canvas-dark)
-    );
-    --surface-card: light-dark(
-      var(--surface-card-light),
-      var(--surface-card-dark)
-    );
-    --surface-muted: light-dark(
-      var(--surface-muted-light),
-      var(--surface-muted-dark)
-    );
-    --ink-primary: light-dark(
-      var(--ink-primary-light),
-      var(--ink-primary-dark)
-    );
-    --ink-secondary: light-dark(
-      var(--ink-secondary-light),
-      var(--ink-secondary-dark)
-    );
-    --border-subtle: light-dark(
-      var(--border-subtle-light),
-      var(--border-subtle-dark)
-    );
-    --border-control: light-dark(
-      var(--border-control-light),
-      var(--border-control-dark)
-    );
-    --accent: light-dark(var(--accent-light), var(--accent-dark));
-    --accent-ink: light-dark(var(--accent-ink-light), var(--accent-ink-dark));
-    --danger: light-dark(var(--danger-light), var(--danger-dark));
-    --danger-bg: light-dark(var(--danger-bg-light), var(--danger-bg-dark));
-    --scrollbar-track: light-dark(#e2e8f0, #1e293b);
-    --scrollbar-thumb: light-dark(#64748b, #94a3b8);
-  }
-}
-
-:root {
-  accent-color: var(--accent);
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  --font-plus-jakarta: "Plus Jakarta Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-plus-jakarta: "Plus Jakarta Sans", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-jetbrains-mono: "JetBrains Mono", "Cascadia Code", "Consolas", ui-monospace, monospace;
+
+  accent-color: #111111;
+  scrollbar-color: #111111 #e5e3dc;
 }
 
 @theme inline {
@@ -113,51 +33,150 @@
 }
 
 body {
-  background-color: var(--surface-canvas);
-  color: var(--ink-primary);
-  font-family: var(--font-plus-jakarta), system-ui, -apple-system, sans-serif;
+  background-color: var(--nb-canvas);
+  color: var(--nb-ink);
+  font-family: var(--font-plus-jakarta);
   line-height: 1.5;
   text-align: start;
 }
 
-:where(a[href], button, input, select, textarea, [tabindex]):focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
+.nb-dark-sidebar {
+  color-scheme: dark;
+  background-color: var(--nb-sidebar);
+  color: var(--nb-canvas);
+  scrollbar-color: #52525b #141414;
 }
 
+/* Accessible focus ring that stays ultra-crisp against pastels & dark surfaces */
+:where(a[href], button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #111111;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #fde047;
+}
+
+.nb-dark-sidebar :where(a[href], button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #fde047;
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Soft Neo-Brutalism card, button, and badge primitives */
+.nb-card {
+  border-radius: 1rem;
+  border: 2px solid #111111;
+  box-shadow: 4px 4px 0px #111111;
+}
+
+.nb-card-sm {
+  border-radius: 0.875rem;
+  border: 2px solid #111111;
+  box-shadow: 3px 3px 0px #111111;
+}
+
+.nb-btn {
+  border-radius: 1rem;
+  border: 2px solid #111111;
+  box-shadow: 4px 4px 0px #111111;
+  font-weight: 700;
+}
+
+.nb-btn-sm {
+  border-radius: 0.75rem;
+  border: 2px solid #111111;
+  box-shadow: 3px 3px 0px #111111;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nb-btn,
+  .nb-btn-sm {
+    transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+  }
+
+  .nb-btn:not(:disabled):hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0px #111111;
+  }
+
+  .nb-btn:not(:disabled):active {
+    transform: translate(3px, 3px);
+    box-shadow: 0px 0px 0px #111111;
+  }
+
+  .nb-btn-sm:not(:disabled):hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0px #111111;
+  }
+
+  .nb-btn-sm:not(:disabled):active {
+    transform: translate(2px, 2px);
+    box-shadow: 0px 0px 0px #111111;
+  }
+}
+
+.nb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  background-color: #111111;
+  color: #f6f5f0;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nb-micro {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Native <dialog> top-layer scroll containment (prevent-page-scroll-under-modal-dialog) */
 dialog:modal {
   overscroll-behavior: contain;
-  background-color: var(--surface-card);
-  color: var(--ink-primary);
+  background-color: var(--nb-canvas);
+  color: var(--nb-ink);
+  border-radius: 1rem;
+  border: 2px solid #111111;
+  box-shadow: 6px 6px 0px #111111;
 }
 
 dialog::backdrop {
   overflow: hidden;
   overscroll-behavior: contain;
-  background-color: rgb(9 14 23 / 0.62);
-  backdrop-filter: blur(3px);
+  background-color: rgb(17 17 17 / 0.68);
+  backdrop-filter: blur(2px);
 }
 
+/* Accessible tab active indicator using thick solid border (WCAG 1.4.1 & Forced Colors safe) */
 .su-tab {
   position: relative;
 }
 
 .su-tab[aria-selected="true"] {
-  color: var(--accent);
+  background-color: #111111;
+  color: #f6f5f0;
 }
 
 .su-tab[aria-selected="true"]::after {
   content: "";
   position: absolute;
-  inset: auto 0 0;
-  border-block-end: 3px solid var(--accent);
+  inset: auto 0.5rem -2px;
+  border-block-end: 4px solid var(--nb-butter-strong);
 }
 
+/* Form controls: prevent iOS zoom & defer validity visuals until user interaction */
 .su-control {
   font: inherit;
   font-size: max(1rem, 1em);
   min-block-size: 46px;
-  border-color: var(--border-control);
+  border: 2px solid #111111;
+  background-color: #ffffff;
+  color: #111111;
 }
 
 @media (pointer: coarse) {
@@ -167,21 +186,23 @@ dialog::backdrop {
 }
 
 .su-control:not([type="range"]):is(:user-invalid, .user-invalid-fallback) {
-  border-color: var(--danger);
-  background-color: var(--danger-bg);
+  border-color: var(--nb-danger);
+  background-color: var(--nb-danger-bg);
 }
 
 .su-control:not([type="range"]):is(:user-valid, .user-valid-fallback) {
-  border-color: var(--accent);
+  border-color: #111111;
+  background-color: #f7fee7;
 }
 
+/* Native <progress> styling for AI extraction status */
 progress.su-progress {
   appearance: none;
-  border: 0 solid;
+  border: 2px solid #111111;
   overflow: clip;
   container-type: inline-size;
   border-radius: 9999px;
-  background: var(--surface-muted);
+  background: #ffffff;
   --progress-bar-indeterminate-size: 32%;
   --progress-bar-indeterminate-animation-duration: 1.4s;
 }
@@ -197,12 +218,12 @@ progress.su-progress::-webkit-progress-bar {
 }
 
 progress.su-progress::-webkit-progress-value {
-  background: var(--accent);
+  background: #111111;
   border-radius: 9999px;
 }
 
 progress.su-progress::-moz-progress-bar {
-  background: var(--accent);
+  background: #111111;
   border-radius: 9999px;
 }
 
@@ -230,17 +251,18 @@ progress.su-progress:indeterminate::-moz-progress-bar {
   }
 }
 
+/* Warm drafting grid texture for document preview stage */
 .su-drafting-stage {
-  background-color: var(--surface-muted);
+  background-color: var(--nb-drafting);
   background-image: radial-gradient(
     circle at 1px 1px,
-    rgb(100 116 139 / 0.22) 1px,
+    rgb(17 17 17 / 0.16) 1.25px,
     transparent 0
   );
-  background-size: 20px 20px;
+  background-size: 18px 18px;
 }
 
-.visually-hidden:where(:not(:focus-within, :active)) {
+.visually-hidden {
   position: absolute !important;
   clip-path: inset(50%) !important;
   overflow: hidden !important;

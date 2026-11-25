@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   ArrowLeftRight,
   Camera,
@@ -42,8 +42,6 @@ interface DocumentWorkspacePanelProps {
   onSelectTab: (tab: PageSlot) => void;
   page1: ScannedPageState | null;
   page2: ScannedPageState | null;
-  allowSinglePagePdf: boolean;
-  onToggleAllowSinglePage: (allowed: boolean) => void;
   onSwapPages: () => void;
   onRotateActive: (delta: -90 | 90) => void;
   onOpenManualCrop: () => void;
@@ -51,10 +49,11 @@ interface DocumentWorkspacePanelProps {
   onAdjustmentChange: (brightness: number, contrast: number) => void;
   onResetAdjustments: () => void;
   onUploadSlot: (slot: PageSlot, file: File) => void;
+  onOpenCamera: (slot: PageSlot) => void;
 }
 
 function getOrientationBadge(page: ScannedPageState | null): string {
-  if (!page) return "Kosong";
+  if (!page) return "KOSONG";
   const w = page.processedWidth || page.rawWidth;
   const h = page.processedHeight || page.rawHeight;
   return w >= h ? "L" : "P";
@@ -65,8 +64,6 @@ export function DocumentWorkspacePanel({
   onSelectTab,
   page1,
   page2,
-  allowSinglePagePdf,
-  onToggleAllowSinglePage,
   onSwapPages,
   onRotateActive,
   onOpenManualCrop,
@@ -74,13 +71,13 @@ export function DocumentWorkspacePanel({
   onAdjustmentChange,
   onResetAdjustments,
   onUploadSlot,
+  onOpenCamera,
 }: DocumentWorkspacePanelProps) {
   const activePage = activeTab === "page1" ? page1 : page2;
   const tab1Ref = useRef<HTMLButtonElement>(null);
   const tab2Ref = useRef<HTMLButtonElement>(null);
-  const replaceInputId = useId();
-  const emptyUploadInputId = useId();
-  const emptyCameraInputId = useId();
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const emptyUploadInputRef = useRef<HTMLInputElement>(null);
 
   const [zoomPercent, setZoomPercent] = useState<number>(100);
   const [isFitMode, setIsFitMode] = useState<boolean>(true);
@@ -145,22 +142,26 @@ export function DocumentWorkspacePanel({
   } as Record<string, string>;
 
   const tab1FocusProps =
-    activeTab === "page1" ? ({ focusgroupstart: "" } as Record<string, string>) : {};
+    activeTab === "page1"
+      ? ({ focusgroupstart: "" } as Record<string, string>)
+      : {};
   const tab2FocusProps =
-    activeTab === "page2" ? ({ focusgroupstart: "" } as Record<string, string>) : {};
+    activeTab === "page2"
+      ? ({ focusgroupstart: "" } as Record<string, string>)
+      : {};
 
   return (
     <section
       aria-label="Panel Pratinjau dan Pemindaian Dokumen"
-      className="flex flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs"
+      className="flex flex-col gap-4"
     >
-      {/* Top Tabs & Swap Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3 pt-2 sm:px-4">
+      {/* Bento Card 1: Page Tabs & Swap Header */}
+      <div className="nb-card flex flex-wrap items-center justify-between gap-2 bg-[#FEF08A] px-3.5 py-2.5 sm:px-4">
         <div
           role="tablist"
           aria-label="Pilih Halaman Surat Ukur"
           {...tablistFocusgroupProps}
-          className="flex items-center gap-1 overflow-x-auto"
+          className="flex items-center gap-2 overflow-x-auto py-0.5"
         >
           <button
             ref={tab1Ref}
@@ -171,10 +172,16 @@ export function DocumentWorkspacePanel({
             {...tab1FocusProps}
             onClick={() => handleTabSwitch("page1")}
             onKeyDown={(e) => handleTabKeyDown(e, "page1")}
-            className="su-tab inline-flex min-h-11 flex-none items-center gap-2 px-3.5 py-2.5 text-sm font-semibold text-[var(--ink-secondary)] transition-colors hover:text-[var(--ink-primary)]"
+            className="su-tab inline-flex min-h-10 flex-none items-center gap-2 rounded-xl border-2 border-[#111111] bg-white px-3.5 py-2 text-xs font-extrabold text-[#111111] sm:text-sm"
           >
             <span>Hal 1 · Data SU</span>
-            <span className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5 font-mono text-[11px] font-bold text-[var(--ink-primary)]">
+            <span
+              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-black ${
+                activeTab === "page1"
+                  ? "bg-[#FEF08A] text-[#111111]"
+                  : "bg-[#111111] text-[#F6F5F0]"
+              }`}
+            >
               {getOrientationBadge(page1)}
             </span>
           </button>
@@ -188,10 +195,16 @@ export function DocumentWorkspacePanel({
             {...tab2FocusProps}
             onClick={() => handleTabSwitch("page2")}
             onKeyDown={(e) => handleTabKeyDown(e, "page2")}
-            className="su-tab inline-flex min-h-11 flex-none items-center gap-2 px-3.5 py-2.5 text-sm font-semibold text-[var(--ink-secondary)] transition-colors hover:text-[var(--ink-primary)]"
+            className="su-tab inline-flex min-h-10 flex-none items-center gap-2 rounded-xl border-2 border-[#111111] bg-white px-3.5 py-2 text-xs font-extrabold text-[#111111] sm:text-sm"
           >
             <span>Hal 2 · Peta Bidang</span>
-            <span className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5 font-mono text-[11px] font-bold text-[var(--ink-primary)]">
+            <span
+              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-black ${
+                activeTab === "page2"
+                  ? "bg-[#FEF08A] text-[#111111]"
+                  : "bg-[#111111] text-[#F6F5F0]"
+              }`}
+            >
               {getOrientationBadge(page2)}
             </span>
           </button>
@@ -201,27 +214,26 @@ export function DocumentWorkspacePanel({
           type="button"
           onClick={onSwapPages}
           disabled={!page1 && !page2}
-          className="mb-1.5 inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[var(--border-control)] bg-[var(--surface-card)] px-3 py-1.5 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:bg-[var(--surface-muted)] disabled:opacity-50"
+          className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FBCFE8] px-3.5 py-1.5 text-xs text-[#111111] disabled:opacity-50"
         >
-          <ArrowLeftRight className="h-3.5 w-3.5 text-[var(--accent)]" aria-hidden="true" />
+          <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Tukar Hal 1 &amp; 2</span>
-          <kbd className="hidden rounded bg-[var(--surface-muted)] px-1.5 py-0.5 font-mono text-[10px] sm:inline">
+          <kbd className="hidden rounded border border-[#111111] bg-[#111111] px-1.5 py-0.5 font-mono text-[10px] text-[#FEF08A] sm:inline">
             S
           </kbd>
         </button>
       </div>
 
-      {/* Active Image Toolbar */}
+      {/* Bento Card 2: Active Image Toolbar */}
       {activePage ? (
-        <div className="space-y-3 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]/35 px-3 py-3 sm:px-4">
+        <div className="nb-card space-y-3 bg-[#BAE6FD] px-3.5 py-3.5 sm:px-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* Geometry Actions */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => onRotateActive(-90)}
                 disabled={activePage.isProcessing}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] px-2.5 py-1.5 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:bg-[var(--surface-muted)] disabled:opacity-50"
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111111] disabled:opacity-50"
               >
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                 -90°
@@ -230,11 +242,11 @@ export function DocumentWorkspacePanel({
                 type="button"
                 onClick={() => onRotateActive(90)}
                 disabled={activePage.isProcessing}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] px-2.5 py-1.5 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:bg-[var(--surface-muted)] disabled:opacity-50"
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111111] disabled:opacity-50"
               >
                 <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
                 +90°
-                <kbd className="hidden rounded bg-[var(--surface-muted)] px-1 font-mono text-[10px] sm:inline">
+                <kbd className="hidden rounded bg-[#111111] px-1 font-mono text-[10px] text-[#FEF08A] sm:inline">
                   R
                 </kbd>
               </button>
@@ -242,33 +254,43 @@ export function DocumentWorkspacePanel({
                 type="button"
                 onClick={onOpenManualCrop}
                 disabled={activePage.isProcessing}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--border-control)] bg-[var(--surface-card)] px-3 py-1.5 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:bg-[var(--surface-muted)] disabled:opacity-50"
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FEF08A] px-3 py-1.5 text-xs text-[#111111] disabled:opacity-50"
               >
-                <Crop className="h-3.5 w-3.5 text-[var(--accent)]" aria-hidden="true" />
+                <Crop className="h-3.5 w-3.5" aria-hidden="true" />
                 Atur Sudut Crop
               </button>
 
               <input
-                id={replaceInputId}
+                ref={replaceInputRef}
                 type="file"
                 accept={ACCEPT_IMAGES}
+                tabIndex={-1}
+                aria-hidden="true"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) onUploadSlot(activeTab, file);
                   e.target.value = "";
                 }}
-                className="visually-hidden"
+                className="hidden"
               />
-              <label
-                htmlFor={replaceInputId}
-                className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] px-2.5 py-1.5 text-xs font-semibold text-[var(--ink-secondary)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--ink-primary)]"
+              <button
+                type="button"
+                onClick={() => replaceInputRef.current?.click()}
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111111]"
               >
                 <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
                 Ganti File
-              </label>
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenCamera(activeTab)}
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FBCFE8] px-2.5 py-1.5 text-xs text-[#111111]"
+              >
+                <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+                Kamera
+              </button>
             </div>
 
-            {/* Filter Presets */}
             <div
               role="group"
               aria-label="Filter Pemindaian Dokumen"
@@ -283,10 +305,10 @@ export function DocumentWorkspacePanel({
                     aria-pressed={selected}
                     title={f.hint}
                     onClick={() => onFilterChange(f.id)}
-                    className={`inline-flex min-h-9 items-center rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                    className={`inline-flex min-h-9 items-center rounded-xl border-2 border-[#111111] px-2.5 py-1 text-xs font-extrabold transition-colors ${
                       selected
-                        ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-ink)]"
-                        : "border-[var(--border-subtle)] bg-[var(--surface-card)] text-[var(--ink-primary)] hover:bg-[var(--surface-muted)]"
+                        ? "bg-[#111111] text-[#FEF08A]"
+                        : "bg-white text-[#111111] hover:bg-[#FEF08A]"
                     }`}
                   >
                     {f.label}
@@ -296,16 +318,15 @@ export function DocumentWorkspacePanel({
             </div>
           </div>
 
-          {/* Brightness & Contrast Sliders */}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border-2 border-[#111111] bg-white px-3 py-2 text-xs">
             <div className="flex min-w-[180px] flex-1 items-center gap-2">
               <SlidersHorizontal
-                className="h-3.5 w-3.5 shrink-0 text-[var(--ink-secondary)]"
+                className="h-3.5 w-3.5 shrink-0 text-[#111111]"
                 aria-hidden="true"
               />
               <label
                 htmlFor={`brightness-${activeTab}`}
-                className="w-16 shrink-0 font-semibold text-[var(--ink-secondary)]"
+                className="nb-micro w-20 shrink-0 text-[#111111]"
               >
                 Kecerahan
               </label>
@@ -321,7 +342,7 @@ export function DocumentWorkspacePanel({
                 }
                 className="h-2 w-full cursor-pointer"
               />
-              <span className="w-8 text-right font-mono font-semibold text-[var(--ink-primary)]">
+              <span className="w-9 text-right font-mono font-extrabold text-[#111111]">
                 {activePage.brightness > 0
                   ? `+${activePage.brightness}`
                   : activePage.brightness}
@@ -331,7 +352,7 @@ export function DocumentWorkspacePanel({
             <div className="flex min-w-[180px] flex-1 items-center gap-2">
               <label
                 htmlFor={`contrast-${activeTab}`}
-                className="w-14 shrink-0 font-semibold text-[var(--ink-secondary)]"
+                className="nb-micro w-16 shrink-0 text-[#111111]"
               >
                 Kontras
               </label>
@@ -350,7 +371,7 @@ export function DocumentWorkspacePanel({
                 }
                 className="h-2 w-full cursor-pointer"
               />
-              <span className="w-8 text-right font-mono font-semibold text-[var(--ink-primary)]">
+              <span className="w-9 text-right font-mono font-extrabold text-[#111111]">
                 {activePage.contrast > 0
                   ? `+${activePage.contrast}`
                   : activePage.contrast}
@@ -361,41 +382,39 @@ export function DocumentWorkspacePanel({
               <button
                 type="button"
                 onClick={onResetAdjustments}
-                className="rounded-md px-2 py-1 text-xs font-semibold text-[var(--accent)] hover:underline"
+                className="rounded-lg border border-[#111111] bg-[#FEF08A] px-2 py-0.5 text-[11px] font-extrabold text-[#111111]"
               >
-                Reset Cahaya
+                Reset
               </button>
             ) : null}
           </div>
         </div>
       ) : null}
 
-      {/* Main Preview Canvas Stage */}
+      {/* Bento Card 3: Main Preview Canvas Stage */}
       <div
         role="tabpanel"
         aria-labelledby={activeTab === "page1" ? "tab-page1" : "tab-page2"}
         tabIndex={0}
-        className="su-drafting-stage relative flex min-h-[380px] flex-1 flex-col items-center justify-center overflow-hidden p-4 sm:min-h-[500px]"
+        className="nb-card su-drafting-stage relative flex min-h-[380px] flex-1 flex-col items-center justify-center overflow-hidden p-4 sm:min-h-[480px]"
       >
         {activePage ? (
           <>
-            {/* Top-left Metadata Pill */}
             <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2">
-              <span className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)]/92 px-2.5 py-1 font-mono text-[11px] font-semibold text-[var(--ink-primary)] shadow-xs backdrop-blur-xs">
-                {activeTab === "page1" ? "Hal 1" : "Hal 2"} ·{" "}
+              <span className="nb-pill font-mono">
+                {activeTab === "page1" ? "HAL 1" : "HAL 2"} ·{" "}
                 {activePage.processedWidth >= activePage.processedHeight
-                  ? "Landscape"
-                  : "Portrait"}{" "}
-                ({activePage.processedWidth}×{activePage.processedHeight}px)
+                  ? "LANDSCAPE"
+                  : "PORTRAIT"}{" "}
+                ({activePage.processedWidth}×{activePage.processedHeight}PX)
               </span>
               {activePage.hasAutoContour ? (
-                <span className="rounded-lg bg-emerald-600/90 px-2.5 py-1 text-[11px] font-semibold text-white shadow-xs">
+                <span className="inline-flex items-center rounded-full border-2 border-[#111111] bg-[#D9F99D] px-3 py-0.5 text-[11px] font-extrabold tracking-wider text-[#111111] uppercase">
                   Auto-Crop Aktif
                 </span>
               ) : null}
             </div>
 
-            {/* Interactive Zoom & Pan Container */}
             <div
               onPointerDown={(e) => {
                 if (isFitMode && zoomPercent <= 100) return;
@@ -450,11 +469,7 @@ export function DocumentWorkspacePanel({
                           transformOrigin: "center center",
                         }
                   }
-                  className={`block select-none rounded-md border border-slate-400/40 bg-white shadow-xl transition-transform duration-100 ${
-                    isFitMode
-                      ? "max-h-[450px] max-w-full object-contain sm:max-h-[540px]"
-                      : "max-h-[450px] max-w-full object-contain sm:max-h-[540px]"
-                  }`}
+                  className="block max-h-[430px] max-w-full select-none rounded-lg border-2 border-[#111111] bg-white object-contain shadow-[6px_6px_0px_#111111] transition-transform duration-100 sm:max-h-[500px]"
                 />
               ) : null}
             </div>
@@ -462,46 +477,46 @@ export function DocumentWorkspacePanel({
             {activePage.isProcessing ? (
               <div
                 role="status"
-                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-slate-950/40 backdrop-blur-[1px]"
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#111111]/45"
               >
-                <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-3 text-center shadow-lg">
-                  <p className="text-xs font-semibold text-[var(--ink-primary)]">
+                <div className="nb-card bg-[#FEF08A] px-5 py-3.5 text-center">
+                  <p className="text-xs font-extrabold text-[#111111] uppercase">
                     Memproses perspektif &amp; filter…
                   </p>
                   <progress
                     aria-label="Memproses pemindaian"
-                    className="su-progress mt-2 h-1.5 w-44"
+                    className="su-progress mt-2 h-2 w-44"
                   />
                 </div>
               </div>
             ) : null}
 
-            {/* Floating Zoom Controls */}
-            <div className="mt-3 inline-flex items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]/95 p-1 shadow-md backdrop-blur-xs">
+            {/* Floating Neo-Brutalist Zoom Controls */}
+            <div className="nb-card-sm mt-3 inline-flex items-center gap-1 bg-white p-1">
               <button
                 type="button"
                 aria-label="Perkecil pratinjau"
                 onClick={() => stepZoom(-25)}
-                className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg text-[var(--ink-primary)] hover:bg-[var(--surface-muted)]"
+                className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg text-[#111111] hover:bg-[#FEF08A]"
               >
                 <ZoomOut className="h-4 w-4" aria-hidden="true" />
               </button>
               <button
                 type="button"
                 onClick={setExact100}
-                className={`min-h-9 rounded-lg px-2.5 font-mono text-xs font-semibold ${
+                className={`min-h-9 rounded-lg px-2.5 font-mono text-xs font-extrabold ${
                   !isFitMode && zoomPercent === 100
-                    ? "bg-[var(--accent)] text-[var(--accent-ink)]"
-                    : "text-[var(--ink-primary)] hover:bg-[var(--surface-muted)]"
+                    ? "bg-[#111111] text-[#FEF08A]"
+                    : "text-[#111111] hover:bg-[#BAE6FD]"
                 }`}
               >
-                {isFitMode ? "Fit" : `${zoomPercent}%`}
+                {isFitMode ? "FIT" : `${zoomPercent}%`}
               </button>
               <button
                 type="button"
                 aria-label="Perbesar pratinjau"
                 onClick={() => stepZoom(25)}
-                className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg text-[var(--ink-primary)] hover:bg-[var(--surface-muted)]"
+                className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg text-[#111111] hover:bg-[#FEF08A]"
               >
                 <ZoomIn className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -509,10 +524,10 @@ export function DocumentWorkspacePanel({
                 type="button"
                 onClick={resetView}
                 aria-label="Sesuaikan layar"
-                className={`inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold ${
+                className={`inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-extrabold ${
                   isFitMode
-                    ? "bg-[var(--surface-muted)] text-[var(--accent)]"
-                    : "text-[var(--ink-secondary)] hover:bg-[var(--surface-muted)]"
+                    ? "bg-[#D9F99D] text-[#111111]"
+                    : "text-[#111111] hover:bg-[#D9F99D]"
                 }`}
               >
                 <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -521,79 +536,69 @@ export function DocumentWorkspacePanel({
             </div>
           </>
         ) : (
-          /* Empty Slot Inline Uploader (Edge Case #5) */
-          <div className="max-w-sm rounded-2xl border-2 border-dashed border-[var(--border-control)] bg-[var(--surface-card)] p-6 text-center shadow-sm">
-            <h2 className="text-base font-bold text-[var(--ink-primary)]">
+          <div className="nb-card max-w-sm bg-white p-6 text-center">
+            <span className="nb-pill">Slot Kosong</span>
+            <h2 className="mt-3 text-base font-extrabold text-[#111111]">
               {activeTab === "page1"
                 ? "Halaman 1 (Data SU) Belum Diunggah"
                 : "Halaman 2 (Peta Bidang) Belum Diunggah"}
             </h2>
-            <p className="mt-1.5 text-xs text-[var(--ink-secondary)]">
+            <p className="mt-1.5 text-xs font-medium text-[#3F3F46]">
               {activeTab === "page2"
-                ? "Tambahkan foto/scan Gambar Bidang untuk digabungkan sebagai halaman kedua PDF."
-                : "Tambahkan foto/scan halaman utama Surat Ukur untuk pembacaan nama file otomatis."}
+                ? "Opsional: tambahkan Gambar Bidang bila Surat Ukur memiliki 2 halaman, atau langsung ekspor PDF 1 halaman."
+                : "Tambahkan foto/scan halaman utama Surat Ukur untuk pembacaan nama file dan Kecamatan otomatis."}
             </p>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
               <input
-                id={emptyUploadInputId}
+                ref={emptyUploadInputRef}
                 type="file"
                 accept={ACCEPT_IMAGES}
+                tabIndex={-1}
+                aria-hidden="true"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) onUploadSlot(activeTab, file);
                   e.target.value = "";
                 }}
-                className="visually-hidden"
+                className="hidden"
               />
-              <label
-                htmlFor={emptyUploadInputId}
-                className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[var(--accent-ink)]"
+              <button
+                type="button"
+                onClick={() => emptyUploadInputRef.current?.click()}
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FDE047] px-4 py-2 text-xs text-[#111111]"
               >
                 <FolderOpen className="h-4 w-4" aria-hidden="true" />
                 Pilih File
-              </label>
+              </button>
 
-              <input
-                id={emptyCameraInputId}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onUploadSlot(activeTab, file);
-                  e.target.value = "";
-                }}
-                className="visually-hidden"
-              />
-              <label
-                htmlFor={emptyCameraInputId}
-                className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-[var(--border-control)] bg-[var(--surface-card)] px-4 py-2 text-xs font-semibold text-[var(--ink-primary)]"
+              <button
+                type="button"
+                onClick={() => onOpenCamera(activeTab)}
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FBCFE8] px-4 py-2 text-xs text-[#111111]"
               >
                 <Camera className="h-4 w-4" aria-hidden="true" />
                 Kamera
-              </label>
+              </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* PDF Page Order Thumbnail Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-3 sm:px-4">
+      {/* Bento Card 4: PDF Page Order Thumbnail Strip */}
+      <div className="nb-card flex flex-wrap items-center justify-between gap-3 bg-[#D9F99D] px-3.5 py-3 sm:px-4">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="text-xs font-bold tracking-wide text-[var(--ink-secondary)] uppercase">
-            Urutan PDF:
-          </span>
+          <span className="nb-pill">Urutan PDF</span>
 
           <button
             type="button"
             onClick={() => handleTabSwitch("page1")}
-            className={`flex items-center gap-2 rounded-xl border p-1.5 pr-3 text-left transition-colors ${
+            className={`flex items-center gap-2 rounded-xl border-2 border-[#111111] p-1.5 pr-3 text-left transition-colors ${
               activeTab === "page1"
-                ? "border-[var(--accent)] bg-[var(--accent)]/8"
-                : "border-[var(--border-subtle)] hover:bg-[var(--surface-muted)]"
+                ? "bg-[#FEF08A] shadow-[3px_3px_0px_#111111]"
+                : "bg-white hover:bg-[#FEF08A]/50"
             }`}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-slate-100 dark:bg-slate-800">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 border-[#111111] bg-[#F6F5F0]">
               {page1?.processedDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
@@ -602,36 +607,35 @@ export function DocumentWorkspacePanel({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="text-[10px] font-semibold text-[var(--ink-secondary)]">
+                <span className="font-mono text-xs font-black text-[#111111]">
                   —
                 </span>
               )}
             </div>
             <div>
-              <p className="text-xs font-bold text-[var(--ink-primary)]">
-                Hal 1 ({getOrientationBadge(page1)})
+              <p className="text-xs font-extrabold text-[#111111]">
+                01 · {getOrientationBadge(page1)}
               </p>
-              <p className="text-[11px] text-[var(--ink-secondary)]">Data SU</p>
+              <p className="text-[11px] font-semibold text-[#3F3F46]">
+                Data SU
+              </p>
             </div>
           </button>
 
-          <span
-            aria-hidden="true"
-            className="text-sm font-bold text-[var(--ink-secondary)]"
-          >
+          <span aria-hidden="true" className="text-base font-black text-[#111111]">
             →
           </span>
 
           <button
             type="button"
             onClick={() => handleTabSwitch("page2")}
-            className={`flex items-center gap-2 rounded-xl border p-1.5 pr-3 text-left transition-colors ${
+            className={`flex items-center gap-2 rounded-xl border-2 border-[#111111] p-1.5 pr-3 text-left transition-colors ${
               activeTab === "page2"
-                ? "border-[var(--accent)] bg-[var(--accent)]/8"
-                : "border-[var(--border-subtle)] hover:bg-[var(--surface-muted)]"
+                ? "bg-[#FEF08A] shadow-[3px_3px_0px_#111111]"
+                : "bg-white hover:bg-[#FEF08A]/50"
             }`}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-slate-100 dark:bg-slate-800">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 border-[#111111] bg-[#F6F5F0]">
               {page2?.processedDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
@@ -640,33 +644,26 @@ export function DocumentWorkspacePanel({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="text-[10px] font-semibold text-[var(--ink-secondary)]">
+                <span className="font-mono text-sm font-black text-[#111111]">
                   +
                 </span>
               )}
             </div>
             <div>
-              <p className="text-xs font-bold text-[var(--ink-primary)]">
-                Hal 2 ({getOrientationBadge(page2)})
+              <p className="text-xs font-extrabold text-[#111111]">
+                02 · {getOrientationBadge(page2)}
               </p>
-              <p className="text-[11px] text-[var(--ink-secondary)]">
-                {page2 ? "Peta Bidang" : "Belum diisi"}
+              <p className="text-[11px] font-semibold text-[#3F3F46]">
+                {page2 ? "Peta Bidang" : "Opsional"}
               </p>
             </div>
           </button>
         </div>
 
-        {/* Edge Case #5: Allow 1-page PDF export if Page 2 is intentionally omitted */}
-        {page1 && !page2 ? (
-          <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-amber-400/60 bg-amber-50/70 px-3 py-1.5 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-            <input
-              type="checkbox"
-              checked={allowSinglePagePdf}
-              onChange={(e) => onToggleAllowSinglePage(e.target.checked)}
-              className="h-4 w-4"
-            />
-            <span>Tetap buat PDF 1 halaman</span>
-          </label>
+        {(page1 && !page2) || (!page1 && page2) ? (
+          <span className="nb-pill bg-[#111111] text-[#FEF08A]">
+            Mode SU 1 Lembar · Siap Ekspor 1 Hal
+          </span>
         ) : null}
       </div>
     </section>

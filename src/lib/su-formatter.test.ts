@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   applyExtractionToForm,
   buildStandardFilename,
+  extractDriveFolderId,
   mapHakCode,
+  normalizeKecamatanName,
   padFiveDigits,
   parseNomorHakEvidence,
   sanitizeCustomFilename,
@@ -21,16 +23,19 @@ describe("SU-Scanner formatter & domain rules", () => {
       kode_jenis_hak_angka: "1",
       kode_jenis_hak_huruf: "M",
       nomor_hak_raw: "02246",
+      kecamatan_raw: "Kecamatan Medan Helvetia",
       nib_terdeteksi: "02.01.05.04.03043",
       raw_evidence: {
         teks_nomor_su: "06/Helvetia Timur/2007",
         teks_nomor_hak: "02 01·05·04·1 02246-",
+        teks_lokasi: "Kecamatan: Medan Helvetia",
       },
       confidence: {
         nomor_su: 0.98,
         tahun_su: 0.99,
         jenis_hak: 0.95,
         nomor_hak: 0.96,
+        kecamatan: 0.94,
       },
       catatan_peringatan: null,
     };
@@ -43,12 +48,65 @@ describe("SU-Scanner formatter & domain rules", () => {
     assert.equal(processed.fields.tahunSu, "2007");
     assert.equal(processed.fields.kodeHak, "M");
     assert.equal(processed.fields.nomorHak, "02246");
+    assert.equal(processed.fields.kecamatan, "Medan Helvetia");
     assert.equal(processed.confidences.nomorSu.level, "high");
     assert.equal(processed.confidences.nomorHak.level, "high");
+    assert.equal(processed.confidences.kecamatan.level, "high");
     assert.equal(
       buildStandardFilename(processed.fields),
       "SU.00006.2007.M.02246.pdf",
     );
+  });
+
+  it("handles 1960s 1-sheet legacy Surat Ukur with old spelling Ketjamatan", () => {
+    const legacy1960s: AiExtractionResult = {
+      is_halaman_data_su: true,
+      nomor_su_raw: "12",
+      tahun_su: "1964",
+      kode_jenis_hak_angka: null,
+      kode_jenis_hak_huruf: null,
+      nomor_hak_raw: "HM. 145",
+      kecamatan_raw: "Ketjamatan Medan Baru",
+      nib_terdeteksi: null,
+      raw_evidence: {
+        teks_nomor_su: "No. 12/1964",
+        teks_nomor_hak: "HM. 145",
+        teks_lokasi: "Ketjamatan : Medan Baru",
+      },
+      confidence: {
+        nomor_su: 0.92,
+        tahun_su: 0.91,
+        jenis_hak: 0.89,
+        nomor_hak: 0.88,
+        kecamatan: 0.9,
+      },
+      catatan_peringatan: null,
+    };
+
+    const parsed = suExtractionZodSchema.parse(legacy1960s);
+    const processed = applyExtractionToForm(parsed, 2026);
+    assert.equal(buildStandardFilename(processed.fields), "SU.00012.1964.M.00145.pdf");
+    assert.equal(processed.fields.kecamatan, "Medan Baru");
+    assert.equal(validateStandardFields(processed.fields, 2026).valid, true);
+  });
+
+  it("normalizes Kecamatan names consistently and extracts Drive folder IDs", () => {
+    assert.equal(normalizeKecamatanName("Kec. MEDAN HELVETIA"), "Medan Helvetia");
+    assert.equal(normalizeKecamatanName("Ketjamatan: Sunggal"), "Sunggal");
+    assert.equal(normalizeKecamatanName("kecamatan   medan johor/"), "Medan Johor");
+    assert.equal(normalizeKecamatanName("   "), "");
+
+    assert.equal(
+      extractDriveFolderId(
+        "https://drive.google.com/drive/folders/1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub?usp=sharing",
+      ),
+      "1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub",
+    );
+    assert.equal(
+      extractDriveFolderId("1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub"),
+      "1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub",
+    );
+    assert.equal(extractDriveFolderId("https://example.com/bad"), null);
   });
 
   it("maps all 6 ATR/BPN hak codes (digit & abbreviation)", () => {
@@ -86,16 +144,19 @@ describe("SU-Scanner formatter & domain rules", () => {
       kode_jenis_hak_angka: null,
       kode_jenis_hak_huruf: null,
       nomor_hak_raw: "02.01.05.04.03043",
+      kecamatan_raw: null,
       nib_terdeteksi: "02.01.05.04.03043",
       raw_evidence: {
         teks_nomor_su: "125/2018",
         teks_nomor_hak: "02.01.05.04.03043",
+        teks_lokasi: null,
       },
       confidence: {
         nomor_su: 0.95,
         tahun_su: 0.95,
         jenis_hak: 0.2,
         nomor_hak: 0.4,
+        kecamatan: 0,
       },
       catatan_peringatan: null,
     };
@@ -131,11 +192,26 @@ describe("SU-Scanner formatter & domain rules", () => {
         nomorHak: "2246",
         isCustomHak: false,
         customHak: "",
+        kecamatan: "",
       },
       2026,
     );
     assert.equal(badYear.valid, false);
     assert.ok(badYear.errors.tahunSu);
+
+    const year1960 = validateStandardFields(
+      {
+        nomorSu: "6",
+        tahunSu: "1960",
+        kodeHak: "M",
+        nomorHak: "2246",
+        isCustomHak: false,
+        customHak: "",
+        kecamatan: "",
+      },
+      2026,
+    );
+    assert.equal(year1960.valid, true);
 
     const goodYear = validateStandardFields(
       {
@@ -145,6 +221,7 @@ describe("SU-Scanner formatter & domain rules", () => {
         nomorHak: "2246",
         isCustomHak: false,
         customHak: "",
+        kecamatan: "Medan Timur",
       },
       2026,
     );
@@ -159,13 +236,19 @@ describe("SU-Scanner formatter & domain rules", () => {
       kode_jenis_hak_angka: null,
       kode_jenis_hak_huruf: null,
       nomor_hak_raw: null,
+      kecamatan_raw: null,
       nib_terdeteksi: null,
-      raw_evidence: { teks_nomor_su: null, teks_nomor_hak: null },
+      raw_evidence: {
+        teks_nomor_su: null,
+        teks_nomor_hak: null,
+        teks_lokasi: null,
+      },
       confidence: {
         nomor_su: 0,
         tahun_su: 0,
         jenis_hak: 0,
         nomor_hak: 0,
+        kecamatan: 0,
       },
       catatan_peringatan: "Gambar hanya berisi peta bidang tanah.",
     };

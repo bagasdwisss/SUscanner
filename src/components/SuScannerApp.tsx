@@ -8,12 +8,23 @@ import {
   ScanLine,
   CheckCircle2,
   AlertCircle,
+  Keyboard,
+  FolderOpen,
 } from "lucide-react";
 import { UploadScreen } from "./UploadScreen";
 import { DocumentWorkspacePanel } from "./DocumentWorkspacePanel";
 import { NamingExportPanel } from "./NamingExportPanel";
 import { ManualCropModal } from "./ManualCropModal";
+import { CameraCaptureModal } from "./CameraCaptureModal";
 import { GuideDialog, HistoryDialog } from "./InfoModals";
+import { DriveConfigDialog } from "./DriveConfigDialog";
+import {
+  APPS_SCRIPT_STORAGE_KEY,
+  buildDriveFolderUrl,
+  DRIVE_AUTO_UPLOAD_STORAGE_KEY,
+  DRIVE_ROOT_STORAGE_KEY,
+  validateAppsScriptWebhookUrl,
+} from "@/lib/drive-config";
 import {
   cloneCorners,
   detectPaperCornersFromCanvas,
@@ -29,7 +40,10 @@ import {
   buildStandardFilename,
   createEmptyConfidences,
   createEmptyFields,
+  DEFAULT_DRIVE_ROOT_FOLDER_ID,
+  extractDriveFolderId,
   getEffectiveKodeHak,
+  normalizeKecamatanName,
   padFiveDigits,
   sanitizeCustomFilename,
   sanitizeDigits,
@@ -44,6 +58,8 @@ import {
 import type {
   AiExtractionResult,
   AiStatus,
+  DriveStatusResponse,
+  DriveUploadResult,
   NamingMode,
   PageSlot,
   PdfQualityPreset,
@@ -61,12 +77,22 @@ interface ToastNotice {
   text: string;
 }
 
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x2000;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    parts.push(
+      String.fromCharCode(...bytes.subarray(i, Math.min(i + chunkSize, bytes.length))),
+    );
+  }
+  return btoa(parts.join(""));
+}
+
 export function SuScannerApp() {
   const [page1, setPage1] = useState<ScannedPageState | null>(null);
   const [page2, setPage2] = useState<ScannedPageState | null>(null);
   const [activeTab, setActiveTab] = useState<PageSlot>("page1");
   const [isDecoding, setIsDecoding] = useState(false);
-  const [allowSinglePagePdf, setAllowSinglePagePdf] = useState(false);
 
   // AI & Naming state
   const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
@@ -81,14 +107,30 @@ export function SuScannerApp() {
   const [rawEvidence, setRawEvidence] = useState<{
     teksNomorSu: string | null;
     teksNomorHak: string | null;
+    teksLokasi: string | null;
     nibTerdeteksi: string | null;
   }>({
     teksNomorSu: null,
     teksNomorHak: null,
+    teksLokasi: null,
     nibTerdeteksi: null,
   });
   const [warnings, setWarnings] = useState<string[]>([]);
   const [extractionVersion, setExtractionVersion] = useState(0);
+
+  // Google Drive integration state
+  const [driveStatus, setDriveStatus] = useState<DriveStatusResponse | null>(
+    null,
+  );
+  const [appsScriptUrl, setAppsScriptUrl] = useState("");
+  const [driveRootFolderId, setDriveRootFolderId] = useState(
+    DEFAULT_DRIVE_ROOT_FOLDER_ID,
+  );
+  const [autoUploadOnExport, setAutoUploadOnExport] = useState(false);
+  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
+  const [lastDriveResult, setLastDriveResult] =
+    useState<DriveUploadResult | null>(null);
+  const [driveConfigOpen, setDriveConfigOpen] = useState(false);
 
   // Export & Modals
   const [pdfQuality, setPdfQuality] = useState<PdfQualityPreset>("standard");
@@ -99,23 +141,53 @@ export function SuScannerApp() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [cameraSlot, setCameraSlot] = useState<PageSlot | null>(null);
   const [toast, setToast] = useState<ToastNotice | null>(null);
   const [liveMessage, setLiveMessage] = useState("");
 
   const aiAbortRef = useRef<AbortController | null>(null);
-  const page1IdRef = useRef<string | null>(null);
-  const page2IdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    page1IdRef.current = page1?.id ?? null;
-  }, [page1?.id]);
-
-  useEffect(() => {
-    page2IdRef.current = page2?.id ?? null;
-  }, [page2?.id]);
+  const aiTargetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadSessionHistory().then(setSessionHistory);
+
+    fetch("/api/drive/status")
+      .then((res) => (res.ok ? (res.json() as Promise<DriveStatusResponse>) : null))
+      .then((status) => {
+        if (!status) return;
+        setDriveStatus(status);
+        setDriveRootFolderId((curr) =>
+          curr === DEFAULT_DRIVE_ROOT_FOLDER_ID
+            ? status.defaultRootFolderId
+            : curr,
+        );
+      })
+      .catch(() => {
+        // Ignore transient network status errors
+      });
+
+    Promise.resolve().then(() => {
+      try {
+        const storedUrl = localStorage.getItem(APPS_SCRIPT_STORAGE_KEY) || "";
+        const storedRoot = extractDriveFolderId(
+          localStorage.getItem(DRIVE_ROOT_STORAGE_KEY),
+        );
+        const storedAuto =
+          localStorage.getItem(DRIVE_AUTO_UPLOAD_STORAGE_KEY) === "true";
+
+        if (storedUrl && validateAppsScriptWebhookUrl(storedUrl)) {
+          setAppsScriptUrl(storedUrl);
+        }
+        if (storedRoot) {
+          setDriveRootFolderId(storedRoot);
+        }
+        if (storedAuto) {
+          setAutoUploadOnExport(true);
+        }
+      } catch {
+        // Ignore storage unavailable errors
+      }
+    });
   }, []);
 
   const showToast = useCallback((kind: "success" | "error", text: string) => {
@@ -128,18 +200,19 @@ export function SuScannerApp() {
   }, []);
 
   const runVisionExtraction = useCallback(
-    async (page1DataUrl: string, targetPageId: string) => {
+    async (pageDataUrl: string, targetPageId: string) => {
       aiAbortRef.current?.abort();
       const controller = new AbortController();
       aiAbortRef.current = controller;
+      aiTargetIdRef.current = targetPageId;
 
       setAiStatus("extracting");
-      setAiMessage("Mengirim gambar Halaman 1 teroptimasi ke Vision AI…");
+      setAiMessage("Mengirim gambar Surat Ukur teroptimasi ke Vision AI…");
       setIsWrongPageSlot(false);
       setWarnings([]);
 
       try {
-        const aiImageDataUrl = await prepareImageForAi(page1DataUrl, 1800);
+        const aiImageDataUrl = await prepareImageForAi(pageDataUrl, 1800);
         if (controller.signal.aborted) return;
 
         const response = await fetch("/api/extract-su", {
@@ -150,7 +223,7 @@ export function SuScannerApp() {
         });
 
         const data = await response.json();
-        if (controller.signal.aborted || page1IdRef.current !== targetPageId) {
+        if (controller.signal.aborted || aiTargetIdRef.current !== targetPageId) {
           return;
         }
 
@@ -179,7 +252,7 @@ export function SuScannerApp() {
         setExtractionVersion((v) => v + 1);
         setAiStatus("success");
         setAiMessage(
-          `Ekstraksi selesai (${data.model || "Gemini 2.5 Flash"}). Periksa kolom bertanda kuning/merah sebelum mengunduh.`,
+          `Ekstraksi selesai (${data.model || "Gemini Flash"}). Periksa kolom bertanda kuning/merah sebelum mengunduh.`,
         );
         setLiveMessage("Ekstraksi nama file Surat Ukur oleh AI selesai.");
       } catch (error) {
@@ -295,8 +368,10 @@ export function SuScannerApp() {
           void runVisionExtraction(newState.processedDataUrl, newState.id);
         } else {
           setPage2(newState);
-          setAllowSinglePagePdf(false);
           setActiveTab("page2");
+          if (!page1) {
+            void runVisionExtraction(newState.processedDataUrl, newState.id);
+          }
         }
       } catch (err) {
         showToast(
@@ -309,13 +384,7 @@ export function SuScannerApp() {
         setIsDecoding(false);
       }
     },
-    [
-      buildInitialPageState,
-      page1,
-      page2,
-      runVisionExtraction,
-      showToast,
-    ],
+    [buildInitialPageState, page1, page2, runVisionExtraction, showToast],
   );
 
   const handleUploadSlotFiles = useCallback(
@@ -331,7 +400,6 @@ export function SuScannerApp() {
           if (page2?.rawUrl) URL.revokeObjectURL(page2.rawUrl);
           setPage1(s1);
           setPage2(s2);
-          setAllowSinglePagePdf(false);
           setActiveTab("page1");
           void runVisionExtraction(s1.processedDataUrl, s1.id);
         } catch (err) {
@@ -433,13 +501,13 @@ export function SuScannerApp() {
 
   const handleResetWorkspace = useCallback(() => {
     aiAbortRef.current?.abort();
+    aiTargetIdRef.current = null;
     if (page1?.rawUrl) URL.revokeObjectURL(page1.rawUrl);
     if (page2?.rawUrl) URL.revokeObjectURL(page2.rawUrl);
 
     setPage1(null);
     setPage2(null);
     setActiveTab("page1");
-    setAllowSinglePagePdf(false);
     setAiStatus("idle");
     setAiMessage(null);
     setIsWrongPageSlot(false);
@@ -450,9 +518,11 @@ export function SuScannerApp() {
     setRawEvidence({
       teksNomorSu: null,
       teksNomorHak: null,
+      teksLokasi: null,
       nibTerdeteksi: null,
     });
     setWarnings([]);
+    setLastDriveResult(null);
     setExtractionVersion((v) => v + 1);
     setLiveMessage("Workspace direset. Siap memindai dokumen berikutnya.");
   }, [page1, page2]);
@@ -466,23 +536,88 @@ export function SuScannerApp() {
     (item) => item.filename.toLowerCase() === currentFilename.toLowerCase(),
   );
 
+  const driveReady = Boolean(
+    driveStatus?.configured || validateAppsScriptWebhookUrl(appsScriptUrl),
+  );
+  const driveFolderUrl = buildDriveFolderUrl(driveRootFolderId);
+
+  const performDriveUpload = useCallback(
+    async (
+      pdfBytes: Uint8Array,
+      filename: string,
+      kecamatanInput: string,
+    ): Promise<DriveUploadResult | null> => {
+      const kecamatanClean = normalizeKecamatanName(kecamatanInput);
+      if (!kecamatanClean) {
+        showToast(
+          "error",
+          "Isi nama Kecamatan terlebih dahulu agar subfolder Drive dapat dibuat.",
+        );
+        return null;
+      }
+
+      setIsUploadingDrive(true);
+      try {
+        const pdfBase64 = uint8ArrayToBase64(pdfBytes);
+        const res = await fetch("/api/drive/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename,
+            kecamatan: kecamatanClean,
+            rootFolderId: driveRootFolderId,
+            pdfBase64,
+            appsScriptUrl: appsScriptUrl.trim() || null,
+          }),
+        });
+
+        const payload = (await res.json()) as
+          | DriveUploadResult
+          | { ok?: false; error?: string; code?: string };
+
+        if (!res.ok || !payload || !("ok" in payload) || payload.ok !== true) {
+          const msg =
+            (payload && "error" in payload && payload.error) ||
+            "Gagal mengunggah berkas PDF ke Google Drive.";
+          showToast("error", msg);
+          return null;
+        }
+
+        setLastDriveResult(payload);
+        showToast(
+          "success",
+          payload.folderCreated
+            ? `Subfolder "${payload.folderName}" baru dibuat & ${payload.fileName} diunggah ke Drive!`
+            : `Berkas ${payload.fileName} disimpan ke subfolder "${payload.folderName}".`,
+        );
+        return payload;
+      } catch {
+        showToast(
+          "error",
+          "Koneksi ke endpoint unggah Google Drive terganggu.",
+        );
+        return null;
+      } finally {
+        setIsUploadingDrive(false);
+      }
+    },
+    [appsScriptUrl, driveRootFolderId, showToast],
+  );
+
+  const collectOrderedPages = useCallback(() => {
+    return [page1, page2]
+      .filter((p): p is ScannedPageState => Boolean(p?.processedDataUrl))
+      .map((p) => ({
+        dataUrl: p.processedDataUrl,
+        width: p.processedWidth,
+        height: p.processedHeight,
+      }));
+  }, [page1, page2]);
+
   const handleExportPdf = useCallback(async () => {
-    if (!page1?.processedDataUrl) {
-      showToast("error", "Halaman 1 belum siap.");
-      return;
-    }
-    const pages = [{ dataUrl: page1.processedDataUrl, width: page1.processedWidth, height: page1.processedHeight }];
-    if (page2?.processedDataUrl) {
-      pages.push({
-        dataUrl: page2.processedDataUrl,
-        width: page2.processedWidth,
-        height: page2.processedHeight,
-      });
-    } else if (!allowSinglePagePdf) {
-      showToast(
-        "error",
-        "Halaman 2 belum diunggah. Tambahkan Halaman 2 atau centang opsi PDF 1 halaman.",
-      );
+    const pages = collectOrderedPages();
+    if (pages.length === 0) {
+      showToast("error", "Unggah minimal 1 halaman Surat Ukur terlebih dahulu.");
       return;
     }
 
@@ -490,6 +625,16 @@ export function SuScannerApp() {
     try {
       const result = await generateSuPdf(pages, pdfQuality);
       triggerPdfDownload(result.blob, currentFilename);
+
+      const kecamatanClean = normalizeKecamatanName(fields.kecamatan);
+      let uploaded: DriveUploadResult | null = null;
+      if (autoUploadOnExport && driveReady && kecamatanClean) {
+        uploaded = await performDriveUpload(
+          result.bytes,
+          currentFilename,
+          kecamatanClean,
+        );
+      }
 
       const historyItem: SessionHistoryItem = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -501,17 +646,24 @@ export function SuScannerApp() {
         tahunSu: sanitizeDigits(fields.tahunSu),
         kodeHak: getEffectiveKodeHak(fields),
         nomorHak: padFiveDigits(fields.nomorHak),
+        kecamatan: kecamatanClean || undefined,
+        driveFileUrl: uploaded?.fileUrl,
+        driveFolderUrl: uploaded?.folderUrl,
         pdfBytes: new Uint8Array(result.bytes).buffer,
       };
       const updatedHistory = await saveSessionHistoryItem(historyItem);
       setSessionHistory(updatedHistory);
 
-      showToast(
-        "success",
-        `PDF berhasil dibuat & diunduh: ${currentFilename} (${formatBytes(
-          result.sizeBytes,
-        )})`,
-      );
+      if (!uploaded) {
+        showToast(
+          "success",
+          autoUploadOnExport && driveReady && !kecamatanClean
+            ? `PDF diunduh (${formatBytes(result.sizeBytes)}). Isi Kecamatan untuk upload otomatis ke Drive.`
+            : `PDF berhasil dibuat & diunduh: ${currentFilename} (${formatBytes(
+                result.sizeBytes,
+              )})`,
+        );
+      }
     } catch (err) {
       showToast(
         "error",
@@ -521,12 +673,83 @@ export function SuScannerApp() {
       setIsGeneratingPdf(false);
     }
   }, [
-    allowSinglePagePdf,
+    autoUploadOnExport,
+    collectOrderedPages,
     currentFilename,
+    driveReady,
     fields,
-    page1,
-    page2,
     pdfQuality,
+    performDriveUpload,
+    showToast,
+  ]);
+
+  const handleUploadOnlyToDrive = useCallback(async () => {
+    if (!driveReady) {
+      setDriveConfigOpen(true);
+      showToast(
+        "error",
+        "Hubungkan Google Drive terlebih dahulu (pengaturan 1 kali), lalu klik Simpan ke Drive lagi.",
+      );
+      return;
+    }
+
+    const pages = collectOrderedPages();
+    if (pages.length === 0) {
+      showToast("error", "Unggah minimal 1 halaman Surat Ukur terlebih dahulu.");
+      return;
+    }
+
+    const kecamatanClean = normalizeKecamatanName(fields.kecamatan);
+    if (!kecamatanClean) {
+      showToast(
+        "error",
+        "Isi nama Kecamatan terlebih dahulu agar subfolder Drive dapat dibuat.",
+      );
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+    try {
+      const result = await generateSuPdf(pages, pdfQuality);
+      const uploaded = await performDriveUpload(
+        result.bytes,
+        currentFilename,
+        kecamatanClean,
+      );
+      if (uploaded) {
+        const historyItem: SessionHistoryItem = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          filename: currentFilename,
+          createdAt: Date.now(),
+          pageCount: result.pageCount,
+          sizeBytes: result.sizeBytes,
+          nomorSu: padFiveDigits(fields.nomorSu),
+          tahunSu: sanitizeDigits(fields.tahunSu),
+          kodeHak: getEffectiveKodeHak(fields),
+          nomorHak: padFiveDigits(fields.nomorHak),
+          kecamatan: uploaded.folderName,
+          driveFileUrl: uploaded.fileUrl,
+          driveFolderUrl: uploaded.folderUrl,
+          pdfBytes: new Uint8Array(result.bytes).buffer,
+        };
+        const updatedHistory = await saveSessionHistoryItem(historyItem);
+        setSessionHistory(updatedHistory);
+      }
+    } catch (err) {
+      showToast(
+        "error",
+        err instanceof Error ? err.message : "Gagal menyusun PDF untuk Drive.",
+      );
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  }, [
+    collectOrderedPages,
+    currentFilename,
+    driveReady,
+    fields,
+    pdfQuality,
+    performDriveUpload,
     showToast,
   ]);
 
@@ -536,7 +759,14 @@ export function SuScannerApp() {
     if (!hasWorkspace) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (historyOpen || guideOpen || cropModalOpen) return;
+      if (
+        historyOpen ||
+        guideOpen ||
+        cropModalOpen ||
+        driveConfigOpen ||
+        cameraSlot !== null
+      )
+        return;
 
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
@@ -584,7 +814,9 @@ export function SuScannerApp() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    cameraSlot,
     cropModalOpen,
+    driveConfigOpen,
     guideOpen,
     handleResetWorkspace,
     handleRotateActive,
@@ -596,86 +828,182 @@ export function SuScannerApp() {
 
   const hasWorkspace = Boolean(page1 || page2);
   const activePage = activeTab === "page1" ? page1 : page2;
+  const loadedPagesCount = (page1 ? 1 : 0) + (page2 ? 1 : 0);
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      {/* Top App Bar */}
-      <header className="sticky top-0 z-30 border-b border-[var(--border-subtle)] bg-[var(--surface-card)]/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
+    <div className="flex min-h-dvh flex-col bg-[#F6F5F0] lg:grid lg:grid-cols-[276px_minmax(0,1fr)]">
+      {/* Split-Tone Dark Sidebar (Desktop) & Top Dark Bar (Mobile) */}
+      <aside className="nb-dark-sidebar border-b-2 border-[#111111] lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:justify-between lg:border-b-0 lg:border-r-2 lg:overflow-y-auto">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 lg:flex-col lg:items-stretch lg:gap-5 lg:p-5">
+          {/* Brand Identity */}
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent)] text-[var(--accent-ink)] shadow-xs">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 border-[#F6F5F0] bg-[#FEF08A] text-[#111111] shadow-[3px_3px_0px_#FBCFE8]">
               <ScanLine className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
-              <span className="block text-sm font-bold tracking-tight text-[var(--ink-primary)] sm:text-base">
+              <span className="block text-base font-black tracking-tight text-[#F6F5F0]">
                 SU-Scanner Pro
               </span>
-              <span className="hidden text-[11px] font-medium text-[var(--ink-secondary)] sm:block">
-                Digitalisasi Arsip Surat Ukur ATR/BPN
+              <span className="block text-[10px] font-extrabold tracking-[0.1em] text-[#FEF08A] uppercase">
+                ATR/BPN Archive Studio
               </span>
             </div>
           </div>
 
+          {/* Navigation & Actions */}
           <nav
             aria-label="Utilitas Aplikasi"
-            className="flex flex-wrap items-center gap-2"
+            className="flex flex-wrap items-center gap-2 lg:flex-col lg:items-stretch lg:gap-2.5"
           >
             {hasWorkspace ? (
               <button
                 type="button"
                 onClick={handleResetWorkspace}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-[var(--accent)] px-3.5 py-2 text-xs font-bold text-[var(--accent-ink)] shadow-xs transition-opacity hover:opacity-90"
+                className="nb-btn-sm inline-flex min-h-10 items-center justify-center gap-1.5 bg-[#FDE047] px-3.5 py-2 text-xs text-[#111111] lg:w-full"
               >
                 <Plus className="h-4 w-4" aria-hidden="true" />
-                Scan Baru
+                <span>Scan Baru</span>
               </button>
             ) : null}
 
             <button
               type="button"
               onClick={() => setHistoryOpen(true)}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:bg-[var(--surface-muted)]"
+              className="nb-btn-sm inline-flex min-h-10 items-center justify-between gap-2 bg-[#1F1F24] px-3.5 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] lg:w-full"
             >
-              <History className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" />
-              <span>Riwayat Sesi ({sessionHistory.length})</span>
+              <span className="inline-flex items-center gap-2">
+                <History className="h-4 w-4 text-[#FBCFE8]" aria-hidden="true" />
+                <span>Riwayat Sesi ({sessionHistory.length})</span>
+              </span>
+              <span className="hidden rounded-full bg-[#FBCFE8] px-2 py-0.5 font-mono text-[11px] font-black text-[#111111] lg:inline-block">
+                {sessionHistory.length}
+              </span>
             </button>
 
             <button
               type="button"
               onClick={() => setGuideOpen(true)}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:bg-[var(--surface-muted)]"
+              className="nb-btn-sm inline-flex min-h-10 items-center justify-between gap-2 bg-[#1F1F24] px-3.5 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] lg:w-full"
             >
-              <BookOpen className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" />
-              <span>Panduan &amp; Shortcut</span>
+              <span className="inline-flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-[#BAE6FD]" aria-hidden="true" />
+                <span>Panduan &amp; Shortcut</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDriveConfigOpen(true)}
+              className="nb-btn-sm inline-flex min-h-10 items-center justify-between gap-2 bg-[#1F1F24] px-3.5 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] lg:w-full"
+            >
+              <span className="inline-flex items-center gap-2">
+                <FolderOpen className="h-4 w-4 text-[#D9F99D]" aria-hidden="true" />
+                <span>Google Drive</span>
+              </span>
+              <span
+                className={`hidden rounded-full px-2 py-0.5 text-[10px] font-black text-[#111111] lg:inline-block ${
+                  driveReady ? "bg-[#D9F99D]" : "bg-[#FEF08A]"
+                }`}
+              >
+                {driveReady ? "Aktif" : "Atur"}
+              </span>
             </button>
           </nav>
-        </div>
-      </header>
 
-      {/* Main Content */}
-      <main id="main-workspace" tabIndex={-1} className="flex flex-1 flex-col">
+          {/* Desktop Bento Telemetry inside Dark Sidebar */}
+          <div className="hidden space-y-3 lg:block">
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3">
+                <span className="nb-micro block text-zinc-400">BERKAS</span>
+                <span className="mt-1 block font-mono text-2xl font-black text-[#D9F99D]">
+                  0{loadedPagesCount}/02
+                </span>
+                <span className="text-[11px] font-semibold text-zinc-300">
+                  Halaman siap
+                </span>
+              </div>
+
+              <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3">
+                <span className="nb-micro block text-zinc-400">EKSPOR</span>
+                <span className="mt-1 block font-mono text-2xl font-black text-[#BAE6FD]">
+                  {String(sessionHistory.length).padStart(2, "0")}
+                </span>
+                <span className="text-[11px] font-semibold text-zinc-300">
+                  PDF diunduh
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3.5">
+              <span className="nb-micro block text-[#FEF08A]">
+                POLA STANDAR ARSIP
+              </span>
+              <p className="mt-1.5 font-mono text-xs font-bold leading-relaxed text-[#F6F5F0]">
+                SU.[5D No].[4D Thn].[Hak].[5D Hak].pdf
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Desktop Sidebar Bottom Shortcut Legend */}
+        <div className="hidden border-t-2 border-[#27272A] p-5 lg:block">
+          <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3.5">
+            <div className="flex items-center gap-1.5 text-[11px] font-extrabold tracking-wider text-[#FBCFE8] uppercase">
+              <Keyboard className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Shortcut Cepat</span>
+            </div>
+            <ul className="mt-2.5 space-y-1.5 text-xs">
+              {[
+                { k: "Ctrl+Enter", d: "Unduh PDF" },
+                { k: "R", d: "Putar +90°" },
+                { k: "S", d: "Tukar Hal 1 & 2" },
+                { k: "1 / 2", d: "Ganti Tab" },
+              ].map((item) => (
+                <li
+                  key={item.k}
+                  className="flex items-center justify-between text-zinc-300"
+                >
+                  <span>{item.d}</span>
+                  <kbd className="rounded-md border border-[#52525B] bg-[#141414] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#FEF08A]">
+                    {item.k}
+                  </kbd>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Warm Off-White Canvas (#F6F5F0) */}
+      <main
+        id="main-workspace"
+        tabIndex={-1}
+        className="flex min-w-0 flex-1 flex-col bg-[#F6F5F0]"
+      >
         {!hasWorkspace ? (
           <UploadScreen
             onSelectSlotFiles={handleUploadSlotFiles}
             onSelectBatchFiles={(files) => handleUploadSlotFiles("page1", files)}
+            onOpenCamera={(slot) => setCameraSlot(slot)}
             isDecoding={isDecoding}
           />
         ) : (
-          <div className="mx-auto grid w-full max-w-[1440px] flex-1 grid-cols-1 gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,65fr)_minmax(340px,35fr)] lg:gap-5">
+          <div className="mx-auto grid w-full max-w-[1400px] flex-1 grid-cols-1 gap-5 p-4 sm:p-5 xl:grid-cols-[minmax(0,63fr)_minmax(340px,37fr)]">
             <DocumentWorkspacePanel
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               page1={page1}
               page2={page2}
-              allowSinglePagePdf={allowSinglePagePdf}
-              onToggleAllowSinglePage={setAllowSinglePagePdf}
               onSwapPages={handleSwapPages}
               onRotateActive={handleRotateActive}
               onOpenManualCrop={() => setCropModalOpen(true)}
               onFilterChange={handleFilterChange}
               onAdjustmentChange={handleAdjustmentChange}
               onResetAdjustments={() => handleAdjustmentChange(0, 0)}
-              onUploadSlot={(slot, file) => void handleUploadSingleFile(slot, file)}
+              onUploadSlot={(slot, file) =>
+                void handleUploadSingleFile(slot, file)
+              }
+              onOpenCamera={(slot) => setCameraSlot(slot)}
             />
 
             <NamingExportPanel
@@ -684,7 +1012,6 @@ export function SuScannerApp() {
               isWrongPageSlot={isWrongPageSlot}
               hasPage1={Boolean(page1)}
               hasPage2={Boolean(page2)}
-              allowSinglePagePdf={allowSinglePagePdf}
               namingMode={namingMode}
               onChangeNamingMode={setNamingMode}
               fields={fields}
@@ -697,15 +1024,23 @@ export function SuScannerApp() {
               pdfQuality={pdfQuality}
               onChangePdfQuality={setPdfQuality}
               isGeneratingPdf={isGeneratingPdf}
+              isUploadingDrive={isUploadingDrive}
+              driveReady={driveReady}
+              driveFolderId={driveRootFolderId}
+              driveFolderUrl={driveFolderUrl}
+              lastDriveResult={lastDriveResult}
               isDuplicateFilename={isDuplicateFilename}
               extractionVersion={extractionVersion}
               onReExtractAi={() => {
-                if (page1?.processedDataUrl) {
-                  void runVisionExtraction(page1.processedDataUrl, page1.id);
+                const target = page1 ?? page2;
+                if (target?.processedDataUrl) {
+                  void runVisionExtraction(target.processedDataUrl, target.id);
                 }
               }}
               onSwapPages={handleSwapPages}
               onExportPdf={() => void handleExportPdf()}
+              onUploadToDrive={() => void handleUploadOnlyToDrive()}
+              onOpenDriveConfig={() => setDriveConfigOpen(true)}
               onResetWorkspace={handleResetWorkspace}
               onAnnounce={setLiveMessage}
             />
@@ -717,10 +1052,8 @@ export function SuScannerApp() {
       {toast ? (
         <div
           role="status"
-          className={`fixed bottom-4 right-4 z-40 flex max-w-md items-start gap-2.5 rounded-xl border px-4 py-3 text-sm font-semibold shadow-xl ${
-            toast.kind === "success"
-              ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
-              : "border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100"
+          className={`nb-card fixed bottom-4 right-4 z-40 flex max-w-md items-start gap-2.5 px-4 py-3 text-sm font-extrabold text-[#111111] ${
+            toast.kind === "success" ? "bg-[#D9F99D]" : "bg-[#FBCFE8]"
           }`}
         >
           {toast.kind === "success" ? (
@@ -766,7 +1099,61 @@ export function SuScannerApp() {
         }}
       />
 
+      <CameraCaptureModal
+        open={cameraSlot !== null}
+        slotLabel={
+          cameraSlot === "page2"
+            ? "Halaman 2 (Peta Bidang)"
+            : "Halaman 1 (Data SU)"
+        }
+        onClose={() => setCameraSlot(null)}
+        onCaptureFile={(file) => {
+          const slot = cameraSlot ?? "page1";
+          void handleUploadSingleFile(slot, file);
+        }}
+      />
+
       <GuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
+
+      <DriveConfigDialog
+        key={driveConfigOpen ? "drive-open" : "drive-closed"}
+        open={driveConfigOpen}
+        onClose={() => setDriveConfigOpen(false)}
+        serverStatus={driveStatus}
+        appsScriptUrl={appsScriptUrl}
+        rootFolderInput={driveRootFolderId}
+        autoUploadOnExport={autoUploadOnExport}
+        onSaveConfig={({
+          appsScriptUrl: nextUrl,
+          rootFolderId: nextRoot,
+          autoUploadOnExport: nextAuto,
+        }) => {
+          setAppsScriptUrl(nextUrl);
+          setDriveRootFolderId(nextRoot);
+          setAutoUploadOnExport(nextAuto);
+          try {
+            if (nextUrl) localStorage.setItem(APPS_SCRIPT_STORAGE_KEY, nextUrl);
+            else localStorage.removeItem(APPS_SCRIPT_STORAGE_KEY);
+            localStorage.setItem(DRIVE_ROOT_STORAGE_KEY, nextRoot);
+            localStorage.setItem(
+              DRIVE_AUTO_UPLOAD_STORAGE_KEY,
+              String(nextAuto),
+            );
+          } catch {
+            // Ignore storage restrictions
+          }
+          showToast("success", "Pengaturan Google Drive disimpan.");
+        }}
+        onClearAppsScript={() => {
+          setAppsScriptUrl("");
+          try {
+            localStorage.removeItem(APPS_SCRIPT_STORAGE_KEY);
+          } catch {
+            // Ignore
+          }
+          showToast("success", "URL Apps Script lokal telah dihapus.");
+        }}
+      />
     </div>
   );
 }

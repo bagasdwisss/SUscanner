@@ -9,8 +9,31 @@ import {
   suExtractionZodSchema,
 } from "@/lib/su-prompt";
 
-const AI_TIMEOUT_MS = 15_000;
+const AI_TIMEOUT_MS = 30_000;
+const PER_MODEL_TIMEOUT_MS = 14_000;
 const MAX_IMAGE_BYTES = 4_200_000;
+const FALLBACK_GEMINI_MODELS = [
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+] as const;
+
+function getCandidateGeminiModels(): string[] {
+  const configured = process.env.GEMINI_MODEL?.trim();
+  const list = configured
+    ? [configured, ...FALLBACK_GEMINI_MODELS]
+    : [...FALLBACK_GEMINI_MODELS];
+  return Array.from(new Set(list));
+}
+
+function getErrorStatusCode(err: unknown): number | null {
+  if (typeof err === "object" && err !== null && "status" in err) {
+    const status = (err as { status?: unknown }).status;
+    if (typeof status === "number") return status;
+  }
+  return null;
+}
 
 const requestBodySchema = z.object({
   imageDataUrl: z
@@ -94,7 +117,7 @@ export async function POST(request: NextRequest) {
   try {
     if (gatewayKey) {
       const gatewayModel =
-        process.env.AI_GATEWAY_MODEL || "google/gemini-2.5-flash";
+        process.env.AI_GATEWAY_MODEL || "google/gemini-3.8-flash";
       const { output } = await generateText({
         model: gatewayModel,
         instructions: SU_SYSTEM_INSTRUCTION,
@@ -128,39 +151,84 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const geminiModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-    const ai = new GoogleGenAI({ apiKey: geminiKey });
-    const response = await ai.models.generateContent({
-      model: geminiModel,
-      contents: [SU_USER_PROMPT, createPartFromBase64(base64, mimeType)],
-      config: {
-        systemInstruction: SU_SYSTEM_INSTRUCTION,
-        temperature: 0.0,
-        responseMimeType: "application/json",
-        responseJsonSchema: SU_GEMINI_RESPONSE_JSON_SCHEMA,
-        abortSignal: controller.signal,
+    const ai = new GoogleGenAI({
+      apiKey: geminiKey,
+      httpOptions: {
+        retryOptions: { attempts: 1 },
       },
     });
+    const candidateModels = getCandidateGeminiModels();
+    let lastError: unknown = null;
 
-    const rawText = response.text;
-    if (!rawText) {
-      return NextResponse.json(
-        {
-          code: "EMPTY_AI_RESPONSE",
-          error: "Model AI tidak mengembalikan data JSON. Silakan coba lagi atau isi manual.",
-        },
-        { status: 502 },
-      );
+    for (const geminiModel of candidateModels) {
+      if (controller.signal.aborted) break;
+      const attemptSignal = AbortSignal.any([
+        controller.signal,
+        AbortSignal.timeout(PER_MODEL_TIMEOUT_MS),
+      ]);
+      try {
+        const response = await ai.models.generateContent({
+          model: geminiModel,
+          contents: [SU_USER_PROMPT, createPartFromBase64(base64, mimeType)],
+          config: {
+            systemInstruction: SU_SYSTEM_INSTRUCTION,
+            temperature: 0.0,
+            responseMimeType: "application/json",
+            responseJsonSchema: SU_GEMINI_RESPONSE_JSON_SCHEMA,
+            abortSignal: attemptSignal,
+          },
+        });
+
+        const rawText = response.text;
+        if (!rawText) {
+          lastError = new Error(`Model ${geminiModel} mengembalikan respons kosong.`);
+          continue;
+        }
+
+        const parsedJson = extractJsonText(rawText);
+        const validated = suExtractionZodSchema.parse(parsedJson);
+
+        return NextResponse.json({
+          extraction: validated,
+          provider: "gemini-direct",
+          model: geminiModel,
+        });
+      } catch (err) {
+        lastError = err;
+        const status = getErrorStatusCode(err);
+        if (status === 401 || status === 403) {
+          return NextResponse.json(
+            {
+              code: "AI_AUTH_ERROR",
+              error:
+                "API Key Gemini ditolak atau tidak memiliki akses. Periksa GEMINI_API_KEY di .env.local.",
+            },
+            { status: 401 },
+          );
+        }
+        if (
+          err instanceof Error &&
+          (err.name === "AbortError" || err.name === "TimeoutError")
+        ) {
+          if (controller.signal.aborted) throw err;
+          continue;
+        }
+        // Retry next fallback model for retired (404), rate-limited (429), or high-demand (503/500) responses
+        if (
+          status === 404 ||
+          status === 429 ||
+          status === 500 ||
+          status === 502 ||
+          status === 503 ||
+          status === 504
+        ) {
+          continue;
+        }
+        throw err;
+      }
     }
 
-    const parsedJson = extractJsonText(rawText);
-    const validated = suExtractionZodSchema.parse(parsedJson);
-
-    return NextResponse.json({
-      extraction: validated,
-      provider: "gemini-direct",
-      model: geminiModel,
-    });
+    throw lastError ?? new Error("Semua model Gemini gagal merespons.");
   } catch (error) {
     if (
       controller.signal.aborted ||
@@ -170,7 +238,7 @@ export async function POST(request: NextRequest) {
         {
           code: "AI_TIMEOUT",
           error:
-            "Ekstraksi Vision AI melebihi batas waktu 15 detik. Silakan klik Baca Ulang AI atau isi kolom secara manual.",
+            "Ekstraksi Vision AI melebihi batas waktu. Silakan klik Baca Ulang AI atau isi kolom secara manual.",
         },
         { status: 504 },
       );

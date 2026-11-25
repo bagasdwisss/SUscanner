@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  colorScheme: "light dark",
+  colorScheme: "light",
   width: "device-width",
   initialScale: 1,
 };
@@ -20,10 +20,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full bg-[#F6F5F0] text-[#111111] flex flex-col">
         <a
           href="#main-workspace"
-          className="visually-hidden fixed left-3 top-3 z-50 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-ink)] shadow-lg"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-2xl focus:border-2 focus:border-[#111111] focus:bg-[#FDE047] focus:px-4 focus:py-2 focus:text-sm focus:font-extrabold focus:text-[#111111] focus:shadow-[4px_4px_0px_#111111]"
         >
           Lewati ke area kerja utama
         </a>

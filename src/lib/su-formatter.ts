@@ -84,11 +84,62 @@ const TEXT_TO_HAK: Record<string, StandardHakCode> = {
   "TANAH WAKAF": "W",
 };
 
+export const DEFAULT_DRIVE_ROOT_FOLDER_ID =
+  "1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub";
+
 export const MIN_VALID_SU_YEAR = 1960;
 
 export function sanitizeDigits(raw: string | null | undefined): string {
   if (!raw) return "";
   return raw.replace(/\D/g, "");
+}
+
+/**
+ * Normalizes a Kecamatan name for clean, deduplicated Google Drive subfolder naming.
+ * Strips prefixes like "Kec.", "Kecamatan", "Ketjamatan", sanitizes forbidden path
+ * characters, and applies Title Case.
+ */
+export function normalizeKecamatanName(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const cleaned = raw
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
+    .replace(/^(?:kecamatan|ketjamatan|kec\.?|ketj\.?)\s*[:.\-]?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+
+  return cleaned
+    .split(" ")
+    .map((word) => {
+      if (/^[IVXLCDM]{1,5}$/i.test(word) && word === word.toUpperCase()) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+/**
+ * Extracts a Google Drive folder ID from either a full sharing URL or a bare ID.
+ */
+export function extractDriveFolderId(
+  input: string | null | undefined,
+): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const urlMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]{10,120})/);
+  if (urlMatch) return urlMatch[1];
+
+  const idParamMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]{10,120})/);
+  if (idParamMatch) return idParamMatch[1];
+
+  if (/^[a-zA-Z0-9_-]{10,120}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
 }
 
 /**
@@ -272,12 +323,13 @@ export interface PostProcessedExtraction {
   rawEvidence: {
     teksNomorSu: string | null;
     teksNomorHak: string | null;
+    teksLokasi: string | null;
     nibTerdeteksi: string | null;
   };
 }
 
 /**
- * Deterministic post-processing pipeline per PRD Section 10.6.
+ * Deterministic post-processing pipeline per PRD Section 10.6 + Kecamatan extraction.
  */
 export function applyExtractionToForm(
   extraction: AiExtractionResult,
@@ -340,6 +392,9 @@ export function applyExtractionToForm(
     ? padFiveDigits(nomorHakDigits)
     : "";
 
+  // 4. Kecamatan for Drive subfolder grouping
+  const kecamatanNormalized = normalizeKecamatanName(extraction.kecamatan_raw);
+
   const makeMeta = (
     score: number,
     hasValue: boolean,
@@ -375,6 +430,7 @@ export function applyExtractionToForm(
       nomorHak: nomorHakFormatted,
       isCustomHak: false,
       customHak: "",
+      kecamatan: kecamatanNormalized,
     },
     confidences: {
       nomorSu: makeMeta(extraction.confidence.nomor_su, Boolean(nomorSuFormatted)),
@@ -384,12 +440,17 @@ export function applyExtractionToForm(
         Boolean(resolvedHak),
       ),
       nomorHak: makeMeta(hakScore, Boolean(nomorHakFormatted), hakReason),
+      kecamatan: makeMeta(
+        extraction.confidence.kecamatan,
+        Boolean(kecamatanNormalized),
+      ),
     },
     isWrongPageSlot: !extraction.is_halaman_data_su,
     warnings,
     rawEvidence: {
       teksNomorSu: extraction.raw_evidence.teks_nomor_su,
       teksNomorHak: extraction.raw_evidence.teks_nomor_hak,
+      teksLokasi: extraction.raw_evidence.teks_lokasi ?? null,
       nibTerdeteksi: extraction.nib_terdeteksi,
     },
   };
@@ -403,6 +464,7 @@ export function createEmptyFields(): SuNamingFields {
     nomorHak: "",
     isCustomHak: false,
     customHak: "",
+    kecamatan: "",
   };
 }
 
@@ -412,5 +474,6 @@ export function createEmptyConfidences(): SuFieldConfidences {
     tahunSu: { score: null, level: "low", reason: null },
     kodeHak: { score: null, level: "medium", reason: null },
     nomorHak: { score: null, level: "low", reason: null },
+    kecamatan: { score: null, level: "low", reason: null },
   };
 }

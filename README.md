@@ -1,6 +1,6 @@
 # SU-Scanner Pro
 
-Aplikasi web pemindai dan penamaan otomatis dokumen **Surat Ukur (SU)** ATR/BPN dalam satu antarmuka terpadu (*split-screen workspace*).
+Aplikasi web pemindai dan penamaan otomatis dokumen **Surat Ukur (SU)** ATR/BPN dalam tata letak **Soft Neo-Brutalism Bento Grid (Split-Tone)**, dilengkapi integrasi subfolder otomatis Google Drive berdasarkan **Kecamatan**.
 
 Format output standar arsip:
 ```text
@@ -10,11 +10,18 @@ Contoh: `SU.00006.2007.M.02246.pdf`
 
 ## Fitur Utama
 
-- **Input Cepat (Dual Upload & Kamera):** Mendukung *drag-and-drop*, *multi-select* 2 gambar sekaligus, serta kamera perangkat mobile (`JPG`, `JPEG`, `PNG`, `WEBP`, `HEIC`).
+- **Input Fleksibel 1 atau 2 Halaman (Termasuk SU Lama Tahun 60-an):** Mendukung **1 lembar saja** (khusus Surat Ukur lama era 1960-an atau arsip tunggal) maupun **2 halaman** (Data SU + Peta Bidang). Mendukung *drag-and-drop*, *multi-select*, unggah file (`JPG`, `JPEG`, `PNG`, `WEBP`, `HEIC`), dan kamera live (`getUserMedia` + fallback sistem).
 - **Auto-Scan Client-Side:** Deteksi 4 sudut kertas otomatis, koreksi perspektif (*perspective dewarping*), penyesuaian sudut manual dengan kaca pembesar (*loupe*), rotasi `±90°`, tukar Halaman 1 & 2, serta 4 filter pemindaian (`Original`, `Magic Color`, `Grayscale`, `B&W Crisp`) beserta slider kecerahan & kontras.
-- **Ekstraksi Vision AI Otomatis:** Membaca Nomor SU, Tahun SU, Kode Jenis Hak (`1=M`, `2=U`, `3=B`, `4=P`, `5=L`, `8=W`), dan Nomor Hak 14 digit (terpisah dari NIB 13 digit) melalui Gemini 2.5 Flash dengan indikator skor keyakinan & deteksi salah urutan halaman.
-- **Ekspor PDF Multi-Orientasi:** Menggabungkan Halaman 1 dan Halaman 2 menjadi 1 file PDF di browser (`pdf-lib`) dengan dukungan orientasi campuran (*Landscape/Portrait*) dan kompresi adaptif (`< 1.5 MB`).
-- **Riwayat Sesi Lokal:** Menyimpan daftar file hasil ekspor pada IndexedDB browser untuk mencegah duplikasi berkas.
+- **Ekstraksi Vision AI Otomatis (Entitas + Kecamatan):** Membaca Nomor SU, Tahun SU (1960–sekarang), Kode Jenis Hak (`1=M`, `2=U`, `3=B`, `4=P`, `5=L`, `8=W`), Nomor Hak 14 digit / singkatan lama (`HM. 145`) yang dipisahkan dari NIB 13 digit, serta nama **Kecamatan** (termasuk ejaan lama *Ketjamatan*).
+- **Arsip Subfolder Google Drive Otomatis per Kecamatan:** Menemukan atau membuat subfolder sesuai nama Kecamatan (mis. `/Medan Helvetia/`) di dalam folder induk Google Drive tujuan (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) dan mengunggah PDF langsung melalui Google Apps Script Web App (`docs/google-apps-script-drive.gs`), OAuth2 Refresh Token, atau Service Account.
+- **Ekspor PDF Multi-Orientasi:** Menggabungkan 1 atau 2 halaman menjadi 1 file PDF di browser (`pdf-lib`) dengan dukungan orientasi campuran (*Landscape/Portrait*) dan kompresi adaptif (`< 1.5 MB`).
+- **Riwayat Sesi Lokal:** Menyimpan daftar ekspor PDF (beserta nama Kecamatan & tautan Drive) pada IndexedDB browser untuk mencegah duplikasi berkas.
+
+## API Routes
+
+- `POST /api/extract-su`: Ekstraksi entitas Surat Ukur dan Kecamatan dari gambar teroptimasi via Gemini Vision (`@google/genai` dengan fallback model otomatis).
+- `GET /api/drive/status`: Memeriksa konfigurasi autentikasi Drive di server dan folder induk default.
+- `POST /api/drive/upload`: Memvalidasi PDF Base64 + nama Kecamatan, membuat/menggunakan ulang subfolder Kecamatan pada Google Drive induk, lalu mengunggah PDF.
 
 ## Menjalankan Secara Lokal
 
@@ -22,12 +29,14 @@ Contoh: `SU.00006.2007.M.02246.pdf`
    ```bash
    npm install
    ```
-2. Salin `.env.example` menjadi `.env.local` dan isi salah satu API key Vision AI:
+2. Salin `.env.example` menjadi `.env.local` dan isi `GEMINI_API_KEY`:
    ```env
    GEMINI_API_KEY=isi_api_key_gemini_anda
+   GOOGLE_DRIVE_ROOT_FOLDER_ID=1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub
    ```
-   *(Opsional: mendukung `AI_GATEWAY_API_KEY` untuk Vercel AI Gateway. Tanpa API key, fitur pemindaian & penamaan manual tetap bekerja secara offline).*
-3. Jalankan server pengembangan:
+3. *(Opsional untuk Auto-Subfolder Google Drive)*:
+   - Cara termudah untuk Drive pribadi: salin [docs/google-apps-script-drive.gs](docs/google-apps-script-drive.gs) ke [script.google.com](https://script.google.com/home), Deploy sebagai Web App (`Execute as: Me`, `Who has access: Anyone`), lalu masukkan URL `/exec` ke menu **Google Drive** di aplikasi atau ke `GOOGLE_DRIVE_APPS_SCRIPT_URL` di `.env.local`.
+4. Jalankan server pengembangan:
    ```bash
    npm run dev
    ```

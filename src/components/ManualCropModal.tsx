@@ -91,9 +91,8 @@ export function ManualCropModal({
     ctx.clearRect(0, 0, w, h);
     ctx.drawImage(rotCanvas, 0, 0, w, h);
 
-    // Darken exterior outside selected quadrilateral
     ctx.save();
-    ctx.fillStyle = "rgba(9, 14, 23, 0.48)";
+    ctx.fillStyle = "rgba(17, 17, 17, 0.52)";
     ctx.beginPath();
     ctx.rect(0, 0, w, h);
     ctx.moveTo(corners[0].x * w, corners[0].y * h);
@@ -104,10 +103,9 @@ export function ManualCropModal({
     ctx.fill("evenodd");
     ctx.restore();
 
-    // Polygon outline
     ctx.save();
-    ctx.strokeStyle = "#2dd4bf";
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 3;
     ctx.beginPath();
     corners.forEach((pt, idx) => {
       const px = pt.x * w;
@@ -118,22 +116,20 @@ export function ManualCropModal({
     ctx.closePath();
     ctx.stroke();
 
-    // Corner handles
     corners.forEach((pt, idx) => {
       const px = pt.x * w;
       const py = pt.y * h;
       const isSelected = activeIdx === idx;
       ctx.beginPath();
       ctx.arc(px, py, isSelected ? 12 : 10, 0, Math.PI * 2);
-      ctx.fillStyle = isSelected ? "#0f766e" : "#ffffff";
+      ctx.fillStyle = isSelected ? "#fde047" : "#ffffff";
       ctx.fill();
       ctx.lineWidth = 3;
-      ctx.strokeStyle = isSelected ? "#ffffff" : "#0f766e";
+      ctx.strokeStyle = "#111111";
       ctx.stroke();
     });
     ctx.restore();
 
-    // Draw Magnifier Loupe when dragging or nudging an active corner
     const loupe = loupeCanvasRef.current;
     if (loupe && activeIdx !== null) {
       const lCtx = loupe.getContext("2d");
@@ -145,7 +141,7 @@ export function ManualCropModal({
         const lSize = loupe.width;
 
         lCtx.clearRect(0, 0, lSize, lSize);
-        lCtx.fillStyle = "#0f172a";
+        lCtx.fillStyle = "#111111";
         lCtx.fillRect(0, 0, lSize, lSize);
 
         lCtx.drawImage(
@@ -160,9 +156,8 @@ export function ManualCropModal({
           lSize,
         );
 
-        // Crosshair
-        lCtx.strokeStyle = "#14b8a6";
-        lCtx.lineWidth = 1.5;
+        lCtx.strokeStyle = "#fde047";
+        lCtx.lineWidth = 2;
         lCtx.beginPath();
         lCtx.moveTo(lSize / 2, 0);
         lCtx.lineTo(lSize / 2, lSize);
@@ -264,20 +259,21 @@ export function ManualCropModal({
       title={`Sesuaikan Sudut Kertas — ${pageLabel}`}
       subtitle="Seret 4 titik sudut ke tepi kertas atau gunakan tombol panah keyboard saat sudut dipilih."
       maxWidthClass="max-w-4xl"
+      headerBgClass="bg-[#BAE6FD]"
       footer={
         <>
           <button
             type="button"
             onClick={handleAutoDetect}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--border-control)] bg-[var(--surface-card)] px-3.5 py-2 text-sm font-semibold text-[var(--ink-primary)] transition-colors hover:bg-[var(--surface-muted)]"
+            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FEF08A] px-3.5 py-2 text-xs text-[#111111]"
           >
-            <Scan className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" />
+            <Scan className="h-4 w-4" aria-hidden="true" />
             Deteksi Ulang Otomatis
           </button>
           <button
             type="button"
             onClick={handleFullFrame}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--border-control)] bg-[var(--surface-card)] px-3.5 py-2 text-sm font-semibold text-[var(--ink-primary)] transition-colors hover:bg-[var(--surface-muted)]"
+            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-3.5 py-2 text-xs text-[#111111]"
           >
             <Maximize2 className="h-4 w-4" aria-hidden="true" />
             Pilih Penuh
@@ -288,7 +284,7 @@ export function ManualCropModal({
               setCorners(cloneCorners(initialCorners));
               onClose();
             }}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] px-3.5 py-2 text-sm font-semibold text-[var(--ink-secondary)] transition-colors hover:bg-[var(--surface-muted)]"
+            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FBCFE8] px-3.5 py-2 text-xs text-[#111111]"
           >
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
             Batal
@@ -299,7 +295,7 @@ export function ManualCropModal({
               onApply(cloneCorners(corners));
               onClose();
             }}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-ink)] transition-opacity hover:opacity-90"
+            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#D9F99D] px-4 py-2 text-xs text-[#111111]"
           >
             <Check className="h-4 w-4" aria-hidden="true" />
             Terapkan Crop
@@ -308,7 +304,7 @@ export function ManualCropModal({
       }
     >
       <div className="flex flex-col items-center gap-4">
-        <div className="relative inline-flex max-w-full items-center justify-center overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-slate-900/90 p-2">
+        <div className="nb-card relative inline-flex max-w-full items-center justify-center overflow-hidden bg-[#141414] p-2">
           <canvas
             ref={stageCanvasRef}
             width={canvasDims.width}
@@ -318,27 +314,26 @@ export function ManualCropModal({
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
             style={{ touchAction: "none" }}
-            className="block max-h-[55dvh] max-w-full cursor-crosshair rounded-lg"
+            className="block max-h-[55dvh] max-w-full cursor-crosshair rounded-xl"
           />
 
           {activeIdx !== null ? (
             <div
-              className={`pointer-events-none absolute ${loupeSideClass} flex flex-col items-center gap-1 rounded-xl border-2 border-[var(--accent)] bg-slate-950/90 p-1.5 shadow-xl`}
+              className={`pointer-events-none absolute ${loupeSideClass} flex flex-col items-center gap-1 rounded-2xl border-2 border-[#111111] bg-[#FEF08A] p-1.5 shadow-[3px_3px_0px_#111111]`}
             >
               <canvas
                 ref={loupeCanvasRef}
                 width={128}
                 height={128}
-                className="block h-28 w-28 rounded-full border border-white/25"
+                className="block h-28 w-28 rounded-full border-2 border-[#111111]"
               />
-              <span className="text-[11px] font-semibold text-teal-300">
+              <span className="nb-pill text-[10px]">
                 Loupe · {CORNER_NAMES[activeIdx]}
               </span>
             </div>
           ) : null}
         </div>
 
-        {/* Accessible keyboard corner selection & arrow-key nudge controls */}
         <div className="flex flex-wrap items-center justify-center gap-2">
           {CORNER_NAMES.map((label, idx) => (
             <button
@@ -362,10 +357,10 @@ export function ManualCropModal({
                   nudgeActiveCorner(idx, 0, step);
                 }
               }}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+              className={`nb-btn-sm px-3 py-1.5 text-xs ${
                 activeIdx === idx
-                  ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-ink)]"
-                  : "border-[var(--border-subtle)] bg-[var(--surface-card)] text-[var(--ink-secondary)] hover:bg-[var(--surface-muted)]"
+                  ? "bg-[#111111] text-[#FEF08A]"
+                  : "bg-white text-[#111111]"
               }`}
             >
               {label}

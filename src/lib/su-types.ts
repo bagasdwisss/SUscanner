@@ -59,11 +59,13 @@ export interface AiExtractionConfidence {
   tahun_su: number;
   jenis_hak: number;
   nomor_hak: number;
+  kecamatan: number;
 }
 
 export interface AiRawEvidence {
   teks_nomor_su: string | null;
   teks_nomor_hak: string | null;
+  teks_lokasi: string | null;
 }
 
 export interface AiExtractionResult {
@@ -73,6 +75,7 @@ export interface AiExtractionResult {
   kode_jenis_hak_angka: string | null;
   kode_jenis_hak_huruf: StandardHakCode | null;
   nomor_hak_raw: string | null;
+  kecamatan_raw: string | null;
   nib_terdeteksi: string | null;
   raw_evidence: AiRawEvidence;
   confidence: AiExtractionConfidence;
@@ -86,6 +89,7 @@ export interface SuNamingFields {
   nomorHak: string;
   isCustomHak: boolean;
   customHak: string;
+  kecamatan: string;
 }
 
 export interface FieldConfidenceMeta {
@@ -99,6 +103,7 @@ export interface SuFieldConfidences {
   tahunSu: FieldConfidenceMeta;
   kodeHak: FieldConfidenceMeta;
   nomorHak: FieldConfidenceMeta;
+  kecamatan: FieldConfidenceMeta;
 }
 
 export type AiStatus =
@@ -107,6 +112,32 @@ export type AiStatus =
   | "success"
   | "unconfigured"
   | "error";
+
+export type DriveAuthMode =
+  | "apps-script-env"
+  | "oauth-refresh-env"
+  | "service-account-env"
+  | "unconfigured";
+
+export interface DriveStatusResponse {
+  configured: boolean;
+  mode: DriveAuthMode;
+  defaultRootFolderId: string;
+  defaultRootFolderUrl: string;
+  hasGoogleClientId: boolean;
+}
+
+export interface DriveUploadResult {
+  ok: true;
+  provider: string;
+  fileId: string;
+  fileName: string;
+  fileUrl: string;
+  folderId: string;
+  folderName: string;
+  folderUrl: string;
+  folderCreated: boolean;
+}
 
 export interface SessionHistoryItem {
   id: string;
@@ -118,6 +149,9 @@ export interface SessionHistoryItem {
   tahunSu: string;
   kodeHak: string;
   nomorHak: string;
+  kecamatan?: string;
+  driveFileUrl?: string;
+  driveFolderUrl?: string;
   /** Optional PDF bytes persisted in local IndexedDB for re-download during session */
   pdfBytes?: ArrayBuffer;
 }
