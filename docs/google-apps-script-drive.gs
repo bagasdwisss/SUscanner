@@ -68,9 +68,25 @@ function doPost(e) {
     }
 
     var rootFolderId = String(body.rootFolderId || DEFAULT_ROOT_FOLDER_ID).trim();
+
+    if (body.action === "verify") {
+      var verifyFolder = DriveApp.getFolderById(rootFolderId);
+      return jsonResponse({
+        ok: true,
+        verified: true,
+        nestedSupported: true,
+        service: "SU-Scanner Drive Uploader",
+        folderId: verifyFolder.getId(),
+        folderName: verifyFolder.getName(),
+        folderUrl: verifyFolder.getUrl(),
+      });
+    }
+
     var kecamatan = normalizeKecamatanTitle(body.kecamatan);
     var kelurahan = normalizeKelurahanTitle(body.kelurahan);
-    var filename = String(body.filename || "").trim();
+    var filename = String(body.filename || "")
+      .replace(/[<>:"/\\|?*]/g, "_")
+      .trim();
     var pdfBase64 = String(body.pdfBase64 || "");
 
     if (!kecamatan) {

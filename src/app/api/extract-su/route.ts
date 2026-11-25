@@ -14,6 +14,8 @@ import {
   suExtractionZodSchema,
 } from "@/lib/su-prompt";
 
+export const maxDuration = 60;
+
 const AI_TIMEOUT_MS = 35_000;
 const PER_MODEL_TIMEOUT_MS = 18_000;
 const MAX_IMAGE_BYTES = 4_200_000;

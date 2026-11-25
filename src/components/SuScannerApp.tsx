@@ -152,6 +152,7 @@ export function SuScannerApp() {
   const [isUploadingDrive, setIsUploadingDrive] = useState(false);
   const [lastDriveResult, setLastDriveResult] =
     useState<DriveUploadResult | null>(null);
+  const [lastDriveError, setLastDriveError] = useState<string | null>(null);
   const [driveConfigOpen, setDriveConfigOpen] = useState(false);
 
   // Export & Modals
@@ -224,9 +225,12 @@ export function SuScannerApp() {
     const id = Date.now();
     setToast({ id, kind, text });
     setLiveMessage(text);
-    setTimeout(() => {
-      setToast((curr) => (curr?.id === id ? null : curr));
-    }, 4500);
+    setTimeout(
+      () => {
+        setToast((curr) => (curr?.id === id ? null : curr));
+      },
+      kind === "error" ? 6500 : 4500,
+    );
   }, []);
 
   const runLocalOcrExtraction = useCallback(
@@ -760,6 +764,7 @@ export function SuScannerApp() {
     });
     setWarnings([]);
     setLastDriveResult(null);
+    setLastDriveError(null);
     setExtractionVersion((v) => v + 1);
     setLiveMessage("Workspace direset. Siap memindai dokumen berikutnya.");
   }, [page1, page2]);
@@ -790,13 +795,14 @@ export function SuScannerApp() {
       const kecamatanClean = normalizeKecamatanName(kecamatanInput);
       const kelurahanClean = normalizeKelurahanName(kelurahanInput);
       if (!kecamatanClean) {
-        showToast(
-          "error",
-          "Isi nama Kecamatan terlebih dahulu agar subfolder Drive dapat dibuat.",
-        );
+        const msg =
+          "Isi nama Kecamatan terlebih dahulu agar subfolder Drive dapat dibuat.";
+        setLastDriveError(msg);
+        showToast("error", msg);
         return null;
       }
 
+      setLastDriveError(null);
       setIsUploadingDrive(true);
       try {
         const pdfBase64 = uint8ArrayToBase64(pdfBytes);
@@ -813,19 +819,40 @@ export function SuScannerApp() {
           }),
         });
 
-        const payload = (await res.json()) as
+        const rawText = await res.text();
+        let payload:
           | DriveUploadResult
-          | { ok?: false; error?: string; code?: string };
+          | { ok?: false; error?: string; code?: string }
+          | null = null;
+        try {
+          payload = JSON.parse(rawText) as
+            | DriveUploadResult
+            | { ok?: false; error?: string; code?: string };
+        } catch {
+          payload = null;
+        }
+
+        if (res.status === 413) {
+          const msg =
+            "Ukuran PDF melebihi batas unggahan server (4,5 MB). Gunakan kualitas Standar atau Hemat.";
+          setLastDriveError(msg);
+          showToast("error", msg);
+          return null;
+        }
 
         if (!res.ok || !payload || !("ok" in payload) || payload.ok !== true) {
           const msg =
             (payload && "error" in payload && payload.error) ||
-            "Gagal mengunggah berkas PDF ke Google Drive.";
+            (res.status >= 500
+              ? `Server Drive merespons galat (HTTP ${res.status}). Periksa koneksi atau Tes Koneksi di menu Google Drive.`
+              : "Gagal mengunggah berkas PDF ke Google Drive.");
+          setLastDriveError(msg);
           showToast("error", msg);
           return null;
         }
 
         setLastDriveResult(payload);
+        setLastDriveError(null);
         if (kelurahanClean && payload.nestedSupported === false) {
           showToast(
             "success",
@@ -841,10 +868,10 @@ export function SuScannerApp() {
         }
         return payload;
       } catch {
-        showToast(
-          "error",
-          "Koneksi ke endpoint unggah Google Drive terganggu.",
-        );
+        const msg =
+          "Koneksi ke endpoint unggah Google Drive terganggu. Coba ulangi beberapa detik lagi.";
+        setLastDriveError(msg);
+        showToast("error", msg);
         return null;
       } finally {
         setIsUploadingDrive(false);
@@ -852,6 +879,15 @@ export function SuScannerApp() {
     },
     [appsScriptUrl, driveRootFolderId, showToast],
   );
+
+  const handleToggleAutoUpload = useCallback((nextVal: boolean) => {
+    setAutoUploadOnExport(nextVal);
+    try {
+      localStorage.setItem(DRIVE_AUTO_UPLOAD_STORAGE_KEY, String(nextVal));
+    } catch {
+      // Ignore storage unavailable errors
+    }
+  }, []);
 
   const collectOrderedPages = useCallback(() => {
     return [page1, page2]
@@ -879,8 +915,12 @@ export function SuScannerApp() {
       const kelurahanClean = normalizeKelurahanName(fields.kelurahan);
       let uploaded: DriveUploadResult | null = null;
       if (autoUploadOnExport && driveReady && kecamatanClean) {
+        const uploadBytes =
+          result.bytes.byteLength > 2_850_000
+            ? (await generateSuPdf(pages, pdfQuality, 2_850_000)).bytes
+            : result.bytes;
         uploaded = await performDriveUpload(
-          result.bytes,
+          uploadBytes,
           currentFilename,
           kecamatanClean,
           kelurahanClean,
@@ -911,9 +951,11 @@ export function SuScannerApp() {
           "success",
           autoUploadOnExport && driveReady && !kecamatanClean
             ? `PDF diunduh (${formatBytes(result.sizeBytes)}). Isi Kecamatan untuk upload otomatis ke Drive.`
-            : `PDF berhasil dibuat & diunduh: ${currentFilename} (${formatBytes(
-                result.sizeBytes,
-              )})`,
+            : autoUploadOnExport
+              ? `PDF diunduh (${formatBytes(result.sizeBytes)}), namun gagal diunggah ke Drive.`
+              : `PDF diunduh ke perangkat (${formatBytes(
+                  result.sizeBytes,
+                )}). Klik 'Upload Langsung ke Drive' di bawah untuk menyimpannya ke Drive.`,
         );
       }
     } catch (err) {
@@ -940,7 +982,7 @@ export function SuScannerApp() {
       setDriveConfigOpen(true);
       showToast(
         "error",
-        "Hubungkan Google Drive terlebih dahulu (pengaturan 1 kali), lalu klik Simpan ke Drive lagi.",
+        "Hubungkan Google Drive terlebih dahulu (pengaturan 1 kali), lalu klik Upload Langsung ke Drive lagi.",
       );
       return;
     }
@@ -954,16 +996,17 @@ export function SuScannerApp() {
     const kecamatanClean = normalizeKecamatanName(fields.kecamatan);
     const kelurahanClean = normalizeKelurahanName(fields.kelurahan);
     if (!kecamatanClean) {
-      showToast(
-        "error",
-        "Isi nama Kecamatan terlebih dahulu agar subfolder Drive dapat dibuat.",
-      );
+      const msg =
+        "Isi nama Kecamatan terlebih dahulu agar subfolder Drive dapat dibuat.";
+      setLastDriveError(msg);
+      showToast("error", msg);
       return;
     }
 
     setIsGeneratingPdf(true);
+    setLastDriveError(null);
     try {
-      const result = await generateSuPdf(pages, pdfQuality);
+      const result = await generateSuPdf(pages, pdfQuality, 2_850_000);
       const uploaded = await performDriveUpload(
         result.bytes,
         currentFilename,
@@ -991,10 +1034,10 @@ export function SuScannerApp() {
         setSessionHistory(updatedHistory);
       }
     } catch (err) {
-      showToast(
-        "error",
-        err instanceof Error ? err.message : "Gagal menyusun PDF untuk Drive.",
-      );
+      const msg =
+        err instanceof Error ? err.message : "Gagal menyusun PDF untuk Drive.";
+      setLastDriveError(msg);
+      showToast("error", msg);
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -1351,9 +1394,12 @@ export function SuScannerApp() {
               isGeneratingPdf={isGeneratingPdf}
               isUploadingDrive={isUploadingDrive}
               driveReady={driveReady}
+              autoUploadOnExport={autoUploadOnExport}
+              onToggleAutoUpload={handleToggleAutoUpload}
               driveFolderId={driveRootFolderId}
               driveFolderUrl={driveFolderUrl}
               lastDriveResult={lastDriveResult}
+              lastDriveError={lastDriveError}
               isDuplicateFilename={isDuplicateFilename}
               extractionVersion={extractionVersion}
               onReExtractAi={() => {
@@ -1374,6 +1420,7 @@ export function SuScannerApp() {
               onOpenDriveConfig={() => setDriveConfigOpen(true)}
               onResetWorkspace={handleResetWorkspace}
               onAnnounce={setLiveMessage}
+              onNotifyError={(msg) => showToast("error", msg)}
             />
           </div>
         )}

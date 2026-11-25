@@ -539,11 +539,14 @@ export async function uploadPdfToKecamatanDrive(params: {
     });
   }
 
-  // 2. Explicit Apps Script webhook from env, or explicit client URL
-  const explicitAppsScriptUrl =
-    process.env.GOOGLE_DRIVE_APPS_SCRIPT_URL?.trim() ||
-    params.appsScriptUrl?.trim() ||
-    "";
+  // 2. Explicit Apps Script webhook from env, or explicit client URL (only if valid)
+  const envScriptUrl = validateAppsScriptWebhookUrl(
+    process.env.GOOGLE_DRIVE_APPS_SCRIPT_URL || "",
+  )?.toString();
+  const clientScriptUrl = validateAppsScriptWebhookUrl(
+    params.appsScriptUrl || "",
+  )?.toString();
+  const explicitAppsScriptUrl = envScriptUrl || clientScriptUrl || "";
   if (explicitAppsScriptUrl) {
     return uploadViaAppsScript({
       webhookUrl: explicitAppsScriptUrl,
@@ -601,4 +604,110 @@ export async function uploadPdfToKecamatanDrive(params: {
     "Koneksi Google Drive belum dikonfigurasi.",
     503,
   );
+}
+
+export async function verifyDriveConnection(params: {
+  rootFolderId?: string | null;
+  appsScriptUrl?: string | null;
+}): Promise<{
+  ok: true;
+  mode: string;
+  appsScriptUrl: string | null;
+  nestedSupported: boolean;
+  rootFolderId: string;
+  rootFolderName?: string;
+  rootFolderUrl: string;
+  message: string;
+}> {
+  const rootFolderId = resolveConfiguredRootFolderId(params.rootFolderId);
+  const rootFolderUrl = buildDriveFolderUrl(rootFolderId);
+  const envUrl = validateAppsScriptWebhookUrl(
+    process.env.GOOGLE_DRIVE_APPS_SCRIPT_URL || "",
+  )?.toString();
+  const clientUrl = validateAppsScriptWebhookUrl(
+    params.appsScriptUrl || "",
+  )?.toString();
+  const targetUrl =
+    envUrl ||
+    clientUrl ||
+    validateAppsScriptWebhookUrl(DEFAULT_APPS_SCRIPT_URL)?.toString() ||
+    null;
+
+  if (!targetUrl) {
+    throw new DriveServiceError(
+      "INVALID_APPS_SCRIPT_URL",
+      "URL Web App Apps Script tidak valid.",
+      400,
+    );
+  }
+
+  // First test read-only POST { action: "verify" } (supported by latest .gs)
+  const postRes = await fetch(targetUrl, {
+    method: "POST",
+    redirect: "follow",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      action: "verify",
+      rootFolderId,
+      secret: process.env.GOOGLE_DRIVE_APPS_SCRIPT_SECRET || "",
+    }),
+  });
+  const postText = await postRes.text();
+  if (postRes.status === 403 || postText.trim().startsWith("<")) {
+    throw new DriveServiceError(
+      "APPS_SCRIPT_PERMISSION_DENIED",
+      "Akses Google Apps Script Web App ditolak (HTTP 403 / halaman login). Pastikan Deploy diatur ke Anyone / Siapa saja.",
+      403,
+    );
+  }
+
+  const postJson = JSON.parse(postText) as Record<string, unknown>;
+  if (postJson.ok && postJson.verified) {
+    return {
+      ok: true,
+      mode: envUrl ? "apps-script-env" : clientUrl ? "apps-script-client" : "apps-script-default",
+      appsScriptUrl: targetUrl,
+      nestedSupported: Boolean(postJson.nestedSupported),
+      rootFolderId,
+      rootFolderName:
+        typeof postJson.folderName === "string" ? postJson.folderName : undefined,
+      rootFolderUrl:
+        typeof postJson.folderUrl === "string" ? postJson.folderUrl : rootFolderUrl,
+      message: `Terhubung ke folder "${String(postJson.folderName || rootFolderId)}" (Kecamatan & Kelurahan siap dibuat otomatis).`,
+    };
+  }
+
+  // Fallback GET ping if user hasn't added action==="verify" in .gs yet
+  const getRes = await fetch(targetUrl, { redirect: "follow" });
+  const getText = await getRes.text();
+  if (getRes.status === 403 || getText.trim().startsWith("<")) {
+    throw new DriveServiceError(
+      "APPS_SCRIPT_PERMISSION_DENIED",
+      "Akses Google Apps Script Web App ditolak (HTTP 403). Atur akses Web App menjadi Anyone / Siapa saja.",
+      403,
+    );
+  }
+  const getJson = JSON.parse(getText) as Record<string, unknown>;
+  if (!getJson.ok) {
+    throw new DriveServiceError(
+      "APPS_SCRIPT_ERROR",
+      typeof getJson.error === "string"
+        ? getJson.error
+        : "Google Apps Script merespons galat saat verifikasi.",
+      502,
+    );
+  }
+
+  return {
+    ok: true,
+    mode: envUrl ? "apps-script-env" : clientUrl ? "apps-script-client" : "apps-script-default",
+    appsScriptUrl: targetUrl,
+    nestedSupported: getJson.nestedSupported === true,
+    rootFolderId,
+    rootFolderUrl,
+    message:
+      getJson.nestedSupported === true
+        ? "Web App Apps Script terhubung & mendukung subfolder Kecamatan + Kelurahan."
+        : "Web App Apps Script terhubung (versi lama: disarankan perbarui kode script & Deploy New version).",
+  };
 }

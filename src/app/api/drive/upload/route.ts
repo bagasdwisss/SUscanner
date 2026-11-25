@@ -5,6 +5,8 @@ import {
   uploadPdfToKecamatanDrive,
 } from "@/lib/drive-service";
 
+export const maxDuration = 60;
+
 const uploadBodySchema = z.object({
   filename: z.string().trim().min(1).max(180),
   kecamatan: z.string().trim().min(1).max(120),

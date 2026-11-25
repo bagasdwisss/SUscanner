@@ -56,6 +56,11 @@ export function DriveConfigDialog({
   const [autoDraft, setAutoDraft] = useState(autoUploadOnExport);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedScript, setCopiedScript] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [verifyFeedback, setVerifyFeedback] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
 
   const urlId = useId();
   const folderId = useId();
@@ -69,6 +74,49 @@ export function DriveConfigDialog({
   const serverConfigured = Boolean(serverStatus?.configured);
   const browserConfigured = Boolean(validateAppsScriptWebhookUrl(urlDraft));
   const isReady = serverConfigured || browserConfigured;
+
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    setVerifyFeedback(null);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/drive/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rootFolderId: resolvedFolderId,
+          appsScriptUrl: urlDraft.trim() || DEFAULT_APPS_SCRIPT_URL,
+        }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      } | null;
+      if (res.ok && json?.ok) {
+        setVerifyFeedback({
+          ok: true,
+          message:
+            json.message ||
+            "Koneksi Google Drive & Web App Apps Script aktif!",
+        });
+      } else {
+        setVerifyFeedback({
+          ok: false,
+          message:
+            json?.error ||
+            `Gagal memverifikasi Drive (HTTP ${res.status}). Periksa URL /exec dan izin Deploy = Anyone.`,
+        });
+      }
+    } catch {
+      setVerifyFeedback({
+        ok: false,
+        message: "Gagal menghubungi server verifikasi Drive.",
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
 
   const handleCopyScript = async () => {
     try {
@@ -213,7 +261,7 @@ export function DriveConfigDialog({
             />
             <span>
               Otomatis unggah ke Google Drive setiap kali menekan{" "}
-              <strong>Buat &amp; Unduh PDF</strong>
+              <strong>Simpan &amp; Download PDF</strong>
             </span>
           </label>
         </div>
@@ -248,6 +296,31 @@ export function DriveConfigDialog({
               className="su-control w-full rounded-xl px-3.5 py-2 font-mono text-xs font-bold"
             />
           </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={isTesting}
+              onClick={() => void handleTestConnection()}
+              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-[#D9F99D] px-3 py-1.5 text-xs font-extrabold text-[#111111] disabled:opacity-55"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+              {isTesting
+                ? "Menguji Koneksi Drive…"
+                : "Tes Koneksi & Cek Akses Folder"}
+            </button>
+          </div>
+
+          {verifyFeedback ? (
+            <p
+              role="status"
+              className={`rounded-xl border-2 border-[#111111] px-3 py-2 text-xs font-extrabold text-[#111111] ${
+                verifyFeedback.ok ? "bg-[#D9F99D]" : "bg-[#FECACA]"
+              }`}
+            >
+              {verifyFeedback.message}
+            </p>
+          ) : null}
 
           <div className="rounded-xl border-2 border-[#111111] bg-white p-3.5 text-xs space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">

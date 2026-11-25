@@ -66,6 +66,39 @@ async function reencodeJpegBytes(
   };
 }
 
+async function encodePdfDocument(
+  pages: PdfPageInput[],
+  maxSide: number,
+  quality: number,
+): Promise<Uint8Array> {
+  const encodedPages = await Promise.all(
+    pages.map((p) => reencodeJpegBytes(p.dataUrl, maxSide, quality)),
+  );
+
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.setTitle("Surat Ukur (SU) - Arsip Digital");
+  pdfDoc.setProducer("SU-Scanner");
+
+  for (const ep of encodedPages) {
+    const embedded = await pdfDoc.embedJpg(ep.bytes);
+    // Normalize longer side to A4 long edge (~841.89 pt) while preserving exact aspect ratio
+    const longSidePx = Math.max(ep.width, ep.height);
+    const ptScale = 841.89 / Math.max(1, longSidePx);
+    const pageWidth = ep.width * ptScale;
+    const pageHeight = ep.height * ptScale;
+
+    const page = pdfDoc.addPage([pageWidth, pageHeight]);
+    page.drawImage(embedded, {
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: pageHeight,
+    });
+  }
+
+  return pdfDoc.save({ useObjectStreams: true });
+}
+
 /**
  * Generates a mixed-orientation multi-page PDF matching each page's natural
  * aspect ratio without cropping edges, with adaptive JPEG compression (FR-12..14).
@@ -73,54 +106,39 @@ async function reencodeJpegBytes(
 export async function generateSuPdf(
   pages: PdfPageInput[],
   preset: PdfQualityPreset,
+  maxBytesOverride?: number,
 ): Promise<PdfGenerationResult> {
   if (pages.length === 0) {
     throw new Error("Minimal 1 halaman diperlukan untuk membuat PDF.");
   }
 
   const config = PRESET_CONFIG[preset];
+  const targetMaxBytes = maxBytesOverride
+    ? Math.min(config.targetMaxBytes, maxBytesOverride)
+    : config.targetMaxBytes;
   const qualitySteps =
     preset === "high"
-      ? [config.startQuality, 0.8, 0.72]
+      ? [config.startQuality, 0.8, 0.72, 0.6, 0.5]
       : [config.startQuality, config.startQuality - 0.1, config.startQuality - 0.18, 0.52];
 
   let lastBytes: Uint8Array = new Uint8Array();
   let lastQuality = config.startQuality;
 
   for (const quality of qualitySteps) {
-    const q = Math.max(0.48, Math.min(0.92, quality));
-    const encodedPages = await Promise.all(
-      pages.map((p) => reencodeJpegBytes(p.dataUrl, config.maxSide, q)),
-    );
-
-    const pdfDoc = await PDFDocument.create();
-    pdfDoc.setTitle("Surat Ukur (SU) - Arsip Digital");
-    pdfDoc.setProducer("SU-Scanner");
-
-    for (const ep of encodedPages) {
-      const embedded = await pdfDoc.embedJpg(ep.bytes);
-      // Normalize longer side to A4 long edge (~841.89 pt) while preserving exact aspect ratio
-      const longSidePx = Math.max(ep.width, ep.height);
-      const ptScale = 841.89 / Math.max(1, longSidePx);
-      const pageWidth = ep.width * ptScale;
-      const pageHeight = ep.height * ptScale;
-
-      const page = pdfDoc.addPage([pageWidth, pageHeight]);
-      page.drawImage(embedded, {
-        x: 0,
-        y: 0,
-        width: pageWidth,
-        height: pageHeight,
-      });
-    }
-
-    const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
+    const q = Math.max(0.45, Math.min(0.92, quality));
+    const pdfBytes = await encodePdfDocument(pages, config.maxSide, q);
     lastBytes = pdfBytes;
     lastQuality = q;
 
-    if (pdfBytes.byteLength <= config.targetMaxBytes) {
+    if (pdfBytes.byteLength <= targetMaxBytes) {
       break;
     }
+  }
+
+  // Ensure Vercel Serverless 4.5 MB JSON body limit (~3.0 MB binary PDF) is never exceeded
+  if (maxBytesOverride && lastBytes.byteLength > maxBytesOverride) {
+    lastBytes = await encodePdfDocument(pages, 1350, 0.48);
+    lastQuality = 0.48;
   }
 
   const normalizedBuffer = new Uint8Array(lastBytes).buffer;

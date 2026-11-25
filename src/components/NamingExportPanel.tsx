@@ -69,9 +69,12 @@ interface NamingExportPanelProps {
   isGeneratingPdf: boolean;
   isUploadingDrive: boolean;
   driveReady: boolean;
+  autoUploadOnExport: boolean;
+  onToggleAutoUpload: (next: boolean) => void;
   driveFolderId: string;
   driveFolderUrl: string;
   lastDriveResult: DriveUploadResult | null;
+  lastDriveError: string | null;
   isDuplicateFilename: boolean;
   extractionVersion: number;
   onReExtractAi: () => void;
@@ -82,6 +85,7 @@ interface NamingExportPanelProps {
   onOpenDriveConfig: () => void;
   onResetWorkspace: () => void;
   onAnnounce: (message: string) => void;
+  onNotifyError: (message: string) => void;
 }
 
 function ConfidenceBadge({ meta }: { meta: FieldConfidenceMeta }) {
@@ -143,9 +147,12 @@ export function NamingExportPanel({
   isGeneratingPdf,
   isUploadingDrive,
   driveReady,
+  autoUploadOnExport,
+  onToggleAutoUpload,
   driveFolderId,
   driveFolderUrl,
   lastDriveResult,
+  lastDriveError,
   isDuplicateFilename,
   extractionVersion,
   onReExtractAi,
@@ -156,6 +163,7 @@ export function NamingExportPanel({
   onOpenDriveConfig,
   onResetWorkspace,
   onAnnounce,
+  onNotifyError,
 }: NamingExportPanelProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const nomorSuRef = useRef<HTMLInputElement>(null);
@@ -245,25 +253,50 @@ export function NamingExportPanel({
   const validateForAction = (): boolean => {
     markSubmitAttempted();
     if (pageCount === 0) {
-      onAnnounce("Unggah minimal 1 halaman Surat Ukur terlebih dahulu.");
+      const msg = "Unggah minimal 1 halaman Surat Ukur terlebih dahulu.";
+      onAnnounce(msg);
+      onNotifyError(msg);
       return false;
     }
 
     if (namingMode === "standard") {
       if (!validation.valid) {
-        if (validation.errors.nomorSu) nomorSuRef.current?.focus();
-        else if (validation.errors.tahunSu) tahunSuRef.current?.focus();
-        else if (validation.errors.kodeHak) {
-          if (fields.isCustomHak) customHakRef.current?.focus();
-          else kodeHakRef.current?.focus();
-        } else if (validation.errors.nomorHak) nomorHakRef.current?.focus();
+        const firstInvalid = validation.errors.nomorSu
+          ? nomorSuRef.current
+          : validation.errors.tahunSu
+            ? tahunSuRef.current
+            : validation.errors.kodeHak
+              ? fields.isCustomHak
+                ? customHakRef.current
+                : kodeHakRef.current
+              : validation.errors.nomorHak
+                ? nomorHakRef.current
+                : null;
+        firstInvalid?.focus();
+        firstInvalid?.scrollIntoView({ behavior: "smooth", block: "center" });
 
-        onAnnounce("Terdapat kolom penamaan Surat Ukur yang belum valid.");
+        const missingNames = [
+          validation.errors.nomorSu && "Nomor SU",
+          validation.errors.tahunSu && "Tahun SU",
+          validation.errors.kodeHak && "Jenis Hak",
+          validation.errors.nomorHak && "Nomor Hak",
+        ]
+          .filter(Boolean)
+          .join(", ");
+        const msg = `Lengkapi kolom wajib terlebih dahulu: ${missingNames}.`;
+        onAnnounce(msg);
+        onNotifyError(msg);
         return false;
       }
     } else if (!customFilename.trim()) {
       customFileRef.current?.focus();
-      onAnnounce("Masukkan nama file PDF terlebih dahulu.");
+      customFileRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      const msg = "Masukkan nama file PDF terlebih dahulu.";
+      onAnnounce(msg);
+      onNotifyError(msg);
       return false;
     }
     return true;
@@ -279,9 +312,14 @@ export function NamingExportPanel({
     if (!validateForAction()) return;
     if (!normalizedKecamatan) {
       kecamatanRef.current?.focus();
-      onAnnounce(
-        "Isi nama Kecamatan terlebih dahulu agar subfolder Drive dapat dibuat.",
-      );
+      kecamatanRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      const msg =
+        "Isi kolom Kecamatan terlebih dahulu agar subfolder Google Drive dapat dibuat.";
+      onAnnounce(msg);
+      onNotifyError(msg);
       return;
     }
     onUploadToDrive();
@@ -1026,6 +1064,19 @@ export function NamingExportPanel({
             </select>
           </div>
 
+          <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border-2 border-[#111111] bg-white px-3 py-2 text-xs font-extrabold text-[#111111]">
+            <input
+              type="checkbox"
+              checked={autoUploadOnExport}
+              onChange={(e) => onToggleAutoUpload(e.target.checked)}
+              className="h-4 w-4 shrink-0"
+            />
+            <span>
+              Sekaligus upload ke Google Drive saat{" "}
+              <strong>Simpan &amp; Download</strong>
+            </span>
+          </label>
+
           <button
             type="submit"
             disabled={isGeneratingPdf || isUploadingDrive || pageCount === 0}
@@ -1095,6 +1146,25 @@ export function NamingExportPanel({
                 {finalFilename}
               </p>
             </div>
+
+            {lastDriveError ? (
+              <div
+                role="alert"
+                className="rounded-lg border-2 border-[#111111] bg-[#FECACA] p-2.5 text-xs space-y-1.5"
+              >
+                <p className="font-extrabold text-[#111111]">
+                  Upload Google Drive Gagal: {lastDriveError}
+                </p>
+                <button
+                  type="button"
+                  onClick={onOpenDriveConfig}
+                  className="nb-btn-sm inline-flex items-center gap-1 bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#111111]"
+                >
+                  <Settings className="h-3 w-3" aria-hidden="true" />
+                  Cek Koneksi &amp; Pengaturan Drive
+                </button>
+              </div>
+            ) : null}
 
             {lastDriveResult ? (
               <div className="rounded-lg border-2 border-[#111111] bg-[#D9F99D] p-2.5 text-xs space-y-1.5">
