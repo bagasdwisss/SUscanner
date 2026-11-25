@@ -8,11 +8,11 @@ import {
   ExternalLink,
   FolderOpen,
   RotateCcw,
-  Trash2,
 } from "lucide-react";
 import { AppDialog } from "./AppDialog";
 import {
   buildDriveFolderUrl,
+  DEFAULT_APPS_SCRIPT_URL,
   GOOGLE_APPS_SCRIPT_TEMPLATE,
   validateAppsScriptWebhookUrl,
 } from "@/lib/drive-config";
@@ -47,7 +47,9 @@ export function DriveConfigDialog({
   onSaveConfig,
   onClearAppsScript,
 }: DriveConfigDialogProps) {
-  const [urlDraft, setUrlDraft] = useState(appsScriptUrl);
+  const [urlDraft, setUrlDraft] = useState(
+    appsScriptUrl || DEFAULT_APPS_SCRIPT_URL,
+  );
   const [folderDraft, setFolderDraft] = useState(
     rootFolderInput || DEFAULT_DRIVE_ROOT_FOLDER_ID,
   );
@@ -88,8 +90,8 @@ export function DriveConfigDialog({
       return;
     }
 
-    const trimmedUrl = urlDraft.trim();
-    if (trimmedUrl && !validateAppsScriptWebhookUrl(trimmedUrl)) {
+    const trimmedUrl = urlDraft.trim() || DEFAULT_APPS_SCRIPT_URL;
+    if (!validateAppsScriptWebhookUrl(trimmedUrl)) {
       setErrorMsg(
         "URL Google Apps Script harus diawali https://script.google.com/macros/s/...",
       );
@@ -218,20 +220,18 @@ export function DriveConfigDialog({
         {/* Apps Script Setup */}
         <div className="nb-card bg-[#FEF08A] p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="nb-pill">2. Cara Tercepat · Google Apps Script Web App</span>
-            {urlDraft ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setUrlDraft("");
-                  onClearAppsScript();
-                }}
-                className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-[#FBCFE8] px-2.5 py-1 text-[11px] text-[#111111]"
-              >
-                <Trash2 className="h-3 w-3" aria-hidden="true" />
-                Hapus URL
-              </button>
-            ) : null}
+            <span className="nb-pill">2. URL Web App Google Apps Script (Tertanam Permanen)</span>
+            <button
+              type="button"
+              onClick={() => {
+                setUrlDraft(DEFAULT_APPS_SCRIPT_URL);
+                onClearAppsScript();
+              }}
+              className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-white px-2.5 py-1 text-[11px] text-[#111111]"
+            >
+              <RotateCcw className="h-3 w-3" aria-hidden="true" />
+              Gunakan URL Bawaan
+            </button>
           </div>
 
           <div>
@@ -251,7 +251,7 @@ export function DriveConfigDialog({
           <div className="rounded-xl border-2 border-[#111111] bg-white p-3.5 text-xs space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="font-extrabold text-[#111111]">
-                Langkah pasang 2 menit (tanpa Google Cloud Console / tanpa kartu kredit):
+                Pastikan pengaturan Deploy Apps Script Anda seperti berikut:
               </p>
               <button
                 type="button"
@@ -273,7 +273,10 @@ export function DriveConfigDialog({
             </div>
             <ol className="list-decimal space-y-1 pl-4 font-semibold text-[#3F3F46]">
               <li>
-                Buka{" "}
+                Script otomatis mencari subfolder Kecamatan di folder induk (jika sudah ada, PDF dimasukkan ke folder yang ada tanpa membuat folder duplikat).
+              </li>
+              <li>
+                Di{" "}
                 <a
                   href="https://script.google.com/home"
                   target="_blank"
@@ -281,16 +284,18 @@ export function DriveConfigDialog({
                   className="font-extrabold text-[#111111] underline"
                 >
                   script.google.com
-                </a>{" "}
-                dengan akun Google pemilik folder Drive di atas, lalu klik <strong>New project</strong>.
+                </a>
+                , klik <strong>Deploy → Manage deployments → Edit</strong>.
               </li>
               <li>
-                Klik tombol <strong>Salin Kode Apps Script</strong> di atas dan tempelkan ke editor script.
-              </li>
-              <li>
-                Klik <strong>Deploy → New deployment → Web app</strong>. Atur{" "}
-                <strong>Execute as: Me</strong> dan <strong>Who has access: Anyone</strong>, lalu salin URL{" "}
-                <code className="font-mono">/exec</code> ke kolom di atas.
+                Pastikan{" "}
+                <strong>Execute as / Jalankan sebagai: Me (akun Anda)</strong>{" "}
+                dan{" "}
+                <strong>
+                  Who has access / Yang memiliki akses: Anyone (Siapa saja)
+                </strong>{" "}
+                — jangan pilih <em>Only myself</em> atau{" "}
+                <em>Anyone with Google account</em> agar server bisa mengaksesnya.
               </li>
             </ol>
           </div>

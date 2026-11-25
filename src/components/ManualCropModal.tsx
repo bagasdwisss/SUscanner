@@ -325,7 +325,7 @@ export function ManualCropModal({
                 ref={loupeCanvasRef}
                 width={128}
                 height={128}
-                className="block h-28 w-28 rounded-full border-2 border-[#111111]"
+                className="block h-20 w-20 rounded-full border-2 border-[#111111] sm:h-28 sm:w-28"
               />
               <span className="nb-pill text-[10px]">
                 Loupe · {CORNER_NAMES[activeIdx]}
@@ -334,7 +334,7 @@ export function ManualCropModal({
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-2">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-center">
           {CORNER_NAMES.map((label, idx) => (
             <button
               key={label}

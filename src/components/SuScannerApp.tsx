@@ -21,6 +21,7 @@ import { DriveConfigDialog } from "./DriveConfigDialog";
 import {
   APPS_SCRIPT_STORAGE_KEY,
   buildDriveFolderUrl,
+  DEFAULT_APPS_SCRIPT_URL,
   DRIVE_AUTO_UPLOAD_STORAGE_KEY,
   DRIVE_ROOT_STORAGE_KEY,
   validateAppsScriptWebhookUrl,
@@ -122,7 +123,7 @@ export function SuScannerApp() {
   const [driveStatus, setDriveStatus] = useState<DriveStatusResponse | null>(
     null,
   );
-  const [appsScriptUrl, setAppsScriptUrl] = useState("");
+  const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL);
   const [driveRootFolderId, setDriveRootFolderId] = useState(
     DEFAULT_DRIVE_ROOT_FOLDER_ID,
   );
@@ -177,6 +178,8 @@ export function SuScannerApp() {
 
         if (storedUrl && validateAppsScriptWebhookUrl(storedUrl)) {
           setAppsScriptUrl(storedUrl);
+        } else {
+          setAppsScriptUrl(DEFAULT_APPS_SCRIPT_URL);
         }
         if (storedRoot) {
           setDriveRootFolderId(storedRoot);
@@ -537,7 +540,9 @@ export function SuScannerApp() {
   );
 
   const driveReady = Boolean(
-    driveStatus?.configured || validateAppsScriptWebhookUrl(appsScriptUrl),
+    driveStatus?.configured ||
+      validateAppsScriptWebhookUrl(appsScriptUrl) ||
+      validateAppsScriptWebhookUrl(DEFAULT_APPS_SCRIPT_URL),
   );
   const driveFolderUrl = buildDriveFolderUrl(driveRootFolderId);
 
@@ -587,8 +592,8 @@ export function SuScannerApp() {
         showToast(
           "success",
           payload.folderCreated
-            ? `Subfolder "${payload.folderName}" baru dibuat & ${payload.fileName} diunggah ke Drive!`
-            : `Berkas ${payload.fileName} disimpan ke subfolder "${payload.folderName}".`,
+            ? `Subfolder baru "${payload.folderName}" dibuat & ${payload.fileName} disimpan ke Drive!`
+            : `Subfolder "${payload.folderName}" sudah ada — ${payload.fileName} dimasukkan ke folder tersebut.`,
         );
         return payload;
       } catch {
@@ -832,20 +837,28 @@ export function SuScannerApp() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-[#F6F5F0] lg:grid lg:grid-cols-[276px_minmax(0,1fr)]">
-      {/* Split-Tone Dark Sidebar (Desktop) & Top Dark Bar (Mobile) */}
+      {/* Split-Tone Dark Sidebar (Desktop) & Top Dark Bar (Mobile & Tablet) */}
       <aside className="nb-dark-sidebar border-b-2 border-[#111111] lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:justify-between lg:border-b-0 lg:border-r-2 lg:overflow-y-auto">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 lg:flex-col lg:items-stretch lg:gap-5 lg:p-5">
-          {/* Brand Identity */}
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 border-[#F6F5F0] bg-[#FEF08A] text-[#111111] shadow-[3px_3px_0px_#FBCFE8]">
-              <ScanLine className="h-5 w-5" aria-hidden="true" />
+        <div className="flex flex-col gap-3 px-3.5 py-3 sm:px-5 sm:py-3.5 lg:gap-5 lg:p-5">
+          {/* Brand Identity + Compact Mobile Status Pill */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border-2 border-[#F6F5F0] bg-[#FEF08A] text-[#111111] shadow-[3px_3px_0px_#FBCFE8] sm:h-11 sm:w-11">
+                <ScanLine className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div>
+                <span className="block text-base font-black tracking-tight text-[#F6F5F0]">
+                  SU-Scanner
+                </span>
+                <span className="block text-[10px] font-extrabold tracking-[0.1em] text-[#FEF08A] uppercase">
+                  ATR/BPN Archive Studio
+                </span>
+              </div>
             </div>
-            <div>
-              <span className="block text-base font-black tracking-tight text-[#F6F5F0]">
-                SU-Scanner Pro
-              </span>
-              <span className="block text-[10px] font-extrabold tracking-[0.1em] text-[#FEF08A] uppercase">
-                ATR/BPN Archive Studio
+
+            <div className="flex items-center gap-2 lg:hidden">
+              <span className="rounded-xl border border-[#3F3F46] bg-[#1F1F24] px-2.5 py-1 font-mono text-xs font-extrabold text-[#D9F99D]">
+                0{loadedPagesCount}/02 Hal
               </span>
             </div>
           </div>
@@ -853,13 +866,13 @@ export function SuScannerApp() {
           {/* Navigation & Actions */}
           <nav
             aria-label="Utilitas Aplikasi"
-            className="flex flex-wrap items-center gap-2 lg:flex-col lg:items-stretch lg:gap-2.5"
+            className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:flex-col lg:items-stretch lg:gap-2.5"
           >
             {hasWorkspace ? (
               <button
                 type="button"
                 onClick={handleResetWorkspace}
-                className="nb-btn-sm inline-flex min-h-10 items-center justify-center gap-1.5 bg-[#FDE047] px-3.5 py-2 text-xs text-[#111111] lg:w-full"
+                className="nb-btn-sm col-span-2 inline-flex min-h-11 items-center justify-center gap-1.5 bg-[#FDE047] px-3.5 py-2 text-xs text-[#111111] sm:col-span-1 lg:w-full"
               >
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 <span>Scan Baru</span>
@@ -869,11 +882,11 @@ export function SuScannerApp() {
             <button
               type="button"
               onClick={() => setHistoryOpen(true)}
-              className="nb-btn-sm inline-flex min-h-10 items-center justify-between gap-2 bg-[#1F1F24] px-3.5 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] lg:w-full"
+              className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:px-3.5 lg:w-full"
             >
-              <span className="inline-flex items-center gap-2">
-                <History className="h-4 w-4 text-[#FBCFE8]" aria-hidden="true" />
-                <span>Riwayat Sesi ({sessionHistory.length})</span>
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <History className="h-4 w-4 shrink-0 text-[#FBCFE8]" aria-hidden="true" />
+                <span className="truncate">Riwayat ({sessionHistory.length})</span>
               </span>
               <span className="hidden rounded-full bg-[#FBCFE8] px-2 py-0.5 font-mono text-[11px] font-black text-[#111111] lg:inline-block">
                 {sessionHistory.length}
@@ -883,25 +896,25 @@ export function SuScannerApp() {
             <button
               type="button"
               onClick={() => setGuideOpen(true)}
-              className="nb-btn-sm inline-flex min-h-10 items-center justify-between gap-2 bg-[#1F1F24] px-3.5 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] lg:w-full"
+              className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:px-3.5 lg:w-full"
             >
-              <span className="inline-flex items-center gap-2">
-                <BookOpen className="h-4 w-4 text-[#BAE6FD]" aria-hidden="true" />
-                <span>Panduan &amp; Shortcut</span>
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <BookOpen className="h-4 w-4 shrink-0 text-[#BAE6FD]" aria-hidden="true" />
+                <span className="truncate">Panduan</span>
               </span>
             </button>
 
             <button
               type="button"
               onClick={() => setDriveConfigOpen(true)}
-              className="nb-btn-sm inline-flex min-h-10 items-center justify-between gap-2 bg-[#1F1F24] px-3.5 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] lg:w-full"
+              className="nb-btn-sm col-span-2 inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:col-span-1 sm:px-3.5 lg:w-full"
             >
-              <span className="inline-flex items-center gap-2">
-                <FolderOpen className="h-4 w-4 text-[#D9F99D]" aria-hidden="true" />
-                <span>Google Drive</span>
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <FolderOpen className="h-4 w-4 shrink-0 text-[#D9F99D]" aria-hidden="true" />
+                <span className="truncate">Google Drive</span>
               </span>
               <span
-                className={`hidden rounded-full px-2 py-0.5 text-[10px] font-black text-[#111111] lg:inline-block ${
+                className={`rounded-full px-2 py-0.5 text-[10px] font-black text-[#111111] ${
                   driveReady ? "bg-[#D9F99D]" : "bg-[#FEF08A]"
                 }`}
               >
@@ -988,7 +1001,7 @@ export function SuScannerApp() {
             isDecoding={isDecoding}
           />
         ) : (
-          <div className="mx-auto grid w-full max-w-[1400px] flex-1 grid-cols-1 gap-5 p-4 sm:p-5 xl:grid-cols-[minmax(0,63fr)_minmax(340px,37fr)]">
+          <div className="mx-auto grid w-full max-w-[1400px] flex-1 grid-cols-1 gap-4 p-3 sm:gap-5 sm:p-5 xl:grid-cols-[minmax(0,63fr)_minmax(340px,37fr)]">
             <DocumentWorkspacePanel
               activeTab={activeTab}
               onSelectTab={setActiveTab}
@@ -1052,7 +1065,7 @@ export function SuScannerApp() {
       {toast ? (
         <div
           role="status"
-          className={`nb-card fixed bottom-4 right-4 z-40 flex max-w-md items-start gap-2.5 px-4 py-3 text-sm font-extrabold text-[#111111] ${
+          className={`nb-card fixed bottom-3 left-3 right-3 z-40 flex items-start gap-2.5 px-4 py-3 text-xs font-extrabold text-[#111111] sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-md sm:text-sm ${
             toast.kind === "success" ? "bg-[#D9F99D]" : "bg-[#FBCFE8]"
           }`}
         >
@@ -1128,12 +1141,24 @@ export function SuScannerApp() {
           rootFolderId: nextRoot,
           autoUploadOnExport: nextAuto,
         }) => {
-          setAppsScriptUrl(nextUrl);
+          if (!nextUrl || nextUrl === DEFAULT_APPS_SCRIPT_URL) {
+            setAppsScriptUrl(DEFAULT_APPS_SCRIPT_URL);
+            try {
+              localStorage.removeItem(APPS_SCRIPT_STORAGE_KEY);
+            } catch {
+              // Ignore
+            }
+          } else {
+            setAppsScriptUrl(nextUrl);
+            try {
+              localStorage.setItem(APPS_SCRIPT_STORAGE_KEY, nextUrl);
+            } catch {
+              // Ignore
+            }
+          }
           setDriveRootFolderId(nextRoot);
           setAutoUploadOnExport(nextAuto);
           try {
-            if (nextUrl) localStorage.setItem(APPS_SCRIPT_STORAGE_KEY, nextUrl);
-            else localStorage.removeItem(APPS_SCRIPT_STORAGE_KEY);
             localStorage.setItem(DRIVE_ROOT_STORAGE_KEY, nextRoot);
             localStorage.setItem(
               DRIVE_AUTO_UPLOAD_STORAGE_KEY,
@@ -1145,13 +1170,16 @@ export function SuScannerApp() {
           showToast("success", "Pengaturan Google Drive disimpan.");
         }}
         onClearAppsScript={() => {
-          setAppsScriptUrl("");
+          setAppsScriptUrl(DEFAULT_APPS_SCRIPT_URL);
           try {
             localStorage.removeItem(APPS_SCRIPT_STORAGE_KEY);
           } catch {
             // Ignore
           }
-          showToast("success", "URL Apps Script lokal telah dihapus.");
+          showToast(
+            "success",
+            "URL Google Apps Script dikembalikan ke URL bawaan sistem.",
+          );
         }}
       />
     </div>

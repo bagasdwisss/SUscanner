@@ -115,6 +115,7 @@ export type AiStatus =
 
 export type DriveAuthMode =
   | "apps-script-env"
+  | "apps-script-default"
   | "oauth-refresh-env"
   | "service-account-env"
   | "unconfigured";
@@ -124,6 +125,7 @@ export interface DriveStatusResponse {
   mode: DriveAuthMode;
   defaultRootFolderId: string;
   defaultRootFolderUrl: string;
+  defaultAppsScriptUrl: string;
   hasGoogleClientId: boolean;
 }
 

@@ -1,16 +1,13 @@
 /**
- * Google Apps Script (doPost Web App) untuk integrasi langsung SU-Scanner Pro ke Google Drive.
+ * Google Apps Script (doPost Web App) untuk integrasi langsung SU-Scanner ke Google Drive.
  *
- * Cara pasang (~2 menit, tanpa Google Cloud Console / tanpa OAuth Verification):
+ * Cara pasang / update Web App:
  * 1. Buka https://script.google.com/home menggunakan akun Google pemilik folder Drive tujuan.
- * 2. Klik "New project" / "Proyek baru", hapus isi default, lalu tempel seluruh kode ini.
- * 3. Klik "Deploy" -> "New deployment" -> pilih tipe "Web app":
- *    - Description: SU-Scanner Drive Uploader
+ * 2. Klik "New project" / buka proyek SU-Scanner Drive Uploader, lalu tempel seluruh kode ini.
+ * 3. Klik "Deploy" -> "New deployment" (atau "Manage deployments" -> Edit -> New version):
  *    - Execute as: Me (email Anda)
- *    - Who has access: Anyone (atau Anyone with Google account)
- * 4. Klik "Deploy", klik "Authorize access" -> pilih akun Google Anda -> Allow.
- * 5. Salin "Web app URL" (berakhiran /exec), lalu tempel ke menu "Pengaturan Drive" di aplikasi
- *    atau masukkan ke .env.local sebagai GOOGLE_DRIVE_APPS_SCRIPT_URL.
+ *    - Who has access / Yang memiliki akses: Anyone / Siapa saja (WAJIB, bukan "Anyone with Google account")
+ * 4. URL /exec sudah terpasang permanen di aplikasi SU-Scanner.
  */
 
 var DEFAULT_ROOT_FOLDER_ID = "1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub";
@@ -32,11 +29,11 @@ function normalizeFolderTitle(name) {
 }
 
 function findOrCreateSubfolder(parentFolder, targetName) {
-  var targetLower = targetName.toLowerCase();
+  var targetNormalized = normalizeFolderTitle(targetName).toLowerCase();
   var folders = parentFolder.getFolders();
   while (folders.hasNext()) {
     var existing = folders.next();
-    if (String(existing.getName() || "").trim().toLowerCase() === targetLower) {
+    if (normalizeFolderTitle(existing.getName()).toLowerCase() === targetNormalized) {
       return { folder: existing, created: false };
     }
   }
@@ -106,7 +103,7 @@ function doPost(e) {
 function doGet() {
   return jsonResponse({
     ok: true,
-    service: "SU-Scanner Pro Drive Uploader",
+    service: "SU-Scanner Drive Uploader",
     defaultRootFolderId: DEFAULT_ROOT_FOLDER_ID,
   });
 }

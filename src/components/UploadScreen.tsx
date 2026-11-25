@@ -99,7 +99,7 @@ function DropzoneCard({
             Mendukung JPG, PNG, WEBP, HEIC
           </p>
 
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -119,7 +119,7 @@ function DropzoneCard({
               type="button"
               disabled={disabled}
               onClick={() => fileInputRef.current?.click()}
-              className="nb-btn inline-flex min-h-11 items-center gap-2 bg-[#FDE047] px-4 py-2.5 text-sm text-[#111111] disabled:opacity-60"
+              className="nb-btn inline-flex min-h-11 flex-1 items-center justify-center gap-2 bg-[#FDE047] px-4 py-2.5 text-sm text-[#111111] disabled:opacity-60 sm:flex-none"
             >
               <FolderOpen className="h-4 w-4" aria-hidden="true" />
               Pilih File
@@ -129,7 +129,7 @@ function DropzoneCard({
               type="button"
               disabled={disabled}
               onClick={() => onOpenCamera(slot)}
-              className="nb-btn inline-flex min-h-11 items-center gap-2 bg-[#FBCFE8] px-4 py-2.5 text-sm text-[#111111] disabled:opacity-60"
+              className="nb-btn inline-flex min-h-11 flex-1 items-center justify-center gap-2 bg-[#FBCFE8] px-4 py-2.5 text-sm text-[#111111] disabled:opacity-60 sm:flex-none"
             >
               <Camera className="h-4 w-4" aria-hidden="true" />
               Kamera
@@ -154,11 +154,11 @@ export function UploadScreen({
   return (
     <section
       aria-labelledby="upload-hero-title"
-      className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center gap-5 px-4 py-6 sm:px-6 lg:py-8"
+      className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center gap-4 px-3 py-4 sm:gap-5 sm:px-6 sm:py-6 lg:py-8"
     >
       {/* Top Bento Hero Row */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <div className="nb-card flex flex-col justify-between bg-[#FEF08A] p-6 lg:col-span-8">
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-12">
+        <div className="nb-card flex flex-col justify-between bg-[#FEF08A] p-4 sm:p-6 lg:col-span-8">
           <div>
             <span className="nb-pill">
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
@@ -166,7 +166,7 @@ export function UploadScreen({
             </span>
             <h1
               id="upload-hero-title"
-              className="mt-3.5 text-2xl font-black tracking-tight text-[#111111] sm:text-3xl"
+              className="mt-3.5 text-xl font-black tracking-tight text-[#111111] sm:text-2xl lg:text-3xl"
             >
               Pemindai &amp; Penamaan Otomatis Surat Ukur (SU)
             </h1>
@@ -179,7 +179,7 @@ export function UploadScreen({
           </div>
         </div>
 
-        <div className="nb-card grid grid-cols-3 gap-2.5 bg-white p-5 lg:col-span-4 lg:grid-cols-2">
+        <div className="nb-card grid grid-cols-2 gap-2.5 bg-white p-4 sm:p-5 lg:col-span-4">
           <div className="rounded-xl border-2 border-[#111111] bg-[#BAE6FD] p-3">
             <span className="nb-micro block text-[#111111]/75">DOKUMEN</span>
             <span className="mt-1 block font-mono text-2xl font-black text-[#111111]">
@@ -198,7 +198,7 @@ export function UploadScreen({
               MB Target
             </span>
           </div>
-          <div className="col-span-1 rounded-xl border-2 border-[#111111] bg-[#FBCFE8] p-3 lg:col-span-2">
+          <div className="col-span-2 rounded-xl border-2 border-[#111111] bg-[#FBCFE8] p-3">
             <span className="nb-micro block text-[#111111]/75">
               FORMAT OUTPUT STANDAR
             </span>

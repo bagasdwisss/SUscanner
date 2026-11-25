@@ -95,7 +95,7 @@ export async function generateSuPdf(
 
     const pdfDoc = await PDFDocument.create();
     pdfDoc.setTitle("Surat Ukur (SU) - Arsip Digital");
-    pdfDoc.setProducer("SU-Scanner Pro");
+    pdfDoc.setProducer("SU-Scanner");
 
     for (const ep of encodedPages) {
       const embedded = await pdfDoc.embedJpg(ep.bytes);

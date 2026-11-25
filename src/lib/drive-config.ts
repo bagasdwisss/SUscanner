@@ -1,5 +1,8 @@
 import { DEFAULT_DRIVE_ROOT_FOLDER_ID } from "./su-formatter";
 
+export const DEFAULT_APPS_SCRIPT_URL =
+  "https://script.google.com/macros/s/AKfycbzRt7gk65qrR66jDG-Fk9qFj-dP7tVB8zQWSzZPvObqy5vG5TdndXo-LXdajiJ4OCQ1iQ/exec";
+
 export function validateAppsScriptWebhookUrl(raw: string): URL | null {
   try {
     const parsed = new URL(raw.trim());
@@ -41,11 +44,11 @@ function normalizeFolderTitle(name) {
 }
 
 function findOrCreateSubfolder(parentFolder, targetName) {
-  var targetLower = targetName.toLowerCase();
+  var targetNormalized = normalizeFolderTitle(targetName).toLowerCase();
   var folders = parentFolder.getFolders();
   while (folders.hasNext()) {
     var existing = folders.next();
-    if (String(existing.getName() || "").trim().toLowerCase() === targetLower) {
+    if (normalizeFolderTitle(existing.getName()).toLowerCase() === targetNormalized) {
       return { folder: existing, created: false };
     }
   }

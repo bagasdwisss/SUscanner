@@ -319,7 +319,7 @@ export function DocumentWorkspacePanel({
           </div>
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border-2 border-[#111111] bg-white px-3 py-2 text-xs">
-            <div className="flex min-w-[180px] flex-1 items-center gap-2">
+            <div className="flex w-full items-center gap-2 sm:min-w-[180px] sm:flex-1">
               <SlidersHorizontal
                 className="h-3.5 w-3.5 shrink-0 text-[#111111]"
                 aria-hidden="true"
@@ -349,7 +349,7 @@ export function DocumentWorkspacePanel({
               </span>
             </div>
 
-            <div className="flex min-w-[180px] flex-1 items-center gap-2">
+            <div className="flex w-full items-center gap-2 sm:min-w-[180px] sm:flex-1">
               <label
                 htmlFor={`contrast-${activeTab}`}
                 className="nb-micro w-16 shrink-0 text-[#111111]"
@@ -396,11 +396,11 @@ export function DocumentWorkspacePanel({
         role="tabpanel"
         aria-labelledby={activeTab === "page1" ? "tab-page1" : "tab-page2"}
         tabIndex={0}
-        className="nb-card su-drafting-stage relative flex min-h-[380px] flex-1 flex-col items-center justify-center overflow-hidden p-4 sm:min-h-[480px]"
+        className="nb-card su-drafting-stage relative flex min-h-[280px] flex-1 flex-col items-center justify-center overflow-hidden p-3 pt-12 sm:min-h-[420px] sm:p-4 sm:pt-11 xl:min-h-[480px]"
       >
         {activePage ? (
           <>
-            <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2">
+            <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-wrap items-center gap-2">
               <span className="nb-pill font-mono">
                 {activeTab === "page1" ? "HAL 1" : "HAL 2"} ·{" "}
                 {activePage.processedWidth >= activePage.processedHeight
@@ -469,7 +469,7 @@ export function DocumentWorkspacePanel({
                           transformOrigin: "center center",
                         }
                   }
-                  className="block max-h-[430px] max-w-full select-none rounded-lg border-2 border-[#111111] bg-white object-contain shadow-[6px_6px_0px_#111111] transition-transform duration-100 sm:max-h-[500px]"
+                  className="block max-h-[340px] max-w-full select-none rounded-lg border-2 border-[#111111] bg-white object-contain shadow-[6px_6px_0px_#111111] transition-transform duration-100 sm:max-h-[460px] xl:max-h-[520px]"
                 />
               ) : null}
             </div>

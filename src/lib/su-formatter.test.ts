@@ -4,6 +4,7 @@ import {
   applyExtractionToForm,
   buildStandardFilename,
   extractDriveFolderId,
+  findMatchingKecamatanFolder,
   mapHakCode,
   normalizeKecamatanName,
   padFiveDigits,
@@ -107,6 +108,23 @@ describe("SU-Scanner formatter & domain rules", () => {
       "1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub",
     );
     assert.equal(extractDriveFolderId("https://example.com/bad"), null);
+
+    const existingFolders = [
+      { id: "f1", name: "Kecamatan Medan Baru" },
+      { id: "f2", name: "MEDAN HELVETIA" },
+    ];
+    assert.equal(
+      findMatchingKecamatanFolder(existingFolders, "Medan Baru")?.id,
+      "f1",
+    );
+    assert.equal(
+      findMatchingKecamatanFolder(existingFolders, "Kec. Medan Helvetia")?.id,
+      "f2",
+    );
+    assert.equal(
+      findMatchingKecamatanFolder(existingFolders, "Medan Johor"),
+      undefined,
+    );
   });
 
   it("maps all 6 ATR/BPN hak codes (digit & abbreviation)", () => {

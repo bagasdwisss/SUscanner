@@ -1005,8 +1005,8 @@ export function NamingExportPanel({
               <div className="rounded-lg border-2 border-[#111111] bg-[#D9F99D] p-2.5 text-xs">
                 <p className="font-extrabold text-[#111111]">
                   {lastDriveResult.folderCreated
-                    ? `Subfolder "${lastDriveResult.folderName}" baru dibuat & berkas tersimpan.`
-                    : `Tersimpan di subfolder "${lastDriveResult.folderName}".`}
+                    ? `Subfolder baru "${lastDriveResult.folderName}" dibuat & berkas dimasukkan.`
+                    : `Subfolder "${lastDriveResult.folderName}" sudah ada — berkas dimasukkan ke folder tersebut.`}
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-2">
                   <a

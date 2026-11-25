@@ -2,11 +2,13 @@ import { createSign, randomBytes } from "node:crypto";
 import type { DriveAuthMode, DriveUploadResult } from "./su-types";
 import {
   buildDriveFolderUrl,
+  DEFAULT_APPS_SCRIPT_URL,
   validateAppsScriptWebhookUrl,
 } from "./drive-config";
 import {
   DEFAULT_DRIVE_ROOT_FOLDER_ID,
   extractDriveFolderId,
+  findMatchingKecamatanFolder,
   normalizeKecamatanName,
 } from "./su-formatter";
 
@@ -53,6 +55,10 @@ export function detectDriveEnvAuthMode(): DriveAuthMode {
       process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)
   ) {
     return "service-account-env";
+  }
+
+  if (validateAppsScriptWebhookUrl(DEFAULT_APPS_SCRIPT_URL)) {
+    return "apps-script-default";
   }
 
   return "unconfigured";
@@ -234,7 +240,6 @@ async function findOrCreateKecamatanSubfolder(
 ): Promise<{ folder: DriveFolderItem; created: boolean }> {
   const escapedRoot = escapeDriveQuery(rootFolderId);
   const query = `'${escapedRoot}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-  const targetLower = kecamatanName.toLowerCase();
 
   let pageToken: string | undefined;
   do {
@@ -263,8 +268,9 @@ async function findOrCreateKecamatanSubfolder(
       files?: DriveFolderItem[];
       nextPageToken?: string;
     };
-    const match = (listData.files ?? []).find(
-      (f) => f.name.trim().toLowerCase() === targetLower,
+    const match = findMatchingKecamatanFolder(
+      listData.files ?? [],
+      kecamatanName,
     );
     if (match) {
       return { folder: match, created: false };
@@ -317,7 +323,7 @@ async function uploadPdfMultipartRestV3(params: {
       {
         name: params.filename,
         parents: [folder.id],
-        description: `Surat Ukur Kecamatan ${params.kecamatanName} — Diunggah otomatis oleh SU-Scanner Pro`,
+        description: `Surat Ukur Kecamatan ${params.kecamatanName} — Diunggah otomatis oleh SU-Scanner`,
       },
     )}\r\n--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`,
     "utf8",
@@ -393,11 +399,11 @@ async function uploadViaAppsScript(params: {
   });
 
   const rawText = await res.text();
-  if (rawText.trim().startsWith("<")) {
+  if (res.status === 403 || rawText.trim().startsWith("<")) {
     throw new DriveServiceError(
-      "APPS_SCRIPT_HTML_LOGIN",
-      "Google Apps Script mengembalikan halaman HTML/Login. Pastikan saat Deploy Web App Anda memilih: Execute as 'Me' dan Who has access 'Anyone'.",
-      502,
+      "APPS_SCRIPT_PERMISSION_DENIED",
+      "Akses Google Apps Script Web App ditolak (HTTP 403 / halaman login). Di editor Google Apps Script klik Deploy → Manage deployments → Edit → ubah 'Who has access / Yang memiliki akses' menjadi 'Anyone / Siapa saja' (bukan 'Only myself' atau 'Anyone with Google account').",
+      403,
     );
   }
 
@@ -482,14 +488,14 @@ export async function uploadPdfToKecamatanDrive(params: {
     });
   }
 
-  // 2. Apps Script webhook (env first, then validated client-configured script.google.com URL)
-  const appsScriptUrl =
+  // 2. Explicit Apps Script webhook from env, or explicit client URL
+  const explicitAppsScriptUrl =
     process.env.GOOGLE_DRIVE_APPS_SCRIPT_URL?.trim() ||
     params.appsScriptUrl?.trim() ||
     "";
-  if (appsScriptUrl) {
+  if (explicitAppsScriptUrl) {
     return uploadViaAppsScript({
-      webhookUrl: appsScriptUrl,
+      webhookUrl: explicitAppsScriptUrl,
       rootFolderId,
       kecamatanName,
       filename: params.filename,
@@ -524,9 +530,20 @@ export async function uploadPdfToKecamatanDrive(params: {
     });
   }
 
+  // 5. Hardcoded default Apps Script endpoint so Drive integration stays permanent
+  if (DEFAULT_APPS_SCRIPT_URL) {
+    return uploadViaAppsScript({
+      webhookUrl: DEFAULT_APPS_SCRIPT_URL,
+      rootFolderId,
+      kecamatanName,
+      filename: params.filename,
+      pdfBase64: params.pdfBase64,
+    });
+  }
+
   throw new DriveServiceError(
     "DRIVE_NOT_CONFIGURED",
-    "Koneksi Google Drive belum dikonfigurasi. Klik 'Pengaturan Drive' untuk menghubungkan Apps Script / OAuth / Service Account.",
+    "Koneksi Google Drive belum dikonfigurasi.",
     503,
   );
 }

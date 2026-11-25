@@ -121,6 +121,22 @@ export function normalizeKecamatanName(raw: string | null | undefined): string {
 }
 
 /**
+ * Matches an existing Drive folder list against target Kecamatan using
+ * normalized names so duplicates like "Kec. Medan Baru" vs "Medan Baru"
+ * are reused cleanly.
+ */
+export function findMatchingKecamatanFolder<T extends { name: string }>(
+  folders: readonly T[],
+  targetKecamatan: string,
+): T | undefined {
+  const targetNormalized = normalizeKecamatanName(targetKecamatan).toLowerCase();
+  if (!targetNormalized) return undefined;
+  return folders.find(
+    (f) => normalizeKecamatanName(f.name).toLowerCase() === targetNormalized,
+  );
+}
+
+/**
  * Extracts a Google Drive folder ID from either a full sharing URL or a bare ID.
  */
 export function extractDriveFolderId(

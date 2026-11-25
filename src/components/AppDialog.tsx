@@ -94,16 +94,16 @@ export function AppDialog({
       aria-labelledby={titleId}
       onClose={handleClose}
       {...closedByProps}
-      className={`m-auto w-[calc(100%-1.5rem)] ${maxWidthClass} overflow-hidden p-0`}
+      className={`m-auto w-[calc(100%-1rem)] sm:w-[calc(100%-1.5rem)] ${maxWidthClass} overflow-hidden p-0`}
     >
-      <div className="flex max-h-[88dvh] flex-col">
+      <div className="flex max-h-[90dvh] flex-col">
         <header
-          className={`flex items-start justify-between gap-4 border-b-2 border-[#111111] ${headerBgClass} px-5 py-4`}
+          className={`flex items-start justify-between gap-3 border-b-2 border-[#111111] ${headerBgClass} px-3.5 py-3 sm:gap-4 sm:px-5 sm:py-4`}
         >
           <div>
             <h1
               id={titleId}
-              className="text-lg font-extrabold tracking-tight text-[#111111]"
+              className="text-base font-extrabold tracking-tight text-[#111111] sm:text-lg"
             >
               {title}
             </h1>
@@ -117,18 +117,18 @@ export function AppDialog({
             type="button"
             onClick={() => dialogRef.current?.close()}
             aria-label={`Tutup ${title}`}
-            className="nb-btn-sm inline-flex min-h-10 min-w-10 items-center justify-center bg-white text-[#111111] hover:bg-[#FBCFE8]"
+            className="nb-btn-sm inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center bg-white text-[#111111] hover:bg-[#FBCFE8]"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto bg-[#F6F5F0] px-5 py-4 [overscroll-behavior:contain]">
+        <div className="flex-1 overflow-y-auto bg-[#F6F5F0] px-3.5 py-3.5 [overscroll-behavior:contain] sm:px-5 sm:py-4">
           {children}
         </div>
 
         {footer ? (
-          <footer className="flex flex-wrap items-center justify-end gap-2.5 border-t-2 border-[#111111] bg-white px-5 py-3.5">
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t-2 border-[#111111] bg-white px-3.5 py-3 sm:gap-2.5 sm:px-5 sm:py-3.5">
             {footer}
           </footer>
         ) : null}

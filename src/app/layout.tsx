@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SU-Scanner Pro — Pemindai & Penamaan Otomatis Surat Ukur",
+  title: "SU-Scanner — Pemindai & Penamaan Otomatis Surat Ukur",
   description:
     "Aplikasi web pemindai warkah Surat Ukur (SU) ATR/BPN dengan auto-crop perspektif, ekstraksi Vision AI, dan ekspor PDF standar arsip.",
 };
