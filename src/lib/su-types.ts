@@ -60,6 +60,7 @@ export interface AiExtractionConfidence {
   jenis_hak: number;
   nomor_hak: number;
   kecamatan: number;
+  kelurahan: number;
 }
 
 export interface AiRawEvidence {
@@ -76,6 +77,7 @@ export interface AiExtractionResult {
   kode_jenis_hak_huruf: StandardHakCode | null;
   nomor_hak_raw: string | null;
   kecamatan_raw: string | null;
+  kelurahan_raw: string | null;
   nib_terdeteksi: string | null;
   raw_evidence: AiRawEvidence;
   confidence: AiExtractionConfidence;
@@ -90,6 +92,7 @@ export interface SuNamingFields {
   isCustomHak: boolean;
   customHak: string;
   kecamatan: string;
+  kelurahan: string;
 }
 
 export interface FieldConfidenceMeta {
@@ -104,6 +107,7 @@ export interface SuFieldConfidences {
   kodeHak: FieldConfidenceMeta;
   nomorHak: FieldConfidenceMeta;
   kecamatan: FieldConfidenceMeta;
+  kelurahan: FieldConfidenceMeta;
 }
 
 export type AiStatus =
@@ -142,6 +146,11 @@ export interface DriveUploadResult {
   folderName: string;
   folderUrl: string;
   folderCreated: boolean;
+  kecamatanName?: string;
+  kecamatanCreated?: boolean;
+  kelurahanName?: string | null;
+  kelurahanCreated?: boolean;
+  nestedSupported?: boolean;
 }
 
 export interface SessionHistoryItem {
@@ -155,6 +164,7 @@ export interface SessionHistoryItem {
   kodeHak: string;
   nomorHak: string;
   kecamatan?: string;
+  kelurahan?: string;
   driveFileUrl?: string;
   driveFolderUrl?: string;
   /** Optional PDF bytes persisted in local IndexedDB for re-download during session */

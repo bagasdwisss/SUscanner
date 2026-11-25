@@ -55,6 +55,7 @@ import {
   extractDriveFolderId,
   getEffectiveKodeHak,
   normalizeKecamatanName,
+  normalizeKelurahanName,
   padFiveDigits,
   sanitizeCustomFilename,
   sanitizeDigits,
@@ -691,8 +692,10 @@ export function SuScannerApp() {
       pdfBytes: Uint8Array,
       filename: string,
       kecamatanInput: string,
+      kelurahanInput?: string,
     ): Promise<DriveUploadResult | null> => {
       const kecamatanClean = normalizeKecamatanName(kecamatanInput);
+      const kelurahanClean = normalizeKelurahanName(kelurahanInput);
       if (!kecamatanClean) {
         showToast(
           "error",
@@ -710,6 +713,7 @@ export function SuScannerApp() {
           body: JSON.stringify({
             filename,
             kecamatan: kecamatanClean,
+            kelurahan: kelurahanClean || null,
             rootFolderId: driveRootFolderId,
             pdfBase64,
             appsScriptUrl: appsScriptUrl.trim() || null,
@@ -729,12 +733,19 @@ export function SuScannerApp() {
         }
 
         setLastDriveResult(payload);
-        showToast(
-          "success",
-          payload.folderCreated
-            ? `Subfolder baru "${payload.folderName}" dibuat & ${payload.fileName} disimpan ke Drive!`
-            : `Subfolder "${payload.folderName}" sudah ada — ${payload.fileName} dimasukkan ke folder tersebut.`,
-        );
+        if (kelurahanClean && payload.nestedSupported === false) {
+          showToast(
+            "success",
+            `PDF tersimpan di /${payload.folderName}/. Perbarui deploy Apps Script Anda agar subfolder Kelurahan "${kelurahanClean}" dibuat otomatis.`,
+          );
+        } else {
+          showToast(
+            "success",
+            payload.folderCreated
+              ? `Subfolder "${payload.folderName}" dibuat & ${payload.fileName} disimpan ke Drive!`
+              : `Subfolder "${payload.folderName}" sudah ada — ${payload.fileName} dimasukkan ke folder tersebut.`,
+          );
+        }
         return payload;
       } catch {
         showToast(
@@ -772,12 +783,14 @@ export function SuScannerApp() {
       triggerPdfDownload(result.blob, currentFilename);
 
       const kecamatanClean = normalizeKecamatanName(fields.kecamatan);
+      const kelurahanClean = normalizeKelurahanName(fields.kelurahan);
       let uploaded: DriveUploadResult | null = null;
       if (autoUploadOnExport && driveReady && kecamatanClean) {
         uploaded = await performDriveUpload(
           result.bytes,
           currentFilename,
           kecamatanClean,
+          kelurahanClean,
         );
       }
 
@@ -791,7 +804,8 @@ export function SuScannerApp() {
         tahunSu: sanitizeDigits(fields.tahunSu),
         kodeHak: getEffectiveKodeHak(fields),
         nomorHak: padFiveDigits(fields.nomorHak),
-        kecamatan: kecamatanClean || undefined,
+        kecamatan: uploaded?.kecamatanName || kecamatanClean || undefined,
+        kelurahan: uploaded?.kelurahanName || kelurahanClean || undefined,
         driveFileUrl: uploaded?.fileUrl,
         driveFolderUrl: uploaded?.folderUrl,
         pdfBytes: new Uint8Array(result.bytes).buffer,
@@ -845,6 +859,7 @@ export function SuScannerApp() {
     }
 
     const kecamatanClean = normalizeKecamatanName(fields.kecamatan);
+    const kelurahanClean = normalizeKelurahanName(fields.kelurahan);
     if (!kecamatanClean) {
       showToast(
         "error",
@@ -860,6 +875,7 @@ export function SuScannerApp() {
         result.bytes,
         currentFilename,
         kecamatanClean,
+        kelurahanClean,
       );
       if (uploaded) {
         const historyItem: SessionHistoryItem = {
@@ -872,7 +888,8 @@ export function SuScannerApp() {
           tahunSu: sanitizeDigits(fields.tahunSu),
           kodeHak: getEffectiveKodeHak(fields),
           nomorHak: padFiveDigits(fields.nomorHak),
-          kecamatan: uploaded.folderName,
+          kecamatan: uploaded.kecamatanName || kecamatanClean,
+          kelurahan: uploaded.kelurahanName || kelurahanClean || undefined,
           driveFileUrl: uploaded.fileUrl,
           driveFolderUrl: uploaded.folderUrl,
           pdfBytes: new Uint8Array(result.bytes).buffer,

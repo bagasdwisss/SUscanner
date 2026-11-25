@@ -20,7 +20,7 @@ function jsonResponse(payload) {
   );
 }
 
-function normalizeFolderTitle(name) {
+function normalizeKecamatanTitle(name) {
   return String(name || "")
     .replace(/[<>:"/\\|?*]/g, " ")
     .replace(/^(?:kecamatan|ketjamatan|kec\.?|ketj\.?)\s*[:.\-]?\s*/i, "")
@@ -28,16 +28,28 @@ function normalizeFolderTitle(name) {
     .trim();
 }
 
-function findOrCreateSubfolder(parentFolder, targetName) {
-  var targetNormalized = normalizeFolderTitle(targetName).toLowerCase();
+function normalizeKelurahanTitle(name) {
+  return String(name || "")
+    .replace(/[<>:"/\\|?*]/g, " ")
+    .replace(
+      /^(?:kelurahan|kel\.?|desa|kampung|gampong|nagari|kp\.?)\s*[:.\-]?\s*/i,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findOrCreateSubfolder(parentFolder, targetName, normalizeFn) {
+  var cleanTarget = normalizeFn(targetName);
+  var targetNormalized = cleanTarget.toLowerCase();
   var folders = parentFolder.getFolders();
   while (folders.hasNext()) {
     var existing = folders.next();
-    if (normalizeFolderTitle(existing.getName()).toLowerCase() === targetNormalized) {
+    if (normalizeFn(existing.getName()).toLowerCase() === targetNormalized) {
       return { folder: existing, created: false };
     }
   }
-  var createdFolder = parentFolder.createFolder(targetName);
+  var createdFolder = parentFolder.createFolder(cleanTarget);
   return { folder: createdFolder, created: true };
 }
 
@@ -56,7 +68,8 @@ function doPost(e) {
     }
 
     var rootFolderId = String(body.rootFolderId || DEFAULT_ROOT_FOLDER_ID).trim();
-    var kecamatan = normalizeFolderTitle(body.kecamatan);
+    var kecamatan = normalizeKecamatanTitle(body.kecamatan);
+    var kelurahan = normalizeKelurahanTitle(body.kelurahan);
     var filename = String(body.filename || "").trim();
     var pdfBase64 = String(body.pdfBase64 || "");
 
@@ -74,23 +87,42 @@ function doPost(e) {
     }
 
     var rootFolder = DriveApp.getFolderById(rootFolderId);
-    var subResult = findOrCreateSubfolder(rootFolder, kecamatan);
-    var subFolder = subResult.folder;
+    var kecResult = findOrCreateSubfolder(
+      rootFolder,
+      kecamatan,
+      normalizeKecamatanTitle,
+    );
+    var kelResult = kelurahan
+      ? findOrCreateSubfolder(
+          kecResult.folder,
+          kelurahan,
+          normalizeKelurahanTitle,
+        )
+      : null;
+    var targetFolder = kelResult ? kelResult.folder : kecResult.folder;
 
     var bytes = Utilities.base64Decode(pdfBase64);
     var blob = Utilities.newBlob(bytes, "application/pdf", filename);
-    var uploadedFile = subFolder.createFile(blob);
+    var uploadedFile = targetFolder.createFile(blob);
+
+    var kecName = kecResult.folder.getName();
+    var kelName = kelResult ? kelResult.folder.getName() : undefined;
 
     return jsonResponse({
       ok: true,
+      nestedSupported: true,
       provider: "apps-script",
       fileId: uploadedFile.getId(),
       fileName: uploadedFile.getName(),
       fileUrl: uploadedFile.getUrl(),
-      folderId: subFolder.getId(),
-      folderName: subFolder.getName(),
-      folderUrl: subFolder.getUrl(),
-      folderCreated: subResult.created,
+      folderId: targetFolder.getId(),
+      folderName: kelName ? kecName + " / " + kelName : kecName,
+      folderUrl: targetFolder.getUrl(),
+      folderCreated: kelResult ? kelResult.created : kecResult.created,
+      kecamatanName: kecName,
+      kecamatanCreated: kecResult.created,
+      kelurahanName: kelName,
+      kelurahanCreated: kelResult ? kelResult.created : false,
     });
   } catch (err) {
     return jsonResponse({
@@ -103,6 +135,7 @@ function doPost(e) {
 function doGet() {
   return jsonResponse({
     ok: true,
+    nestedSupported: true,
     service: "SU-Scanner Drive Uploader",
     defaultRootFolderId: DEFAULT_ROOT_FOLDER_ID,
   });

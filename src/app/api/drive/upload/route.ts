@@ -8,6 +8,7 @@ import {
 const uploadBodySchema = z.object({
   filename: z.string().trim().min(1).max(180),
   kecamatan: z.string().trim().min(1).max(120),
+  kelurahan: z.string().trim().max(120).optional().nullable(),
   rootFolderId: z.string().trim().max(250).optional().nullable(),
   pdfBase64: z.string().min(32),
   appsScriptUrl: z.string().trim().max(500).optional().nullable(),
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
     const result = await uploadPdfToKecamatanDrive({
       filename: body.filename,
       kecamatan: body.kecamatan,
+      kelurahan: body.kelurahan,
       rootFolderId: body.rootFolderId,
       pdfBase64: body.pdfBase64,
       appsScriptUrl: body.appsScriptUrl,

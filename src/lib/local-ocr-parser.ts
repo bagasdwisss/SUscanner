@@ -1,6 +1,7 @@
 import {
   mapHakCode,
   normalizeKecamatanName,
+  normalizeKelurahanName,
   parseNomorHakEvidence,
 } from "./su-formatter.ts";
 import type { AiExtractionResult, StandardHakCode } from "./su-types.ts";
@@ -41,9 +42,34 @@ function extractKecamatanFromText(rawText: string): {
   return { kecamatan: null, evidence: null };
 }
 
+function extractKelurahanFromText(
+  rawText: string,
+  suMiddleKelurahan: string | null,
+): string | null {
+  const lines = rawText.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const match = line.match(
+      /(?:kelurahan|kel\.?|desa|ds\.?|kampung|kp\.?)\s*[:.\-]?\s*(.+)$/i,
+    );
+    if (!match) continue;
+
+    const segment = match[1]
+      .split(/\s*(?:\||,|;|\bkecamatan\b|\bketjamatan\b|\bkec\.?\b|\bkabupaten\b|\bkotamadya\b|\bkota\b|\bpropinsi\b|\bprovinsi\b)/i)[0]
+      ?.trim();
+    const normalized = normalizeKelurahanName(segment);
+    if (normalized) return normalized;
+  }
+
+  return suMiddleKelurahan ? normalizeKelurahanName(suMiddleKelurahan) || null : null;
+}
+
 function extractSuNumberAndYear(rawText: string): {
   nomorSu: string | null;
   tahunSu: string | null;
+  kelurahanFromSu: string | null;
   evidence: string | null;
 } {
   // Accept common OCR confusions (O->0, I/l->1) inside SU number and 4-digit year tokens
@@ -61,6 +87,7 @@ function extractSuNumberAndYear(rawText: string): {
     return {
       nomorSu: normalizeOcrDigits(modernMatch[1]),
       tahunSu: normalizeOcrDigits(modernMatch[3]),
+      kelurahanFromSu: modernMatch[2].trim(),
       evidence: `${modernMatch[1]}/${modernMatch[2].trim()}/${modernMatch[3]}`,
     };
   }
@@ -75,6 +102,7 @@ function extractSuNumberAndYear(rawText: string): {
     return {
       nomorSu: normalizeOcrDigits(plainModernMatch[1]),
       tahunSu: normalizeOcrDigits(plainModernMatch[3]),
+      kelurahanFromSu: plainModernMatch[2].trim(),
       evidence: `${plainModernMatch[1]}/${plainModernMatch[2].trim()}/${plainModernMatch[3]}`,
     };
   }
@@ -90,6 +118,7 @@ function extractSuNumberAndYear(rawText: string): {
     return {
       nomorSu: normalizeOcrDigits(legacyMatch[1]),
       tahunSu: normalizeOcrDigits(legacyMatch[2]),
+      kelurahanFromSu: null,
       evidence: legacyMatch[0].trim(),
     };
   }
@@ -102,11 +131,17 @@ function extractSuNumberAndYear(rawText: string): {
     return {
       nomorSu: normalizeOcrDigits(fallbackMatch[1]),
       tahunSu: normalizeOcrDigits(fallbackMatch[2]),
+      kelurahanFromSu: null,
       evidence: fallbackMatch[0].trim(),
     };
   }
 
-  return { nomorSu: null, tahunSu: null, evidence: null };
+  return {
+    nomorSu: null,
+    tahunSu: null,
+    kelurahanFromSu: null,
+    evidence: null,
+  };
 }
 
 function extractHakAndNib(rawText: string): {
@@ -184,10 +219,15 @@ export function parseSuratUkurOcrText(
     0.45,
     Math.min(0.88, ocrMeanConfidence / 100),
   );
-  const { nomorSu, tahunSu, evidence: suEvidence } =
-    extractSuNumberAndYear(rawText);
+  const {
+    nomorSu,
+    tahunSu,
+    kelurahanFromSu,
+    evidence: suEvidence,
+  } = extractSuNumberAndYear(rawText);
   const hak = extractHakAndNib(rawText);
   const kec = extractKecamatanFromText(rawText);
+  const kelurahan = extractKelurahanFromText(rawText, kelurahanFromSu);
 
   const hasSuHeader = /\b(SURAT\s+UK|GAMBAR\s+SITUASI)\b/i.test(rawText);
   const hasOnlyMapWords =
@@ -207,6 +247,7 @@ export function parseSuratUkurOcrText(
     kode_jenis_hak_huruf: hak.kodeHuruf,
     nomor_hak_raw: hak.nomorHak || null,
     kecamatan_raw: kec.kecamatan,
+    kelurahan_raw: kelurahan,
     nib_terdeteksi: hak.nib,
     raw_evidence: {
       teks_nomor_su: suEvidence,
@@ -219,8 +260,9 @@ export function parseSuratUkurOcrText(
       jenis_hak: hak.kodeHuruf ? Math.min(0.85, normalizedConfidence) : 0,
       nomor_hak: hak.nomorHak ? Math.min(0.84, normalizedConfidence) : 0,
       kecamatan: kec.kecamatan ? Math.min(0.82, normalizedConfidence) : 0,
+      kelurahan: kelurahan ? Math.min(0.8, normalizedConfidence) : 0,
     },
     catatan_peringatan:
-      "Diekstrak oleh OCR Lokal bawaan sistem (tesseract.js). Harap periksa kembali angka & nama Kecamatan.",
+      "Diekstrak oleh OCR Lokal bawaan sistem (tesseract.js). Harap periksa kembali angka, Kecamatan & Kelurahan.",
   };
 }

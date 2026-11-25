@@ -5,8 +5,10 @@ import {
   buildStandardFilename,
   extractDriveFolderId,
   findMatchingKecamatanFolder,
+  findMatchingKelurahanFolder,
   mapHakCode,
   normalizeKecamatanName,
+  normalizeKelurahanName,
   padFiveDigits,
   parseNomorHakEvidence,
   sanitizeCustomFilename,
@@ -32,6 +34,7 @@ describe("SU-Scanner formatter & domain rules", () => {
       kode_jenis_hak_huruf: "M",
       nomor_hak_raw: "02246",
       kecamatan_raw: "Kecamatan Medan Helvetia",
+      kelurahan_raw: "Kelurahan Helvetia Timur",
       nib_terdeteksi: "02.01.05.04.03043",
       raw_evidence: {
         teks_nomor_su: "06/Helvetia Timur/2007",
@@ -44,6 +47,7 @@ describe("SU-Scanner formatter & domain rules", () => {
         jenis_hak: 0.95,
         nomor_hak: 0.96,
         kecamatan: 0.94,
+        kelurahan: 0.93,
       },
       catatan_peringatan: null,
     };
@@ -57,9 +61,11 @@ describe("SU-Scanner formatter & domain rules", () => {
     assert.equal(processed.fields.kodeHak, "M");
     assert.equal(processed.fields.nomorHak, "02246");
     assert.equal(processed.fields.kecamatan, "Medan Helvetia");
+    assert.equal(processed.fields.kelurahan, "Helvetia Timur");
     assert.equal(processed.confidences.nomorSu.level, "high");
     assert.equal(processed.confidences.nomorHak.level, "high");
     assert.equal(processed.confidences.kecamatan.level, "high");
+    assert.equal(processed.confidences.kelurahan.level, "high");
     assert.equal(
       buildStandardFilename(processed.fields),
       "SU.00006.2007.M.02246.pdf",
@@ -75,6 +81,7 @@ describe("SU-Scanner formatter & domain rules", () => {
       kode_jenis_hak_huruf: null,
       nomor_hak_raw: "HM. 145",
       kecamatan_raw: "Ketjamatan Medan Baru",
+      kelurahan_raw: null,
       nib_terdeteksi: null,
       raw_evidence: {
         teks_nomor_su: "No. 12/1964",
@@ -87,6 +94,7 @@ describe("SU-Scanner formatter & domain rules", () => {
         jenis_hak: 0.89,
         nomor_hak: 0.88,
         kecamatan: 0.9,
+        kelurahan: 0,
       },
       catatan_peringatan: null,
     };
@@ -132,6 +140,21 @@ describe("SU-Scanner formatter & domain rules", () => {
       findMatchingKecamatanFolder(existingFolders, "Medan Johor"),
       undefined,
     );
+
+    assert.equal(normalizeKelurahanName("Kel. HELVETIA TIMUR"), "Helvetia Timur");
+    assert.equal(normalizeKelurahanName("Desa Sei Rotan"), "Sei Rotan");
+    const kelFolders = [
+      { id: "k1", name: "Kelurahan Helvetia Timur" },
+      { id: "k2", name: "SEI SIKAMBING C II" },
+    ];
+    assert.equal(
+      findMatchingKelurahanFolder(kelFolders, "Helvetia Timur")?.id,
+      "k1",
+    );
+    assert.equal(
+      findMatchingKelurahanFolder(kelFolders, "Sei Sikambing C Ii")?.id,
+      "k2",
+    );
   });
 
   it("maps all 6 ATR/BPN hak codes (digit & abbreviation)", () => {
@@ -170,6 +193,7 @@ describe("SU-Scanner formatter & domain rules", () => {
       kode_jenis_hak_huruf: null,
       nomor_hak_raw: "02.01.05.04.03043",
       kecamatan_raw: null,
+      kelurahan_raw: null,
       nib_terdeteksi: "02.01.05.04.03043",
       raw_evidence: {
         teks_nomor_su: "125/2018",
@@ -182,6 +206,7 @@ describe("SU-Scanner formatter & domain rules", () => {
         jenis_hak: 0.2,
         nomor_hak: 0.4,
         kecamatan: 0,
+        kelurahan: 0,
       },
       catatan_peringatan: null,
     };
@@ -218,6 +243,7 @@ describe("SU-Scanner formatter & domain rules", () => {
         isCustomHak: false,
         customHak: "",
         kecamatan: "",
+        kelurahan: "",
       },
       2026,
     );
@@ -233,6 +259,7 @@ describe("SU-Scanner formatter & domain rules", () => {
         isCustomHak: false,
         customHak: "",
         kecamatan: "",
+        kelurahan: "",
       },
       2026,
     );
@@ -247,6 +274,7 @@ describe("SU-Scanner formatter & domain rules", () => {
         isCustomHak: false,
         customHak: "",
         kecamatan: "Medan Timur",
+        kelurahan: "Durian",
       },
       2026,
     );
@@ -262,6 +290,7 @@ describe("SU-Scanner formatter & domain rules", () => {
       kode_jenis_hak_huruf: null,
       nomor_hak_raw: null,
       kecamatan_raw: null,
+      kelurahan_raw: null,
       nib_terdeteksi: null,
       raw_evidence: {
         teks_nomor_su: null,
@@ -274,6 +303,7 @@ describe("SU-Scanner formatter & domain rules", () => {
         jenis_hak: 0,
         nomor_hak: 0,
         kecamatan: 0,
+        kelurahan: 0,
       },
       catatan_peringatan: "Gambar hanya berisi peta bidang tanah.",
     };
@@ -306,6 +336,7 @@ describe("SU-Scanner formatter & domain rules", () => {
       "SU.00006.2007.M.02246.pdf",
     );
     assert.equal(modernForm.fields.kecamatan, "Medan Helvetia");
+    assert.equal(modernForm.fields.kelurahan, "Helvetia Timur");
     assert.equal(modernForm.rawEvidence.nibTerdeteksi, "02.01.05.04.03043");
 
     const legacy1960Text = `

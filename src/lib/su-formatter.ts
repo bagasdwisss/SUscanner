@@ -94,16 +94,18 @@ export function sanitizeDigits(raw: string | null | undefined): string {
   return raw.replace(/\D/g, "");
 }
 
-/**
- * Normalizes a Kecamatan name for clean, deduplicated Google Drive subfolder naming.
- * Strips prefixes like "Kec.", "Kecamatan", "Ketjamatan", sanitizes forbidden path
- * characters, and applies Title Case.
- */
-export function normalizeKecamatanName(raw: string | null | undefined): string {
+const KECAMATAN_PREFIX_RE = /^(?:kecamatan|ketjamatan|kec\.?|ketj\.?)\s*[:.\-]?\s*/i;
+const KELURAHAN_PREFIX_RE =
+  /^(?:kelurahan|kel\.?|desa|ds\.?|kampung|kp\.?|gampong|nagari)\s*[:.\-]?\s*/i;
+
+function normalizeRegionFolderName(
+  raw: string | null | undefined,
+  prefixPattern: RegExp,
+): string {
   if (!raw) return "";
   const cleaned = raw
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
-    .replace(/^(?:kecamatan|ketjamatan|kec\.?|ketj\.?)\s*[:.\-]?\s*/i, "")
+    .replace(prefixPattern, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -121,6 +123,20 @@ export function normalizeKecamatanName(raw: string | null | undefined): string {
 }
 
 /**
+ * Normalizes a Kecamatan name for clean, deduplicated Google Drive subfolder naming.
+ */
+export function normalizeKecamatanName(raw: string | null | undefined): string {
+  return normalizeRegionFolderName(raw, KECAMATAN_PREFIX_RE);
+}
+
+/**
+ * Normalizes a Kelurahan/Desa name for nested subfolder naming inside Kecamatan.
+ */
+export function normalizeKelurahanName(raw: string | null | undefined): string {
+  return normalizeRegionFolderName(raw, KELURAHAN_PREFIX_RE);
+}
+
+/**
  * Matches an existing Drive folder list against target Kecamatan using
  * normalized names so duplicates like "Kec. Medan Baru" vs "Medan Baru"
  * are reused cleanly.
@@ -133,6 +149,21 @@ export function findMatchingKecamatanFolder<T extends { name: string }>(
   if (!targetNormalized) return undefined;
   return folders.find(
     (f) => normalizeKecamatanName(f.name).toLowerCase() === targetNormalized,
+  );
+}
+
+/**
+ * Matches an existing Drive subfolder list against target Kelurahan/Desa
+ * inside the Kecamatan folder.
+ */
+export function findMatchingKelurahanFolder<T extends { name: string }>(
+  folders: readonly T[],
+  targetKelurahan: string,
+): T | undefined {
+  const targetNormalized = normalizeKelurahanName(targetKelurahan).toLowerCase();
+  if (!targetNormalized) return undefined;
+  return folders.find(
+    (f) => normalizeKelurahanName(f.name).toLowerCase() === targetNormalized,
   );
 }
 
@@ -408,8 +439,9 @@ export function applyExtractionToForm(
     ? padFiveDigits(nomorHakDigits)
     : "";
 
-  // 4. Kecamatan for Drive subfolder grouping
+  // 4. Kecamatan & Kelurahan/Desa for nested Drive subfolder grouping
   const kecamatanNormalized = normalizeKecamatanName(extraction.kecamatan_raw);
+  const kelurahanNormalized = normalizeKelurahanName(extraction.kelurahan_raw);
 
   const makeMeta = (
     score: number,
@@ -447,6 +479,7 @@ export function applyExtractionToForm(
       isCustomHak: false,
       customHak: "",
       kecamatan: kecamatanNormalized,
+      kelurahan: kelurahanNormalized,
     },
     confidences: {
       nomorSu: makeMeta(extraction.confidence.nomor_su, Boolean(nomorSuFormatted)),
@@ -459,6 +492,10 @@ export function applyExtractionToForm(
       kecamatan: makeMeta(
         extraction.confidence.kecamatan,
         Boolean(kecamatanNormalized),
+      ),
+      kelurahan: makeMeta(
+        extraction.confidence.kelurahan,
+        Boolean(kelurahanNormalized),
       ),
     },
     isWrongPageSlot: !extraction.is_halaman_data_su,
@@ -481,6 +518,7 @@ export function createEmptyFields(): SuNamingFields {
     isCustomHak: false,
     customHak: "",
     kecamatan: "",
+    kelurahan: "",
   };
 }
 
@@ -491,5 +529,6 @@ export function createEmptyConfidences(): SuFieldConfidences {
     kodeHak: { score: null, level: "medium", reason: null },
     nomorHak: { score: null, level: "low", reason: null },
     kecamatan: { score: null, level: "low", reason: null },
+    kelurahan: { score: null, level: "low", reason: null },
   };
 }

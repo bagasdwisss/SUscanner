@@ -92,7 +92,9 @@ export function HistoryDialog({
                   {item.kecamatan ? (
                     <span className="inline-flex items-center gap-1 rounded-full border-2 border-[#111111] bg-[#FEF08A] px-2.5 py-0.5 text-[11px] font-extrabold text-[#111111]">
                       <FolderOpen className="h-3 w-3" aria-hidden="true" />
-                      {item.kecamatan}
+                      {item.kelurahan
+                        ? `${item.kecamatan} / ${item.kelurahan}`
+                        : item.kecamatan}
                     </span>
                   ) : null}
                   <span className="font-mono text-xs font-bold text-[#3F3F46]">
@@ -181,7 +183,9 @@ export function GuideDialog({ open, onClose }: GuideDialogProps) {
             <code className="font-mono font-bold">02.01.05.04.1.02246</code>.
             Untuk Surat Ukur lama era 1960-an (1 lembar), cukup unggah Halaman 1 saja lalu ekspor PDF 1 halaman. Nama{" "}
             <strong>Kecamatan</strong> (termasuk ejaan lama{" "}
-            <code className="font-mono font-bold">Ketjamatan</code>) dipakai untuk membuat subfolder Google Drive otomatis.
+            <code className="font-mono font-bold">Ketjamatan</code>) dan{" "}
+            <strong>Kelurahan / Desa</strong> otomatis membentuk struktur subfolder bertingkat{" "}
+            <code className="font-mono font-bold">Drive / Kecamatan / Kelurahan</code> di Google Drive.
           </p>
         </section>
 

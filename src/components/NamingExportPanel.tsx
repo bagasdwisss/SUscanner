@@ -23,6 +23,7 @@ import {
   getEffectiveKodeHak,
   HAK_OPTIONS,
   normalizeKecamatanName,
+  normalizeKelurahanName,
   padFiveDigits,
   sanitizeCustomFilename,
   sanitizeDigits,
@@ -163,6 +164,7 @@ export function NamingExportPanel({
   const customHakRef = useRef<HTMLInputElement>(null);
   const nomorHakRef = useRef<HTMLInputElement>(null);
   const kecamatanRef = useRef<HTMLInputElement>(null);
+  const kelurahanRef = useRef<HTMLInputElement>(null);
   const customFileRef = useRef<HTMLInputElement>(null);
 
   const [interaction, setInteraction] = useState<{
@@ -218,6 +220,8 @@ export function NamingExportPanel({
   const nomorHakErrorId = useId();
   const kecamatanId = useId();
   const kecamatanHintId = useId();
+  const kelurahanId = useId();
+  const kelurahanHintId = useId();
   const customFileId = useId();
   const customFileHintId = useId();
   const customFileErrorId = useId();
@@ -233,6 +237,7 @@ export function NamingExportPanel({
 
   const pageCount = (hasPage1 ? 1 : 0) + (hasPage2 ? 1 : 0);
   const normalizedKecamatan = normalizeKecamatanName(fields.kecamatan);
+  const normalizedKelurahan = normalizeKelurahanName(fields.kelurahan);
 
   const showFieldError = (key: keyof typeof validation.errors) =>
     Boolean((touched[key] || submitAttempted) && validation.errors[key]);
@@ -913,6 +918,58 @@ export function NamingExportPanel({
               className="su-control w-full rounded-xl px-3.5 py-2 text-sm font-extrabold"
             />
           </div>
+
+          {/* 7. Kelurahan / Desa (Nested Subfolder Drive inside Kecamatan) */}
+          <div className="flex flex-col gap-1 border-t-2 border-dashed border-[#111111]/25 pt-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor={kelurahanId} className="nb-micro text-[#111111]">
+                7. Kelurahan / Desa (Subfolder Drive)
+              </label>
+              <ConfidenceBadge
+                meta={
+                  fields.kelurahan.trim() &&
+                  confidences.kelurahan.level === "low" &&
+                  confidences.kelurahan.score === null
+                    ? { score: null, level: "medium", reason: null }
+                    : confidences.kelurahan
+                }
+              />
+            </div>
+            <span
+              id={kelurahanHintId}
+              className="text-[11px] font-semibold text-[#3F3F46]"
+            >
+              Otomatis dibuat di dalam folder Kecamatan (opsional untuk SU lama 1960-an)
+            </span>
+            <input
+              ref={kelurahanRef}
+              id={kelurahanId}
+              name="kelurahan"
+              type="text"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={80}
+              value={fields.kelurahan}
+              aria-describedby={kelurahanHintId}
+              onChange={(e) =>
+                onChangeFields({
+                  ...fields,
+                  kelurahan: e.target.value,
+                })
+              }
+              onBlur={() => {
+                markTouched("kelurahan");
+                if (fields.kelurahan.trim()) {
+                  onChangeFields({
+                    ...fields,
+                    kelurahan: normalizeKelurahanName(fields.kelurahan),
+                  });
+                }
+              }}
+              placeholder="Misal: Helvetia Timur"
+              className="su-control w-full rounded-xl px-3.5 py-2 text-sm font-extrabold"
+            />
+          </div>
         </div>
 
         {/* Bento Card 3: Live Final Filename Preview */}
@@ -993,9 +1050,11 @@ export function NamingExportPanel({
             <span>
               {isUploadingDrive
                 ? "Mengunggah ke Subfolder Drive…"
-                : normalizedKecamatan
-                  ? `Upload Langsung ke Drive (/ ${normalizedKecamatan})`
-                  : "Upload Langsung ke Drive"}
+                : normalizedKecamatan && normalizedKelurahan
+                  ? `Upload Langsung ke Drive (/ ${normalizedKecamatan} / ${normalizedKelurahan})`
+                  : normalizedKecamatan
+                    ? `Upload Langsung ke Drive (/ ${normalizedKecamatan})`
+                    : "Upload Langsung ke Drive"}
             </span>
           </button>
 
@@ -1031,17 +1090,27 @@ export function NamingExportPanel({
                 </a>
               </div>
               <p className="mt-1 break-all font-mono text-xs font-extrabold text-[#111111]">
-                / {normalizedKecamatan || "(Isi Kecamatan)"} / {finalFilename}
+                / {normalizedKecamatan || "(Isi Kecamatan)"}
+                {normalizedKelurahan ? ` / ${normalizedKelurahan}` : ""} /{" "}
+                {finalFilename}
               </p>
             </div>
 
             {lastDriveResult ? (
-              <div className="rounded-lg border-2 border-[#111111] bg-[#D9F99D] p-2.5 text-xs">
+              <div className="rounded-lg border-2 border-[#111111] bg-[#D9F99D] p-2.5 text-xs space-y-1.5">
                 <p className="font-extrabold text-[#111111]">
-                  {lastDriveResult.folderCreated
-                    ? `Subfolder baru "${lastDriveResult.folderName}" dibuat & berkas dimasukkan.`
-                    : `Subfolder "${lastDriveResult.folderName}" sudah ada — berkas dimasukkan ke folder tersebut.`}
+                  {lastDriveResult.kelurahanName
+                    ? `Tersimpan ke subfolder "${lastDriveResult.kecamatanName || normalizedKecamatan} / ${lastDriveResult.kelurahanName}" (${lastDriveResult.kelurahanCreated ? "folder Kelurahan baru dibuat" : "memakai folder Kelurahan yang sudah ada"}).`
+                    : lastDriveResult.folderCreated
+                      ? `Subfolder baru "${lastDriveResult.folderName}" dibuat & berkas dimasukkan.`
+                      : `Subfolder "${lastDriveResult.folderName}" sudah ada — berkas dimasukkan ke folder tersebut.`}
                 </p>
+                {normalizedKelurahan &&
+                lastDriveResult.nestedSupported === false ? (
+                  <p className="rounded border border-[#111111] bg-[#FEF08A] px-2 py-1 text-[11px] font-bold text-[#111111]">
+                    Catatan: Web App Google Apps Script masih versi lama sehingga berkas masuk ke folder Kecamatan saja. Klik tombol Terhubung di atas lalu salin &amp; Deploy New version agar subfolder Kelurahan aktif otomatis.
+                  </p>
+                ) : null}
                 <div className="mt-1.5 flex flex-wrap gap-2">
                   <a
                     href={lastDriveResult.folderUrl}

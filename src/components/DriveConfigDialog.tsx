@@ -111,8 +111,8 @@ export function DriveConfigDialog({
     <AppDialog
       open={open}
       onClose={onClose}
-      title="Pengaturan Google Drive & Subfolder Kecamatan"
-      subtitle="Berkas PDF yang selesai dipindai akan otomatis dimasukkan ke subfolder sesuai nama Kecamatan."
+      title="Pengaturan Google Drive & Subfolder Kecamatan / Kelurahan"
+      subtitle="Berkas PDF yang selesai dipindai akan otomatis dimasukkan ke subfolder Kecamatan lalu subfolder Kelurahan/Desa di dalamnya."
       maxWidthClass="max-w-3xl"
       headerBgClass="bg-[#BAE6FD]"
       footer={
@@ -153,7 +153,7 @@ export function DriveConfigDialog({
               </p>
               <p className="text-xs font-semibold text-[#111111]/85">
                 {isReady
-                  ? "Siap membuat subfolder Kecamatan dan mengunggah PDF langsung ke Drive."
+                  ? "Siap membuat subfolder Kecamatan dan subfolder Kelurahan/Desa otomatis di Drive."
                   : "Isi URL Web App Apps Script (2 menit) atau atur variabel .env.local di server."}
               </p>
             </div>
@@ -199,7 +199,8 @@ export function DriveConfigDialog({
             <code className="rounded border border-[#111111]/30 bg-[#F6F5F0] px-1.5 py-0.5 font-mono font-bold text-[#111111]">
               {resolvedFolderId}
             </code>{" "}
-            — Subfolder seperti <code className="font-mono font-bold">/Medan Helvetia/</code>{" "}
+            — Subfolder bertingkat seperti{" "}
+            <code className="font-mono font-bold">/Medan Helvetia/Helvetia Timur/</code>{" "}
             akan dibuat otomatis di dalam folder ini.
           </p>
 
@@ -273,7 +274,7 @@ export function DriveConfigDialog({
             </div>
             <ol className="list-decimal space-y-1 pl-4 font-semibold text-[#3F3F46]">
               <li>
-                Script otomatis mencari subfolder Kecamatan di folder induk (jika sudah ada, PDF dimasukkan ke folder yang ada tanpa membuat folder duplikat).
+                Script otomatis mencari subfolder Kecamatan lalu subfolder Kelurahan/Desa di dalamnya (jika sudah ada, PDF dimasukkan ke folder yang ada tanpa membuat folder duplikat).
               </li>
               <li>
                 Di{" "}
@@ -285,7 +286,8 @@ export function DriveConfigDialog({
                 >
                   script.google.com
                 </a>
-                , klik <strong>Deploy → Manage deployments → Edit</strong>.
+                , tempel kode terbaru di atas, lalu klik{" "}
+                <strong>Deploy → Manage deployments → Edit → pilih New version</strong> agar subfolder Kelurahan aktif.
               </li>
               <li>
                 Pastikan{" "}

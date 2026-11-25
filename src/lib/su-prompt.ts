@@ -47,13 +47,18 @@ export const SU_SYSTEM_INSTRUCTION = `Anda adalah sistem ekstraksi data dokumen 
    - JANGAN tertukar dengan nama "Kelurahan/Desa", "Kampung", "Kabupaten/Kotamadya", atau "Provinsi".
    - Jika tidak tercantum atau tidak terbaca -> kembalikan \`null\`.
 
-6. **Aturan Kejujuran & Confidence Score:**
+6. **Nama Kelurahan / Desa (\`kelurahan_raw\`):**
+   - Cari label \`"Kelurahan"\`, \`"Kel."\`, \`"Desa"\`, \`"Ds."\`, atau \`"Kampung"\` di blok lokasi bidang tanah; ATAU ambil nama desa/kelurahan dari bagian tengah Nomor SU modern (\`06/Helvetia Timur/2007\` -> \`"Helvetia Timur"\`).
+   - Kembalikan HANYA nama kelurahan/desanya dalam huruf rapi (tanpa kata "Kelurahan", "Kel.", "Desa", "Kampung"). JANGAN tertukar dengan \`Kecamatan\`.
+   - Jika tidak tercantum (misal pada SU era 60-an) -> kembalikan \`null\`.
+
+7. **Aturan Kejujuran & Confidence Score:**
    - JANGAN PERNAH menebak angka atau teks yang benar-benar buram, terpotong, atau tertutup stempel pekat. Jika tidak dapat dibaca dengan pasti, kembalikan \`null\` pada field tersebut dan beri \`confidence\` rendah (\`0.0\` - \`0.5\`).
    - Berikan skor \`confidence\` antara \`0.0\` hingga \`1.0\` untuk masing-masing field secara realistis.
    - Sertakan teks mentah yang terlihat pada \`raw_evidence\` (termasuk \`teks_lokasi\`) untuk membantu verifikasi visual operator.`;
 
 export const SU_USER_PROMPT =
-  "Ekstrak Nomor Surat Ukur, Tahun Surat Ukur, Kode Jenis Hak, Nomor Hak, dan nama Kecamatan dari gambar dokumen Surat Ukur terlampir sesuai dengan skema JSON yang ditentukan.";
+  "Ekstrak Nomor Surat Ukur, Tahun Surat Ukur, Kode Jenis Hak, Nomor Hak, nama Kecamatan, dan nama Kelurahan/Desa dari gambar dokumen Surat Ukur terlampir sesuai dengan skema JSON yang ditentukan.";
 
 export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
   type: "object",
@@ -94,6 +99,11 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
       description:
         "Nama Kecamatan lokasi bidang tanah tanpa awalan 'Kecamatan'/'Ketjamatan', contoh: 'Medan Helvetia'.",
     },
+    kelurahan_raw: {
+      type: ["string", "null"],
+      description:
+        "Nama Kelurahan atau Desa lokasi bidang tanah (atau dari bagian tengah Nomor SU), contoh: 'Helvetia Timur'.",
+    },
     nib_terdeteksi: {
       type: ["string", "null"],
       description:
@@ -116,8 +126,16 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
         jenis_hak: { type: "number", minimum: 0, maximum: 1 },
         nomor_hak: { type: "number", minimum: 0, maximum: 1 },
         kecamatan: { type: "number", minimum: 0, maximum: 1 },
+        kelurahan: { type: "number", minimum: 0, maximum: 1 },
       },
-      required: ["nomor_su", "tahun_su", "jenis_hak", "nomor_hak", "kecamatan"],
+      required: [
+        "nomor_su",
+        "tahun_su",
+        "jenis_hak",
+        "nomor_hak",
+        "kecamatan",
+        "kelurahan",
+      ],
     },
     catatan_peringatan: {
       type: ["string", "null"],
@@ -132,6 +150,7 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
     "kode_jenis_hak_huruf",
     "nomor_hak_raw",
     "kecamatan_raw",
+    "kelurahan_raw",
     "raw_evidence",
     "confidence",
   ],
@@ -145,6 +164,7 @@ export const suExtractionZodSchema = z.object({
   kode_jenis_hak_huruf: z.enum(["M", "U", "B", "P", "L", "W"]).nullable(),
   nomor_hak_raw: z.string().nullable(),
   kecamatan_raw: z.string().nullable().default(null),
+  kelurahan_raw: z.string().nullable().default(null),
   nib_terdeteksi: z.string().nullable().default(null),
   raw_evidence: z.object({
     teks_nomor_su: z.string().nullable(),
@@ -157,6 +177,7 @@ export const suExtractionZodSchema = z.object({
     jenis_hak: z.number().min(0).max(1),
     nomor_hak: z.number().min(0).max(1),
     kecamatan: z.number().min(0).max(1).default(0),
+    kelurahan: z.number().min(0).max(1).default(0),
   }),
   catatan_peringatan: z.string().nullable().default(null),
 });

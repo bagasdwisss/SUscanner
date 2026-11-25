@@ -9,7 +9,9 @@ import {
   DEFAULT_DRIVE_ROOT_FOLDER_ID,
   extractDriveFolderId,
   findMatchingKecamatanFolder,
+  findMatchingKelurahanFolder,
   normalizeKecamatanName,
+  normalizeKelurahanName,
 } from "./su-formatter";
 
 export class DriveServiceError extends Error {
@@ -233,13 +235,17 @@ interface DriveFolderItem {
   webViewLink?: string;
 }
 
-async function findOrCreateKecamatanSubfolder(
+async function findOrCreateDriveSubfolder(
   accessToken: string,
-  rootFolderId: string,
-  kecamatanName: string,
+  parentFolderId: string,
+  folderName: string,
+  matchFolder: (
+    folders: readonly DriveFolderItem[],
+    target: string,
+  ) => DriveFolderItem | undefined,
 ): Promise<{ folder: DriveFolderItem; created: boolean }> {
-  const escapedRoot = escapeDriveQuery(rootFolderId);
-  const query = `'${escapedRoot}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const escapedParent = escapeDriveQuery(parentFolderId);
+  const query = `'${escapedParent}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
   let pageToken: string | undefined;
   do {
@@ -261,17 +267,14 @@ async function findOrCreateKecamatanSubfolder(
 
     if (!listRes.ok) {
       const errText = await listRes.text();
-      throw mapDriveApiError(listRes.status, errText, rootFolderId);
+      throw mapDriveApiError(listRes.status, errText, parentFolderId);
     }
 
     const listData = (await listRes.json()) as {
       files?: DriveFolderItem[];
       nextPageToken?: string;
     };
-    const match = findMatchingKecamatanFolder(
-      listData.files ?? [],
-      kecamatanName,
-    );
+    const match = matchFolder(listData.files ?? [], folderName);
     if (match) {
       return { folder: match, created: false };
     }
@@ -287,16 +290,16 @@ async function findOrCreateKecamatanSubfolder(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        name: kecamatanName,
+        name: folderName,
         mimeType: "application/vnd.google-apps.folder",
-        parents: [rootFolderId],
+        parents: [parentFolderId],
       }),
     },
   );
 
   if (!createRes.ok) {
     const errText = await createRes.text();
-    throw mapDriveApiError(createRes.status, errText, rootFolderId);
+    throw mapDriveApiError(createRes.status, errText, parentFolderId);
   }
 
   const createdFolder = (await createRes.json()) as DriveFolderItem;
@@ -308,22 +311,35 @@ async function uploadPdfMultipartRestV3(params: {
   provider: string;
   rootFolderId: string;
   kecamatanName: string;
+  kelurahanName?: string;
   filename: string;
   pdfBuffer: Buffer;
 }): Promise<DriveUploadResult> {
-  const { folder, created } = await findOrCreateKecamatanSubfolder(
+  const kecResult = await findOrCreateDriveSubfolder(
     params.accessToken,
     params.rootFolderId,
     params.kecamatanName,
+    findMatchingKecamatanFolder,
   );
+  const kelResult = params.kelurahanName
+    ? await findOrCreateDriveSubfolder(
+        params.accessToken,
+        kecResult.folder.id,
+        params.kelurahanName,
+        findMatchingKelurahanFolder,
+      )
+    : null;
+  const targetFolder = kelResult ? kelResult.folder : kecResult.folder;
 
   const boundary = `suScannerBoundary_${randomBytes(12).toString("hex")}`;
   const metadataPart = Buffer.from(
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(
       {
         name: params.filename,
-        parents: [folder.id],
-        description: `Surat Ukur Kecamatan ${params.kecamatanName} — Diunggah otomatis oleh SU-Scanner`,
+        parents: [targetFolder.id],
+        description: `Surat Ukur Kecamatan ${kecResult.folder.name}${
+          kelResult ? `, Kelurahan ${kelResult.folder.name}` : ""
+        } — Diunggah otomatis oleh SU-Scanner`,
       },
     )}\r\n--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`,
     "utf8",
@@ -345,7 +361,7 @@ async function uploadPdfMultipartRestV3(params: {
 
   if (!uploadRes.ok) {
     const errText = await uploadRes.text();
-    throw mapDriveApiError(uploadRes.status, errText, folder.id);
+    throw mapDriveApiError(uploadRes.status, errText, targetFolder.id);
   }
 
   const uploaded = (await uploadRes.json()) as {
@@ -356,16 +372,24 @@ async function uploadPdfMultipartRestV3(params: {
 
   return {
     ok: true,
+    nestedSupported: true,
     provider: params.provider,
     fileId: uploaded.id,
     fileName: uploaded.name,
     fileUrl:
       uploaded.webViewLink ||
       `https://drive.google.com/file/d/${uploaded.id}/view`,
-    folderId: folder.id,
-    folderName: folder.name,
-    folderUrl: folder.webViewLink || buildDriveFolderUrl(folder.id),
-    folderCreated: created,
+    folderId: targetFolder.id,
+    folderName: kelResult
+      ? `${kecResult.folder.name} / ${kelResult.folder.name}`
+      : kecResult.folder.name,
+    folderUrl:
+      targetFolder.webViewLink || buildDriveFolderUrl(targetFolder.id),
+    folderCreated: kelResult ? kelResult.created : kecResult.created,
+    kecamatanName: kecResult.folder.name,
+    kecamatanCreated: kecResult.created,
+    kelurahanName: kelResult ? kelResult.folder.name : undefined,
+    kelurahanCreated: kelResult ? kelResult.created : false,
   };
 }
 
@@ -373,6 +397,7 @@ async function uploadViaAppsScript(params: {
   webhookUrl: string;
   rootFolderId: string;
   kecamatanName: string;
+  kelurahanName?: string;
   filename: string;
   pdfBase64: string;
 }): Promise<DriveUploadResult> {
@@ -392,6 +417,7 @@ async function uploadViaAppsScript(params: {
     body: JSON.stringify({
       rootFolderId: params.rootFolderId,
       kecamatan: params.kecamatanName,
+      kelurahan: params.kelurahanName || "",
       filename: params.filename,
       pdfBase64: params.pdfBase64,
       secret: process.env.GOOGLE_DRIVE_APPS_SCRIPT_SECRET || "",
@@ -430,8 +456,18 @@ async function uploadViaAppsScript(params: {
 
   const folderId = String(parsed.folderId || "");
   const fileId = String(parsed.fileId || "");
+  const kecamatanReturned =
+    typeof parsed.kecamatanName === "string" && parsed.kecamatanName.trim()
+      ? parsed.kecamatanName.trim()
+      : params.kecamatanName;
+  const kelurahanReturned =
+    typeof parsed.kelurahanName === "string" && parsed.kelurahanName.trim()
+      ? parsed.kelurahanName.trim()
+      : undefined;
+
   return {
     ok: true,
+    nestedSupported: parsed.nestedSupported === true,
     provider: "apps-script",
     fileId,
     fileName: String(parsed.fileName || params.filename),
@@ -440,18 +476,31 @@ async function uploadViaAppsScript(params: {
         ? parsed.fileUrl
         : `https://drive.google.com/file/d/${fileId}/view`,
     folderId,
-    folderName: String(parsed.folderName || params.kecamatanName),
+    folderName: String(
+      parsed.folderName ||
+        (kelurahanReturned
+          ? `${kecamatanReturned} / ${kelurahanReturned}`
+          : kecamatanReturned),
+    ),
     folderUrl:
       typeof parsed.folderUrl === "string" && parsed.folderUrl
         ? parsed.folderUrl
         : buildDriveFolderUrl(folderId),
     folderCreated: Boolean(parsed.folderCreated),
+    kecamatanName: kecamatanReturned,
+    kecamatanCreated:
+      typeof parsed.kecamatanCreated === "boolean"
+        ? parsed.kecamatanCreated
+        : !kelurahanReturned && Boolean(parsed.folderCreated),
+    kelurahanName: kelurahanReturned,
+    kelurahanCreated: Boolean(parsed.kelurahanCreated),
   };
 }
 
 export async function uploadPdfToKecamatanDrive(params: {
   filename: string;
   kecamatan: string;
+  kelurahan?: string | null;
   rootFolderId?: string | null;
   pdfBase64: string;
   appsScriptUrl?: string | null;
@@ -465,6 +514,7 @@ export async function uploadPdfToKecamatanDrive(params: {
       400,
     );
   }
+  const kelurahanName = normalizeKelurahanName(params.kelurahan) || undefined;
 
   const rootFolderId = resolveConfiguredRootFolderId(params.rootFolderId);
   const pdfBuffer = Buffer.from(params.pdfBase64, "base64");
@@ -483,6 +533,7 @@ export async function uploadPdfToKecamatanDrive(params: {
       provider: "google-oauth-client",
       rootFolderId,
       kecamatanName,
+      kelurahanName,
       filename: params.filename,
       pdfBuffer,
     });
@@ -498,6 +549,7 @@ export async function uploadPdfToKecamatanDrive(params: {
       webhookUrl: explicitAppsScriptUrl,
       rootFolderId,
       kecamatanName,
+      kelurahanName,
       filename: params.filename,
       pdfBase64: params.pdfBase64,
     });
@@ -512,6 +564,7 @@ export async function uploadPdfToKecamatanDrive(params: {
       provider: "google-oauth-refresh",
       rootFolderId,
       kecamatanName,
+      kelurahanName,
       filename: params.filename,
       pdfBuffer,
     });
@@ -525,6 +578,7 @@ export async function uploadPdfToKecamatanDrive(params: {
       provider: "google-service-account",
       rootFolderId,
       kecamatanName,
+      kelurahanName,
       filename: params.filename,
       pdfBuffer,
     });
@@ -536,6 +590,7 @@ export async function uploadPdfToKecamatanDrive(params: {
       webhookUrl: DEFAULT_APPS_SCRIPT_URL,
       rootFolderId,
       kecamatanName,
+      kelurahanName,
       filename: params.filename,
       pdfBase64: params.pdfBase64,
     });
