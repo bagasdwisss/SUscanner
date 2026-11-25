@@ -236,6 +236,18 @@ export function parseNomorHakEvidence(raw: string | null | undefined): {
     return { kind: "unknown", kodeHak: null, nomorHak5: null };
   }
 
+  // Match embedded 14-digit BPN Nomor Hak even if surrounded by labels or trailing dash
+  const match14 = raw.match(
+    /\b(\d{2})[\s.\-·_]*(\d{2})[\s.\-·_]*(\d{2})[\s.\-·_]*(\d{2})[\s.\-·_]*([123458])[\s.\-·_]*(\d{5})\b/,
+  );
+  if (match14) {
+    return {
+      kind: "nomor_hak_14",
+      kodeHak: mapHakCode(match14[5]),
+      nomorHak5: match14[6],
+    };
+  }
+
   const digits = sanitizeDigits(raw);
   if (digits.length === 14) {
     const hakDigit = digits[8];
@@ -251,11 +263,13 @@ export function parseNomorHakEvidence(raw: string | null | undefined): {
     return { kind: "nib_13", kodeHak: null, nomorHak5: null };
   }
 
-  // Legacy short format e.g., "HM. 2246", "HGB 105", "M.02246"
+  // Legacy short format e.g. "HM. 2246", "Hak Milik No. 145", "Hak Milik : HM. 145", "HGB No. 105", "M.02246"
   const shortMatch = raw
     .trim()
     .toUpperCase()
-    .match(/^(HM|HGU|HGB|HP|HPL|WAKAF|M|U|B|P|L|W)[\s.\-:/]*(\d{1,5})\b/);
+    .match(
+      /\b(HAK\s+MILIK|HAK\s+GUNA\s+USAHA|HAK\s+GUNA\s+BANGUNAN|HAK\s+PAKAI|HAK\s+PENGELOLAAN|TANAH\s+WAKAF|HM|HGU|HGB|HP|HPL|WAKAF|M|U|B|P|L|W)[\s.\-:/]*(?:(?:NO|NOMOR)\.?)?[\s.\-:/]*(\d{1,5})\b/,
+    );
   if (shortMatch) {
     return {
       kind: "short_hak",
@@ -387,12 +401,30 @@ export function applyExtractionToForm(
     warnings.push(extraction.catatan_peringatan);
   }
 
-  // 1. Nomor SU: sanitize non-digits + 5-digit zero-padding
-  const nomorSuClean = sanitizeDigits(extraction.nomor_su_raw);
+  // 1. Nomor SU & Tahun SU with deterministic cross-check against raw_evidence.teks_nomor_su
+  const suEvidenceSlash = extraction.raw_evidence.teks_nomor_su?.match(
+    /\b(\d{1,5})\s*\/\s*([^\/\n]{2,50}?)\s*\/\s*((?:19|20)\d{2})\b/,
+  );
+  const suEvidenceSimple = extraction.raw_evidence.teks_nomor_su?.match(
+    /\b(\d{1,5})\s*(?:\/|\btahun\b|\bthn\.?)\s*((?:19|20)\d{2})\b/i,
+  );
+  const suMiddleIsKelurahan =
+    suEvidenceSlash && /[a-zA-Z]{2,}/.test(suEvidenceSlash[2])
+      ? suEvidenceSlash[2].trim()
+      : null;
+
+  const nomorSuClean =
+    sanitizeDigits(extraction.nomor_su_raw) ||
+    (suEvidenceSlash ? sanitizeDigits(suEvidenceSlash[1]) : "") ||
+    (suEvidenceSimple ? sanitizeDigits(suEvidenceSimple[1]) : "");
   const nomorSuFormatted = nomorSuClean ? padFiveDigits(nomorSuClean) : "";
 
   // 2. Tahun SU: sanitize 4 digits + logical year check (1960..currentYear)
-  const tahunClean = sanitizeDigits(extraction.tahun_su).slice(0, 4);
+  const tahunClean = (
+    sanitizeDigits(extraction.tahun_su).slice(0, 4) ||
+    (suEvidenceSlash ? suEvidenceSlash[3] : "") ||
+    (suEvidenceSimple ? suEvidenceSimple[2] : "")
+  ).slice(0, 4);
   const tahunInRange =
     tahunClean.length === 4 &&
     Number(tahunClean) >= MIN_VALID_SU_YEAR &&
@@ -433,15 +465,30 @@ export function applyExtractionToForm(
     warnings.push(
       "Angka 13 digit terdeteksi sebagai NIB (bukan Nomor Hak 14 digit). Isi Nomor Hak secara manual.",
     );
+  } else if (!nomorHakDigits && parsedEvidence.nomorHak5) {
+    nomorHakDigits = parsedEvidence.nomorHak5;
   }
 
   const nomorHakFormatted = nomorHakDigits
     ? padFiveDigits(nomorHakDigits)
     : "";
 
-  // 4. Kecamatan & Kelurahan/Desa for nested Drive subfolder grouping
-  const kecamatanNormalized = normalizeKecamatanName(extraction.kecamatan_raw);
-  const kelurahanNormalized = normalizeKelurahanName(extraction.kelurahan_raw);
+  // 4. Kecamatan & Kelurahan/Desa with deterministic fallback from teks_lokasi / teks_nomor_su
+  const lokasi = extraction.raw_evidence.teks_lokasi || "";
+  const kecFromLokasi = lokasi.match(
+    /(?:kecamatan|ketjamatan|kec\.?|ketj\.?)\s*[:.\-]?\s*([^\n,;\/|]+)/i,
+  )?.[1];
+  const kelFromLokasi = lokasi.match(
+    /(?:kelurahan|kel\.?|desa|ds\.?|kampung|kp\.?)\s*[:.\-]?\s*([^\n,;\/|]+)/i,
+  )?.[1];
+
+  const kecamatanNormalized =
+    normalizeKecamatanName(extraction.kecamatan_raw) ||
+    normalizeKecamatanName(kecFromLokasi);
+  const kelurahanNormalized =
+    normalizeKelurahanName(extraction.kelurahan_raw) ||
+    normalizeKelurahanName(kelFromLokasi) ||
+    normalizeKelurahanName(suMiddleIsKelurahan);
 
   const makeMeta = (
     score: number,

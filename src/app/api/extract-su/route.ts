@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI, createPartFromBase64 } from "@google/genai";
+import {
+  GoogleGenAI,
+  MediaResolution,
+  PartMediaResolutionLevel,
+  createPartFromBase64,
+} from "@google/genai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import {
@@ -9,14 +14,14 @@ import {
   suExtractionZodSchema,
 } from "@/lib/su-prompt";
 
-const AI_TIMEOUT_MS = 30_000;
-const PER_MODEL_TIMEOUT_MS = 14_000;
+const AI_TIMEOUT_MS = 35_000;
+const PER_MODEL_TIMEOUT_MS = 18_000;
 const MAX_IMAGE_BYTES = 4_200_000;
 const FALLBACK_GEMINI_MODELS = [
   "gemini-3.5-flash",
   "gemini-3.6-flash",
-  "gemini-3.8-flash",
   "gemini-3.7-flash",
+  "gemini-3.8-flash",
 ] as const;
 
 function getCandidateGeminiModels(): string[] {
@@ -174,10 +179,18 @@ export async function POST(request: NextRequest) {
       try {
         const response = await ai.models.generateContent({
           model: geminiModel,
-          contents: [SU_USER_PROMPT, createPartFromBase64(base64, mimeType)],
+          contents: [
+            SU_USER_PROMPT,
+            createPartFromBase64(
+              base64,
+              mimeType,
+              PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH,
+            ),
+          ],
           config: {
             systemInstruction: SU_SYSTEM_INSTRUCTION,
             temperature: 0.0,
+            mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
             responseMimeType: "application/json",
             responseJsonSchema: SU_GEMINI_RESPONSE_JSON_SCHEMA,
             abortSignal: attemptSignal,

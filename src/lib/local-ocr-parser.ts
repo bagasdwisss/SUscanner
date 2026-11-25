@@ -29,7 +29,9 @@ function extractKecamatanFromText(rawText: string): {
     if (!match) continue;
 
     const segment = match[1]
-      .split(/\s*(?:\||,|;|\bkelurahan\b|\bdesa\b|\bkabupaten\b|\bkotamadya\b|\bkota\b|\bpropinsi\b|\bprovinsi\b)/i)[0]
+      .split(
+        /\s*(?:\||,|;|\/|\bkelurahan\b|\bdesa\b|\bkabupaten\b|\bkotamadya\b|\bkota\b|\bpropinsi\b|\bprovinsi\b)/i,
+      )[0]
       ?.trim();
     const normalized = normalizeKecamatanName(segment);
     if (normalized) {
@@ -57,7 +59,9 @@ function extractKelurahanFromText(
     if (!match) continue;
 
     const segment = match[1]
-      .split(/\s*(?:\||,|;|\bkecamatan\b|\bketjamatan\b|\bkec\.?\b|\bkabupaten\b|\bkotamadya\b|\bkota\b|\bpropinsi\b|\bprovinsi\b)/i)[0]
+      .split(
+        /\s*(?:\||,|;|\/|\bkecamatan\b|\bketjamatan\b|\bkec\.?\b|\bketj\.?\b|\bkabupaten\b|\bkotamadya\b|\bkota\b|\bpropinsi\b|\bprovinsi\b)/i,
+      )[0]
       ?.trim();
     const normalized = normalizeKelurahanName(segment);
     if (normalized) return normalized;
@@ -76,10 +80,10 @@ function extractSuNumberAndYear(rawText: string): {
   const numTok = "([0-9OoIl]{1,5})";
   const yearTok = "((?:19|20|1[9O]|2[0O])[0-9OoIl]{2})";
 
-  // Pattern 1: Modern format e.g. "Nomor: 06/Helvetia Timur/2007" or noisy "Nomor: O6/Helvetia Timur/2007"
+  // Pattern 1: Modern format e.g. "Nomor: 06/Helvetia Timur/2007" (middle must contain letters so DD/MM/YYYY dates never match)
   const modernMatch = rawText.match(
     new RegExp(
-      `(?:nomor|no\\.?)\\s*[:.\\-]?\\s*${numTok}\\s*\\/\\s*([A-Za-z0-9\\s.'-]{2,45}?)\\s*\\/\\s*${yearTok}\\b`,
+      `(?:nomor|no\\.?)\\s*[:.\\-]?\\s*${numTok}\\s*\\/\\s*([A-Za-z][A-Za-z0-9\\s.'-]{1,44}?)\\s*\\/\\s*${yearTok}\\b`,
       "i",
     ),
   );
@@ -185,7 +189,7 @@ function extractHakAndNib(rawText: string): {
   }
 
   const legacyHakMatch = rawText.match(
-    /(?:Hak\s+Milik\s*[:.\-]?\s*)?\b(HM|HGU|HGB|HP|HPL|WAKAF)\b[\s.\-:/]*(?:No\.?\s*)?([0-9OoIl]{1,5})\b/i,
+    /\b(HAK\s+MILIK|HAK\s+GUNA\s+USAHA|HAK\s+GUNA\s+BANGUNAN|HAK\s+PAKAI|HM|HGU|HGB|HP|HPL|WAKAF)\b[\s.\-:/]*(?:(?:NO|NOMOR)\.?\s*)?([0-9OoIl]{1,5})\b/i,
   );
   if (legacyHakMatch) {
     const code = mapHakCode(legacyHakMatch[1]);

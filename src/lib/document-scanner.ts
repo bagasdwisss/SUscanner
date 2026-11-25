@@ -193,7 +193,7 @@ export function detectPaperCornersFromCanvas(sourceCanvas: HTMLCanvasElement): {
   corners: QuadCorners;
   detected: boolean;
 } {
-  const MAX_WORK = 320;
+  const MAX_WORK = 420;
   const scale = Math.min(
     1,
     MAX_WORK / Math.max(sourceCanvas.width, sourceCanvas.height),
@@ -461,32 +461,32 @@ function applyDocumentFilterInPlace(
           const lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
           const chroma = Math.max(nr, ng, nb) - Math.min(nr, ng, nb);
 
-          if (lum > 224 && chroma < 26) {
-            // Smoothly snap paper background to pure bright white
+          if (lum > 238 && chroma < 22) {
+            // Smoothly snap clean paper background to white without erasing faint typewriter ink
             nr = 255;
             ng = 255;
             nb = 255;
           } else {
-            // Boost colored stamp saturation & darken ink contrast slightly
-            const boost = 1.22;
-            const satBoost = chroma > 18 ? 1.28 : 1.0;
+            // Preserve faint ink strokes while gently crisp-boosting stamps & contrast
+            const boost = 1.15;
+            const satBoost = chroma > 18 ? 1.24 : 1.0;
             const mean = (nr + ng + nb) / 3;
             nr = mean + (nr - mean) * satBoost;
             ng = mean + (ng - mean) * satBoost;
             nb = mean + (nb - mean) * satBoost;
-            nr = (nr - 145) * boost + 145;
-            ng = (ng - 145) * boost + 145;
-            nb = (nb - 145) * boost + 145;
+            nr = (nr - 150) * boost + 150;
+            ng = (ng - 150) * boost + 150;
+            nb = (nb - 150) * boost + 150;
           }
           data[p] = clamp(nr, 0, 255);
           data[p + 1] = clamp(ng, 0, 255);
           data[p + 2] = clamp(nb, 0, 255);
         } else if (filter === "grayscale") {
           let lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
-          if (lum > 222) {
+          if (lum > 236) {
             lum = 255;
           } else {
-            lum = clamp((lum - 140) * 1.25 + 140, 0, 255);
+            lum = clamp((lum - 145) * 1.2 + 145, 0, 255);
           }
           data[p] = lum;
           data[p + 1] = lum;
@@ -726,11 +726,34 @@ export async function processDocumentPage(params: {
 }
 
 /**
- * Prepares a scanned Data URL for Vision AI OCR (PRD Section 10: longest side 1600-2048px, JPEG 85%).
+ * Renders an unthresholded, perspective-cropped, upright JPEG image specifically
+ * optimized for Vision AI extraction so faint typewriter ink, dots, and stamps remain crisp.
+ */
+export async function prepareCleanCropForAi(params: {
+  rawUrl: string;
+  rotation: 0 | 90 | 180 | 270;
+  corners: QuadCorners;
+  maxSide?: number;
+}): Promise<string> {
+  const result = await processDocumentPage({
+    rawUrl: params.rawUrl,
+    rotation: params.rotation,
+    corners: params.corners,
+    filter: "original",
+    brightness: 0,
+    contrast: 0,
+    maxOutputSide: params.maxSide ?? 2200,
+    jpegQuality: 0.92,
+  });
+  return result.dataUrl;
+}
+
+/**
+ * Prepares a scanned Data URL for Vision AI OCR (PRD Section 10: longest side 1600-2200px, JPEG 90%).
  */
 export async function prepareImageForAi(
   dataUrl: string,
-  maxSide = 1800,
+  maxSide = 2200,
 ): Promise<string> {
   const img = await loadImageElement(dataUrl);
   const scale = Math.min(
@@ -745,5 +768,5 @@ export async function prepareImageForAi(
   const ctx = canvas.getContext("2d");
   if (!ctx) return dataUrl;
   ctx.drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL("image/jpeg", 0.85);
+  return canvas.toDataURL("image/jpeg", 0.9);
 }

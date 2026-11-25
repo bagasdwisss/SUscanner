@@ -217,7 +217,7 @@ describe("SU-Scanner formatter & domain rules", () => {
     assert.ok(res.warnings.some((w) => w.includes("NIB")));
   });
 
-  it("handles legacy short hak formats like 'HM. 2246' and 'HGB 105'", () => {
+  it("handles legacy short hak formats and embedded 14-digit noisy evidence", () => {
     const hm = parseNomorHakEvidence("HM. 2246");
     assert.equal(hm.kind, "short_hak");
     assert.equal(hm.kodeHak, "M");
@@ -227,6 +227,50 @@ describe("SU-Scanner formatter & domain rules", () => {
     assert.equal(hgb.kind, "short_hak");
     assert.equal(hgb.kodeHak, "B");
     assert.equal(hgb.nomorHak5, "00105");
+
+    const legacyWord = parseNomorHakEvidence("Hak Milik No. 145");
+    assert.equal(legacyWord.kind, "short_hak");
+    assert.equal(legacyWord.kodeHak, "M");
+    assert.equal(legacyWord.nomorHak5, "00145");
+
+    const noisy14 = parseNomorHakEvidence("Penunjuk Hak: 02.01.05.04.1.02246- / Medan");
+    assert.equal(noisy14.kind, "nomor_hak_14");
+    assert.equal(noisy14.kodeHak, "M");
+    assert.equal(noisy14.nomorHak5, "02246");
+
+    // Cross-validation recovers kelurahan/nomorHak from raw_evidence if AI omitted them
+    const partialAi: AiExtractionResult = {
+      is_halaman_data_su: true,
+      nomor_su_raw: null,
+      tahun_su: null,
+      kode_jenis_hak_angka: null,
+      kode_jenis_hak_huruf: null,
+      nomor_hak_raw: null,
+      kecamatan_raw: null,
+      kelurahan_raw: null,
+      nib_terdeteksi: null,
+      raw_evidence: {
+        teks_nomor_su: "06/Helvetia Timur/2007",
+        teks_nomor_hak: "02.01.05.04.1.02246-",
+        teks_lokasi: "Kelurahan: Helvetia Timur, Kecamatan: Medan Helvetia",
+      },
+      confidence: {
+        nomor_su: 0.9,
+        tahun_su: 0.9,
+        jenis_hak: 0.9,
+        nomor_hak: 0.9,
+        kecamatan: 0.9,
+        kelurahan: 0.85,
+      },
+      catatan_peringatan: null,
+    };
+    const crossChecked = applyExtractionToForm(partialAi, 2026);
+    assert.equal(
+      buildStandardFilename(crossChecked.fields),
+      "SU.00006.2007.M.02246.pdf",
+    );
+    assert.equal(crossChecked.fields.kecamatan, "Medan Helvetia");
+    assert.equal(crossChecked.fields.kelurahan, "Helvetia Timur");
   });
 
   it("zero-pads 5 digits and validates year boundaries", () => {
@@ -358,38 +402,101 @@ describe("SU-Scanner formatter & domain rules", () => {
     assert.equal(parsedMap.is_halaman_data_su, false);
   });
 
-  it("auto-crops paper edges cleanly from a wooden desk background", () => {
-    const w = 100;
-    const h = 100;
-    const rgba = new Uint8ClampedArray(w * h * 4);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const idx = (y * w + x) * 4;
-        const insidePaper = x >= 15 && x <= 84 && y >= 12 && y <= 88;
-        if (insidePaper) {
-          // Cream/white document with dark inner frame ink
-          const isInk = x === 25 || x === 74 || y === 22 || y === 78;
-          rgba[idx] = isInk ? 25 : 246;
-          rgba[idx + 1] = isInk ? 25 : 244;
-          rgba[idx + 2] = isInk ? 25 : 236;
-          rgba[idx + 3] = 255;
-        } else {
-          // Warm wooden desk border around paper
-          rgba[idx] = 165;
-          rgba[idx + 1] = 132;
-          rgba[idx + 2] = 98;
+  it("auto-crops paper edges across dark desks, wood desks, light desks, skewed traps, and keeps clean flat scans intact", () => {
+    const makeImage = (
+      w: number,
+      h: number,
+      paint: (x: number, y: number) => [number, number, number],
+    ) => {
+      const rgba = new Uint8ClampedArray(w * h * 4);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = (y * w + x) * 4;
+          const [r, g, b] = paint(x, y);
+          rgba[idx] = r;
+          rgba[idx + 1] = g;
+          rgba[idx + 2] = b;
           rgba[idx + 3] = 255;
         }
       }
-    }
+      return rgba;
+    };
 
-    const res = detectPaperCornersFromRgba(rgba, w, h);
-    assert.equal(res.detected, true);
-    // Detected top-left & bottom-right corners should hug the paper margin (0.15, 0.12 -> 0.85, 0.88), not inner ink (0.25)
-    assert.ok(res.corners[0].x >= 0.12 && res.corners[0].x <= 0.19);
-    assert.ok(res.corners[0].y >= 0.09 && res.corners[0].y <= 0.16);
-    assert.ok(res.corners[2].x >= 0.81 && res.corners[2].x <= 0.88);
-    assert.ok(res.corners[2].y >= 0.84 && res.corners[2].y <= 0.92);
+    // 1. Wooden desk with dark inner SU box frame
+    const wood = makeImage(120, 120, (x, y) => {
+      const insidePaper = x >= 18 && x <= 101 && y >= 14 && y <= 105;
+      if (insidePaper) {
+        const isInk = x === 30 || x === 88 || y === 26 || y === 94;
+        return isInk ? [20, 20, 20] : [246, 244, 236];
+      }
+      return [165, 132, 98];
+    });
+    const woodRes = detectPaperCornersFromRgba(wood, 120, 120);
+    assert.equal(woodRes.detected, true);
+    assert.ok(woodRes.corners[0].x >= 0.12 && woodRes.corners[0].x <= 0.18);
+    assert.ok(woodRes.corners[0].y >= 0.09 && woodRes.corners[0].y <= 0.15);
+    assert.ok(woodRes.corners[2].x >= 0.81 && woodRes.corners[2].x <= 0.88);
+    assert.ok(woodRes.corners[2].y >= 0.84 && woodRes.corners[2].y <= 0.91);
+
+    // 2. Dark charcoal desk (regression test for old lum < 105 dark background bug)
+    const darkDesk = makeImage(120, 120, (x, y) => {
+      const insidePaper = x >= 14 && x <= 105 && y >= 12 && y <= 107;
+      if (insidePaper) {
+        const isInk = (x === 60 && y > 30 && y < 90) || y === 45;
+        return isInk ? [18, 18, 18] : [242, 240, 234];
+      }
+      return [28, 28, 32];
+    });
+    const darkRes = detectPaperCornersFromRgba(darkDesk, 120, 120);
+    assert.equal(darkRes.detected, true);
+    assert.ok(darkRes.corners[0].x >= 0.09 && darkRes.corners[0].x <= 0.15);
+    assert.ok(darkRes.corners[0].y >= 0.07 && darkRes.corners[0].y <= 0.14);
+    assert.ok(darkRes.corners[2].x >= 0.84 && darkRes.corners[2].x <= 0.91);
+    assert.ok(darkRes.corners[2].y >= 0.86 && darkRes.corners[2].y <= 0.93);
+
+    // 3. Skewed/tilted trapezoid document on dark granite table
+    const skewed = makeImage(120, 120, (x, y) => {
+      const nx = x / 119;
+      const ny = y / 119;
+      const leftBound = 0.18 - ny * 0.06;
+      const rightBound = 0.84 + ny * 0.06;
+      const topBound = 0.1 + nx * 0.04;
+      const botBound = 0.86 + nx * 0.03;
+      const insidePaper =
+        nx >= leftBound && nx <= rightBound && ny >= topBound && ny <= botBound;
+      if (insidePaper) {
+        const isInk = Math.abs(nx - 0.5) < 0.02 && ny > 0.3 && ny < 0.7;
+        return isInk ? [15, 15, 15] : [248, 246, 240];
+      }
+      return [55, 58, 62];
+    });
+    const skewedRes = detectPaperCornersFromRgba(skewed, 120, 120);
+    assert.equal(skewedRes.detected, true);
+    assert.ok(skewedRes.corners[0].x >= 0.14 && skewedRes.corners[0].x <= 0.21);
+    assert.ok(skewedRes.corners[2].x >= 0.86 && skewedRes.corners[2].x <= 0.93);
+
+    // 4. Light beige desk vs white paper with sharp black text inside
+    const lightDesk = makeImage(120, 120, (x, y) => {
+      const insidePaper = x >= 15 && x <= 104 && y >= 15 && y <= 104;
+      if (insidePaper) {
+        const isDarkRule = y === 35 && x > 28 && x < 92;
+        return isDarkRule ? [10, 10, 10] : [252, 252, 250];
+      }
+      return [205, 196, 178];
+    });
+    const lightRes = detectPaperCornersFromRgba(lightDesk, 120, 120);
+    assert.equal(lightRes.detected, true);
+    assert.ok(lightRes.corners[0].x >= 0.1 && lightRes.corners[0].x <= 0.16);
+
+    // 5. Already full-frame clean paper scan with an interior printed border must NOT over-crop
+    const flatFullFrame = makeImage(120, 120, (x, y) => {
+      const isBorder =
+        ((x === 10 || x === 109) && y >= 10 && y <= 109) ||
+        ((y === 10 || y === 109) && x >= 10 && x <= 109);
+      return isBorder ? [15, 15, 15] : [245, 239, 224];
+    });
+    const flatRes = detectPaperCornersFromRgba(flatFullFrame, 120, 120);
+    assert.equal(flatRes.detected, false);
   });
 
   it("tracks AI usage counts, token totals, and daily Pacific-Time reset rollover", () => {

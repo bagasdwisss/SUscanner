@@ -41,6 +41,7 @@ import {
   detectPaperCornersFromCanvas,
   FULL_FRAME_CORNERS,
   normalizeUploadedImage,
+  prepareCleanCropForAi,
   prepareImageForAi,
   processDocumentPage,
   renderRotatedCanvas,
@@ -230,12 +231,29 @@ export function SuScannerApp() {
 
   const runLocalOcrExtraction = useCallback(
     async (
-      pageDataUrl: string,
-      targetPageId: string,
+      sourceTarget:
+        | string
+        | {
+            id: string;
+            rawUrl?: string;
+            rotation?: 0 | 90 | 180 | 270;
+            corners?: QuadCorners;
+            processedDataUrl: string;
+          },
+      targetPageId?: string,
       fallbackPrefix?: string,
     ) => {
+      const resolvedId =
+        typeof sourceTarget === "string"
+          ? (targetPageId ?? "")
+          : sourceTarget.id;
+      const fallbackUrl =
+        typeof sourceTarget === "string"
+          ? sourceTarget
+          : sourceTarget.processedDataUrl;
+
       aiAbortRef.current?.abort();
-      aiTargetIdRef.current = targetPageId;
+      aiTargetIdRef.current = resolvedId;
 
       setAiStatus("ocr-local");
       setAiSource("local-ocr");
@@ -249,12 +267,31 @@ export function SuScannerApp() {
       setWarnings([]);
 
       try {
-        const outcome = await runLocalTesseractOcr(pageDataUrl, (pct) => {
-          if (aiTargetIdRef.current === targetPageId) {
+        let ocrDataUrl = fallbackUrl;
+        if (
+          typeof sourceTarget !== "string" &&
+          sourceTarget.rawUrl &&
+          sourceTarget.corners
+        ) {
+          const gray = await processDocumentPage({
+            rawUrl: sourceTarget.rawUrl,
+            rotation: sourceTarget.rotation ?? 0,
+            corners: sourceTarget.corners,
+            filter: "grayscale",
+            brightness: 0,
+            contrast: 15,
+            maxOutputSide: 2200,
+            jpegQuality: 0.92,
+          });
+          ocrDataUrl = gray.dataUrl;
+        }
+
+        const outcome = await runLocalTesseractOcr(ocrDataUrl, (pct) => {
+          if (aiTargetIdRef.current === resolvedId) {
             setOcrProgress(pct);
           }
         });
-        if (aiTargetIdRef.current !== targetPageId) return;
+        if (aiTargetIdRef.current !== resolvedId) return;
 
         setAiUsageStats((prev) => {
           const updated = recordAiUsageEvent(prev, {
@@ -283,7 +320,7 @@ export function SuScannerApp() {
         );
         setLiveMessage("Ekstraksi OCR Lokal Surat Ukur selesai.");
       } catch {
-        if (aiTargetIdRef.current !== targetPageId) return;
+        if (aiTargetIdRef.current !== resolvedId) return;
         setAiStatus("error");
         setAiMessage(
           "OCR Lokal sistem gagal memuat atau membaca dokumen. Silakan isi kolom secara manual.",
@@ -294,21 +331,54 @@ export function SuScannerApp() {
   );
 
   const runVisionExtraction = useCallback(
-    async (pageDataUrl: string, targetPageId: string) => {
+    async (
+      sourceTarget:
+        | string
+        | {
+            id: string;
+            rawUrl?: string;
+            rotation?: 0 | 90 | 180 | 270;
+            corners?: QuadCorners;
+            processedDataUrl: string;
+          },
+      targetPageId?: string,
+    ) => {
+      const resolvedId =
+        typeof sourceTarget === "string"
+          ? (targetPageId ?? "")
+          : sourceTarget.id;
+
       aiAbortRef.current?.abort();
       const controller = new AbortController();
       aiAbortRef.current = controller;
-      aiTargetIdRef.current = targetPageId;
+      aiTargetIdRef.current = resolvedId;
 
       setAiStatus("extracting");
       setAiSource("gemini");
       setOcrProgress(0);
-      setAiMessage("Mengirim gambar Surat Ukur teroptimasi ke Vision AI…");
+      setAiMessage(
+        "Mengirim gambar Surat Ukur resolusi tinggi (tanpa pemotongan warna) ke Vision AI…",
+      );
       setIsWrongPageSlot(false);
       setWarnings([]);
 
       try {
-        const aiImageDataUrl = await prepareImageForAi(pageDataUrl, 1800);
+        const aiImageDataUrl =
+          typeof sourceTarget !== "string" &&
+          sourceTarget.rawUrl &&
+          sourceTarget.corners
+            ? await prepareCleanCropForAi({
+                rawUrl: sourceTarget.rawUrl,
+                rotation: sourceTarget.rotation ?? 0,
+                corners: sourceTarget.corners,
+                maxSide: 2200,
+              })
+            : await prepareImageForAi(
+                typeof sourceTarget === "string"
+                  ? sourceTarget
+                  : sourceTarget.processedDataUrl,
+                2200,
+              );
         if (controller.signal.aborted) return;
 
         const response = await fetch("/api/extract-su", {
@@ -319,7 +389,7 @@ export function SuScannerApp() {
         });
 
         const data = await response.json();
-        if (controller.signal.aborted || aiTargetIdRef.current !== targetPageId) {
+        if (controller.signal.aborted || aiTargetIdRef.current !== resolvedId) {
           return;
         }
 
@@ -338,7 +408,7 @@ export function SuScannerApp() {
             data?.code === "AI_NOT_CONFIGURED"
               ? "API Key Vision AI belum dikonfigurasi."
               : data?.error || "Layanan Gemini AI sedang tidak merespons.";
-          await runLocalOcrExtraction(pageDataUrl, targetPageId, reason);
+          await runLocalOcrExtraction(sourceTarget, resolvedId, reason);
           return;
         }
 
@@ -377,7 +447,7 @@ export function SuScannerApp() {
           error instanceof Error && error.name === "AbortError"
             ? "Permintaan AI dibatalkan."
             : "Koneksi ke Gemini AI terganggu.";
-        await runLocalOcrExtraction(pageDataUrl, targetPageId, reason);
+        await runLocalOcrExtraction(sourceTarget, resolvedId, reason);
       }
     },
     [runLocalOcrExtraction],
@@ -451,8 +521,14 @@ export function SuScannerApp() {
           };
         });
 
-        if (triggerAi && slot === "page1") {
-          void runVisionExtraction(result.dataUrl, updated.id);
+        if (triggerAi) {
+          void runVisionExtraction({
+            id: updated.id,
+            rawUrl: updated.rawUrl,
+            rotation: updated.rotation,
+            corners: updated.corners,
+            processedDataUrl: result.dataUrl,
+          });
         }
       } catch {
         setter((curr) =>
@@ -480,12 +556,18 @@ export function SuScannerApp() {
         if (slot === "page1") {
           setPage1(newState);
           setActiveTab("page1");
-          void runVisionExtraction(newState.processedDataUrl, newState.id);
+          void runVisionExtraction(newState);
+          if (newState.hasAutoContour) {
+            showToast("success", "Auto-crop otomatis memangkas tepi dokumen.");
+          }
         } else {
           setPage2(newState);
           setActiveTab("page2");
           if (!page1) {
-            void runVisionExtraction(newState.processedDataUrl, newState.id);
+            void runVisionExtraction(newState);
+          }
+          if (newState.hasAutoContour) {
+            showToast("success", "Auto-crop otomatis memangkas tepi Halaman 2.");
           }
         }
       } catch (err) {
@@ -516,7 +598,10 @@ export function SuScannerApp() {
           setPage1(s1);
           setPage2(s2);
           setActiveTab("page1");
-          void runVisionExtraction(s1.processedDataUrl, s1.id);
+          void runVisionExtraction(s1);
+          if (s1.hasAutoContour || s2.hasAutoContour) {
+            showToast("success", "Auto-crop otomatis memangkas tepi dokumen.");
+          }
         } catch (err) {
           showToast(
             "error",
@@ -552,7 +637,7 @@ export function SuScannerApp() {
     setIsWrongPageSlot(false);
 
     if (oldP2?.processedDataUrl) {
-      void runVisionExtraction(oldP2.processedDataUrl, oldP2.id);
+      void runVisionExtraction(oldP2);
     } else {
       setAiStatus("idle");
       setAiMessage(null);
@@ -587,13 +672,21 @@ export function SuScannerApp() {
       if (!target) return;
       const isFull =
         JSON.stringify(corners) === JSON.stringify(FULL_FRAME_CORNERS);
-      void reprocessSlot(activeTab, {
-        ...target,
-        corners,
-        hasAutoContour: !isFull,
-      });
+      const shouldReExtract =
+        activeTab === "page1" &&
+        !isFull &&
+        (!fields.nomorSu || !fields.nomorHak || !fields.kecamatan);
+      void reprocessSlot(
+        activeTab,
+        {
+          ...target,
+          corners,
+          hasAutoContour: !isFull,
+        },
+        shouldReExtract,
+      );
     },
-    [activeTab, page1, page2, reprocessSlot],
+    [activeTab, fields.kecamatan, fields.nomorHak, fields.nomorSu, page1, page2, reprocessSlot],
   );
 
   const handleAutoCropActive = useCallback(async () => {
@@ -1266,13 +1359,13 @@ export function SuScannerApp() {
               onReExtractAi={() => {
                 const target = page1 ?? page2;
                 if (target?.processedDataUrl) {
-                  void runVisionExtraction(target.processedDataUrl, target.id);
+                  void runVisionExtraction(target);
                 }
               }}
               onRunLocalOcr={() => {
                 const target = page1 ?? page2;
                 if (target?.processedDataUrl) {
-                  void runLocalOcrExtraction(target.processedDataUrl, target.id);
+                  void runLocalOcrExtraction(target);
                 }
               }}
               onSwapPages={handleSwapPages}
