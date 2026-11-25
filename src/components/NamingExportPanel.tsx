@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CloudUpload,
   Copy,
+  Cpu,
   Download,
   ExternalLink,
   FolderOpen,
@@ -29,6 +30,7 @@ import {
   validateStandardFields,
 } from "@/lib/su-formatter";
 import type {
+  AiEngineSource,
   AiStatus,
   ConfidenceLevel,
   DriveUploadResult,
@@ -41,6 +43,8 @@ import type {
 
 interface NamingExportPanelProps {
   aiStatus: AiStatus;
+  aiSource: AiEngineSource | null;
+  ocrProgress: number;
   aiMessage: string | null;
   isWrongPageSlot: boolean;
   hasPage1: boolean;
@@ -70,6 +74,7 @@ interface NamingExportPanelProps {
   isDuplicateFilename: boolean;
   extractionVersion: number;
   onReExtractAi: () => void;
+  onRunLocalOcr: () => void;
   onSwapPages: () => void;
   onExportPdf: () => void;
   onUploadToDrive: () => void;
@@ -117,6 +122,8 @@ function ConfidenceBadge({ meta }: { meta: FieldConfidenceMeta }) {
 
 export function NamingExportPanel({
   aiStatus,
+  aiSource,
+  ocrProgress,
   aiMessage,
   isWrongPageSlot,
   hasPage1,
@@ -141,6 +148,7 @@ export function NamingExportPanel({
   isDuplicateFilename,
   extractionVersion,
   onReExtractAi,
+  onRunLocalOcr,
   onSwapPages,
   onExportPdf,
   onUploadToDrive,
@@ -294,49 +302,74 @@ export function NamingExportPanel({
       : aiStatus === "error"
         ? "bg-[#FBCFE8]"
         : "bg-[#FEF08A]";
+  const isBusyReading = aiStatus === "extracting" || aiStatus === "ocr-local";
 
   return (
     <aside aria-labelledby={formHeadingId} className="flex flex-col gap-4">
-      {/* Bento Card 1: AI Status */}
+      {/* Bento Card 1: AI & Built-in Local OCR Status */}
       <div className={`nb-card ${aiCardBg} p-4`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="nb-pill">
               <Sparkles className="h-3 w-3" aria-hidden="true" />
-              STATUS AI
+              {aiSource === "local-ocr" || aiStatus === "ocr-local"
+                ? "OCR LOKAL"
+                : "STATUS AI"}
             </span>
             <span className="text-xs font-extrabold text-[#111111]">
               {aiStatus === "extracting"
-                ? "Menganalisis Dokumen SU…"
-                : aiStatus === "success"
-                  ? "Ekstraksi Selesai"
-                  : aiStatus === "unconfigured"
-                    ? "Mode Manual (Key Kosong)"
-                    : aiStatus === "error"
-                      ? "Fallback Manual"
-                      : "Menunggu Gambar SU"}
+                ? "Menganalisis Vision AI…"
+                : aiStatus === "ocr-local"
+                  ? `OCR Sistem (${ocrProgress}%)…`
+                  : aiStatus === "success"
+                    ? aiSource === "local-ocr"
+                      ? "Selesai (OCR Cadangan)"
+                      : "Ekstraksi AI Selesai"
+                    : aiStatus === "unconfigured"
+                      ? "Key Kosong (Siap OCR Lokal)"
+                      : aiStatus === "error"
+                        ? "Fallback Manual"
+                        : "Menunggu Gambar SU"}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={onReExtractAi}
-            disabled={pageCount === 0 || aiStatus === "extracting"}
-            className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3 py-1 text-xs text-[#111111] disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${
-                aiStatus === "extracting" ? "animate-spin" : ""
-              }`}
-              aria-hidden="true"
-            />
-            Baca Ulang AI
-          </button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onReExtractAi}
+              disabled={pageCount === 0 || isBusyReading}
+              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-2.5 py-1 text-xs text-[#111111] disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${
+                  aiStatus === "extracting" ? "animate-spin" : ""
+                }`}
+                aria-hidden="true"
+              />
+              Baca Ulang AI
+            </button>
+            <button
+              type="button"
+              onClick={onRunLocalOcr}
+              disabled={pageCount === 0 || isBusyReading}
+              title="Jalankan OCR bawaan sistem (tesseract.js) di browser tanpa API key"
+              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-[#BAE6FD] px-2.5 py-1 text-xs text-[#111111] disabled:opacity-50"
+            >
+              <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
+              OCR Lokal
+            </button>
+          </div>
         </div>
 
-        {aiStatus === "extracting" ? (
+        {isBusyReading ? (
           <div className="mt-3">
             <progress
-              aria-label="Ekstraksi Vision AI sedang berjalan"
+              aria-label={
+                aiStatus === "ocr-local"
+                  ? "OCR lokal sistem sedang berjalan"
+                  : "Ekstraksi Vision AI sedang berjalan"
+              }
+              value={aiStatus === "ocr-local" ? ocrProgress : undefined}
+              max={aiStatus === "ocr-local" ? 100 : undefined}
               className="su-progress h-2.5 w-full"
             />
           </div>
@@ -945,16 +978,33 @@ export function NamingExportPanel({
             <span>
               {isGeneratingPdf
                 ? "Menyusun & Mengunduh PDF…"
-                : `Buat & Unduh PDF (${pageCount} Hal)`}
+                : `Simpan & Download PDF (${pageCount} Hal)`}
             </span>
           </button>
 
-          {/* Google Drive Subfolder Export Box */}
-          <div className="rounded-xl border-2 border-[#111111] bg-white p-3 space-y-2.5">
+          {/* Direct Upload to Google Drive Subfolder button right below Simpan & Download */}
+          <button
+            type="button"
+            onClick={handleClickUploadDrive}
+            disabled={isGeneratingPdf || isUploadingDrive || pageCount === 0}
+            className="nb-btn inline-flex min-h-12 w-full items-center justify-center gap-2 bg-[#FDE047] px-5 py-3 text-sm font-black text-[#111111] disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            <CloudUpload className="h-4 w-4" aria-hidden="true" />
+            <span>
+              {isUploadingDrive
+                ? "Mengunggah ke Subfolder Drive…"
+                : normalizedKecamatan
+                  ? `Upload Langsung ke Drive (/ ${normalizedKecamatan})`
+                  : "Upload Langsung ke Drive"}
+            </span>
+          </button>
+
+          {/* Google Drive Subfolder Info & Result Box */}
+          <div className="rounded-xl border-2 border-[#111111] bg-white p-3 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="nb-pill text-[10px]">
                 <FolderOpen className="h-3 w-3" aria-hidden="true" />
-                Arsip Google Drive
+                Tujuan Subfolder Drive
               </span>
               <button
                 type="button"
@@ -968,7 +1018,7 @@ export function NamingExportPanel({
 
             <div className="rounded-lg border border-[#111111]/35 bg-[#F6F5F0] px-2.5 py-2 text-[11px]">
               <div className="flex items-center justify-between gap-2 font-bold text-[#3F3F46]">
-                <span>Tujuan subfolder:</span>
+                <span>Jalur folder otomatis:</span>
                 <a
                   href={driveFolderUrl}
                   target="_blank"
@@ -984,22 +1034,6 @@ export function NamingExportPanel({
                 / {normalizedKecamatan || "(Isi Kecamatan)"} / {finalFilename}
               </p>
             </div>
-
-            <button
-              type="button"
-              onClick={handleClickUploadDrive}
-              disabled={isGeneratingPdf || isUploadingDrive || pageCount === 0}
-              className="nb-btn-sm inline-flex min-h-11 w-full items-center justify-center gap-2 bg-[#FDE047] px-4 py-2 text-xs font-black text-[#111111] disabled:cursor-not-allowed disabled:opacity-55"
-            >
-              <CloudUpload className="h-4 w-4" aria-hidden="true" />
-              <span>
-                {isUploadingDrive
-                  ? "Mengunggah ke Subfolder Drive…"
-                  : normalizedKecamatan
-                    ? `Simpan ke Drive / ${normalizedKecamatan}`
-                    : "Simpan ke Subfolder Drive"}
-              </span>
-            </button>
 
             {lastDriveResult ? (
               <div className="rounded-lg border-2 border-[#111111] bg-[#D9F99D] p-2.5 text-xs">

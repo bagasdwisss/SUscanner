@@ -13,6 +13,7 @@ import {
   validateStandardFields,
 } from "./su-formatter.ts";
 import { suExtractionZodSchema } from "./su-prompt.ts";
+import { parseSuratUkurOcrText } from "./local-ocr-parser.ts";
 import type { AiExtractionResult } from "./su-types.ts";
 
 describe("SU-Scanner formatter & domain rules", () => {
@@ -282,5 +283,41 @@ describe("SU-Scanner formatter & domain rules", () => {
     );
     assert.equal(sanitizeCustomFilename("SU.00006.2007.M.02246"), "SU.00006.2007.M.02246.pdf");
     assert.equal(sanitizeCustomFilename("   "), "SU.dokumen.pdf");
+  });
+
+  it("parses modern and 1960s Surat Ukur text via built-in OCR parser fallback", () => {
+    const noisyTesseractText = `
+      SURAT UKT?" Hak: 02.01.05.04.1.02246-
+      Nomor: O6/Helvetia Timur/2007
+      NIB: 02.01.05.04.03043
+      Kecamatan : Medan Helvetia
+    `;
+    const parsedModern = parseSuratUkurOcrText(noisyTesseractText, 75);
+    const modernForm = applyExtractionToForm(parsedModern, 2026);
+    assert.equal(modernForm.isWrongPageSlot, false);
+    assert.equal(
+      buildStandardFilename(modernForm.fields),
+      "SU.00006.2007.M.02246.pdf",
+    );
+    assert.equal(modernForm.fields.kecamatan, "Medan Helvetia");
+    assert.equal(modernForm.rawEvidence.nibTerdeteksi, "02.01.05.04.03043");
+
+    const legacy1960Text = `
+      SURAT UKUR Hak Milik : HM. 145
+      Nomor : 12/1964
+      Propinsi : Sumatera Utara
+      Ketjamatan : Medan Baru
+    `;
+    const parsedLegacy = parseSuratUkurOcrText(legacy1960Text, 92);
+    const legacyForm = applyExtractionToForm(parsedLegacy, 2026);
+    assert.equal(
+      buildStandardFilename(legacyForm.fields),
+      "SU.00012.1964.M.00145.pdf",
+    );
+    assert.equal(legacyForm.fields.kecamatan, "Medan Baru");
+
+    const mapOnlyText = "PETA BIDANG TANAH SKALA 1 : 1000";
+    const parsedMap = parseSuratUkurOcrText(mapOnlyText, 70);
+    assert.equal(parsedMap.is_halaman_data_su, false);
   });
 });

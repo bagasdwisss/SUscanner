@@ -109,9 +109,12 @@ export interface SuFieldConfidences {
 export type AiStatus =
   | "idle"
   | "extracting"
+  | "ocr-local"
   | "success"
   | "unconfigured"
   | "error";
+
+export type AiEngineSource = "gemini" | "local-ocr";
 
 export type DriveAuthMode =
   | "apps-script-env"

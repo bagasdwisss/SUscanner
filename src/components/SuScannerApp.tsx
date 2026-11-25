@@ -50,6 +50,7 @@ import {
   sanitizeDigits,
 } from "@/lib/su-formatter";
 import { generateSuPdf, triggerPdfDownload } from "@/lib/pdf-generator";
+import { runLocalTesseractOcr } from "@/lib/local-ocr";
 import {
   clearSessionHistory,
   formatBytes,
@@ -57,6 +58,7 @@ import {
   saveSessionHistoryItem,
 } from "@/lib/session-history";
 import type {
+  AiEngineSource,
   AiExtractionResult,
   AiStatus,
   DriveStatusResponse,
@@ -95,8 +97,10 @@ export function SuScannerApp() {
   const [activeTab, setActiveTab] = useState<PageSlot>("page1");
   const [isDecoding, setIsDecoding] = useState(false);
 
-  // AI & Naming state
+  // AI & OCR state
   const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
+  const [aiSource, setAiSource] = useState<AiEngineSource | null>(null);
+  const [ocrProgress, setOcrProgress] = useState(0);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [isWrongPageSlot, setIsWrongPageSlot] = useState(false);
   const [namingMode, setNamingMode] = useState<NamingMode>("standard");
@@ -202,6 +206,60 @@ export function SuScannerApp() {
     }, 4500);
   }, []);
 
+  const runLocalOcrExtraction = useCallback(
+    async (
+      pageDataUrl: string,
+      targetPageId: string,
+      fallbackPrefix?: string,
+    ) => {
+      aiAbortRef.current?.abort();
+      aiTargetIdRef.current = targetPageId;
+
+      setAiStatus("ocr-local");
+      setAiSource("local-ocr");
+      setOcrProgress(5);
+      setAiMessage(
+        fallbackPrefix
+          ? `${fallbackPrefix} Beralih ke OCR Lokal sistem (tesseract.js)…`
+          : "Membaca teks dokumen dengan OCR Lokal sistem (tesseract.js)…",
+      );
+      setIsWrongPageSlot(false);
+      setWarnings([]);
+
+      try {
+        const outcome = await runLocalTesseractOcr(pageDataUrl, (pct) => {
+          if (aiTargetIdRef.current === targetPageId) {
+            setOcrProgress(pct);
+          }
+        });
+        if (aiTargetIdRef.current !== targetPageId) return;
+
+        const { processed, meanConfidence } = outcome;
+        setFields(processed.fields);
+        setConfidences(processed.confidences);
+        setIsWrongPageSlot(processed.isWrongPageSlot);
+        setRawEvidence(processed.rawEvidence);
+        setWarnings(processed.warnings);
+        setExtractionVersion((v) => v + 1);
+        setAiStatus("success");
+        setAiSource("local-ocr");
+        setAiMessage(
+          `Ekstraksi OCR Lokal selesai (keyakinan rata-rata ${Math.round(
+            meanConfidence,
+          )}%). Harap verifikasi angka & nama Kecamatan.`,
+        );
+        setLiveMessage("Ekstraksi OCR Lokal Surat Ukur selesai.");
+      } catch {
+        if (aiTargetIdRef.current !== targetPageId) return;
+        setAiStatus("error");
+        setAiMessage(
+          "OCR Lokal sistem gagal memuat atau membaca dokumen. Silakan isi kolom secara manual.",
+        );
+      }
+    },
+    [],
+  );
+
   const runVisionExtraction = useCallback(
     async (pageDataUrl: string, targetPageId: string) => {
       aiAbortRef.current?.abort();
@@ -210,6 +268,8 @@ export function SuScannerApp() {
       aiTargetIdRef.current = targetPageId;
 
       setAiStatus("extracting");
+      setAiSource("gemini");
+      setOcrProgress(0);
       setAiMessage("Mengirim gambar Surat Ukur teroptimasi ke Vision AI…");
       setIsWrongPageSlot(false);
       setWarnings([]);
@@ -231,16 +291,11 @@ export function SuScannerApp() {
         }
 
         if (!response.ok) {
-          if (data?.code === "AI_NOT_CONFIGURED") {
-            setAiStatus("unconfigured");
-            setAiMessage(data.error);
-          } else {
-            setAiStatus("error");
-            setAiMessage(
-              data?.error ||
-                "Gagal mengekstrak teks via AI. Silakan isi kolom secara manual.",
-            );
-          }
+          const reason =
+            data?.code === "AI_NOT_CONFIGURED"
+              ? "API Key Vision AI belum dikonfigurasi."
+              : data?.error || "Layanan Gemini AI sedang tidak merespons.";
+          await runLocalOcrExtraction(pageDataUrl, targetPageId, reason);
           return;
         }
 
@@ -254,21 +309,21 @@ export function SuScannerApp() {
         setWarnings(processed.warnings);
         setExtractionVersion((v) => v + 1);
         setAiStatus("success");
+        setAiSource("gemini");
         setAiMessage(
-          `Ekstraksi selesai (${data.model || "Gemini Flash"}). Periksa kolom bertanda kuning/merah sebelum mengunduh.`,
+          `Ekstraksi Gemini selesai (${data.model || "Gemini Flash"}). Periksa kolom bertanda kuning/merah sebelum mengunduh.`,
         );
         setLiveMessage("Ekstraksi nama file Surat Ukur oleh AI selesai.");
       } catch (error) {
         if (controller.signal.aborted) return;
-        const msg =
+        const reason =
           error instanceof Error && error.name === "AbortError"
-            ? "Permintaan dibatalkan."
-            : "Koneksi ke layanan AI terganggu. Anda tetap dapat mengisi nama file dan mengekspor PDF secara offline.";
-        setAiStatus("error");
-        setAiMessage(msg);
+            ? "Permintaan AI dibatalkan."
+            : "Koneksi ke Gemini AI terganggu.";
+        await runLocalOcrExtraction(pageDataUrl, targetPageId, reason);
       }
     },
-    [],
+    [runLocalOcrExtraction],
   );
 
   const buildInitialPageState = useCallback(
@@ -512,6 +567,8 @@ export function SuScannerApp() {
     setPage2(null);
     setActiveTab("page1");
     setAiStatus("idle");
+    setAiSource(null);
+    setOcrProgress(0);
     setAiMessage(null);
     setIsWrongPageSlot(false);
     setNamingMode("standard");
@@ -1021,6 +1078,8 @@ export function SuScannerApp() {
 
             <NamingExportPanel
               aiStatus={aiStatus}
+              aiSource={aiSource}
+              ocrProgress={ocrProgress}
               aiMessage={aiMessage}
               isWrongPageSlot={isWrongPageSlot}
               hasPage1={Boolean(page1)}
@@ -1048,6 +1107,12 @@ export function SuScannerApp() {
                 const target = page1 ?? page2;
                 if (target?.processedDataUrl) {
                   void runVisionExtraction(target.processedDataUrl, target.id);
+                }
+              }}
+              onRunLocalOcr={() => {
+                const target = page1 ?? page2;
+                if (target?.processedDataUrl) {
+                  void runLocalOcrExtraction(target.processedDataUrl, target.id);
                 }
               }}
               onSwapPages={handleSwapPages}
