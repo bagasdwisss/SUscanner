@@ -993,13 +993,15 @@ export function SuScannerApp() {
 
       const sheetMeta = syncToSheet
         ? {
+            logToSheet: true,
             nomorSu: extraMeta?.nomorSu,
             tahunSu: extraMeta?.tahunSu,
             kodeHak: extraMeta?.kodeHak,
             nomorHak: extraMeta?.nomorHak,
             nib: extraMeta?.nib,
             luasTanah: extraMeta?.luasTanah,
-            operator: kioskState.operatorName || "Operator Kantah",
+            pageCount: extraMeta?.pageCount ?? 1,
+            operatorName: kioskState.operatorName || "Operator Kantah",
           }
         : undefined;
 
@@ -1185,13 +1187,18 @@ export function SuScannerApp() {
                 conflictPolicy: job.conflictPolicy,
                 sheetMeta: syncToSheet
                   ? {
+                      logToSheet: true,
                       nomorSu: job.nomorSu,
                       tahunSu: job.tahunSu,
                       kodeHak: job.kodeHak,
                       nomorHak: job.nomorHak,
                       nib: job.nib,
                       luasTanah: job.luasTanah,
-                      operator: job.operatorName || kioskState.operatorName || "Operator Kantah",
+                      pageCount: job.pageCount || 1,
+                      operatorName:
+                        job.operatorName ||
+                        kioskState.operatorName ||
+                        "Operator Kantah",
                     }
                   : undefined,
               }),
