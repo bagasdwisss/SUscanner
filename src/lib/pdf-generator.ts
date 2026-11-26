@@ -20,9 +20,9 @@ const PRESET_CONFIG: Record<
   PdfQualityPreset,
   { maxSide: number; startQuality: number; targetMaxBytes: number }
 > = {
-  high: { maxSide: 2800, startQuality: 0.94, targetMaxBytes: 4_800_000 },
-  standard: { maxSide: 1900, startQuality: 0.82, targetMaxBytes: 1_500_000 },
-  compact: { maxSide: 1400, startQuality: 0.68, targetMaxBytes: 900_000 },
+  high: { maxSide: 2800, startQuality: 0.95, targetMaxBytes: 4_800_000 },
+  standard: { maxSide: 2250, startQuality: 0.91, targetMaxBytes: 2_600_000 },
+  compact: { maxSide: 1750, startQuality: 0.88, targetMaxBytes: 1_750_000 },
 };
 
 async function reencodeJpegBytes(
@@ -45,6 +45,8 @@ async function reencodeJpegBytes(
   if (!ctx) {
     throw new Error("Kanvas 2D tidak tersedia untuk kompresi PDF.");
   }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
@@ -118,14 +120,18 @@ export async function generateSuPdf(
     : config.targetMaxBytes;
   const qualitySteps =
     preset === "high"
-      ? [config.startQuality, 0.86, 0.78, 0.68, 0.58]
-      : [config.startQuality, config.startQuality - 0.1, config.startQuality - 0.18, 0.52];
+      ? maxBytesOverride
+        ? [0.95, 0.9, 0.85, 0.78, 0.7]
+        : [0.95, 0.9, 0.85]
+      : preset === "standard"
+        ? [0.91, 0.86, 0.82]
+        : [0.88, 0.84, 0.8];
 
   let lastBytes: Uint8Array = new Uint8Array();
   let lastQuality = config.startQuality;
 
   for (const quality of qualitySteps) {
-    const q = Math.max(0.45, Math.min(0.92, quality));
+    const q = Math.max(0.55, Math.min(0.96, quality));
     const pdfBytes = await encodePdfDocument(pages, config.maxSide, q);
     lastBytes = pdfBytes;
     lastQuality = q;
@@ -137,8 +143,8 @@ export async function generateSuPdf(
 
   // Ensure Vercel Serverless 4.5 MB JSON body limit (~3.0 MB binary PDF) is never exceeded
   if (maxBytesOverride && lastBytes.byteLength > maxBytesOverride) {
-    lastBytes = await encodePdfDocument(pages, 1350, 0.48);
-    lastQuality = 0.48;
+    lastBytes = await encodePdfDocument(pages, 1650, 0.76);
+    lastQuality = 0.76;
   }
 
   const normalizedBuffer = new Uint8Array(lastBytes).buffer;

@@ -460,7 +460,7 @@ export function SuScannerApp() {
       const normalized = await normalizeUploadedImage(file);
       const rotCanvas = await renderRotatedCanvas(normalized.rawUrl, 0);
       const detected = detectPaperCornersFromCanvas(rotCanvas);
-      const initialFilter: ScanFilter = "magic";
+      const initialFilter: ScanFilter = "original";
       const processed = await processDocumentPage({
         rawUrl: normalized.rawUrl,
         rotation: 0,

@@ -1041,7 +1041,7 @@ export function NamingExportPanel({
         <div className="nb-card flex flex-col gap-3 bg-[#BAE6FD] p-4">
           <div className="flex flex-col gap-1">
             <label htmlFor={qualityId} className="nb-micro text-[#111111]">
-              Kualitas &amp; Kompresi PDF
+              Tingkat Resolusi PDF (Semua Tetap Jernih)
             </label>
             <select
               id={qualityId}
@@ -1052,14 +1052,14 @@ export function NamingExportPanel({
               }
               className="su-control w-full rounded-xl px-3 py-2 text-sm font-extrabold"
             >
-              <option value="high">
-                Tinggi Maksimal (Bawaan · 2800px ekstra tajam untuk Unduh &amp; Drive)
+              <option value="compact">
+                Rendah (1750px · ukuran ringan, teks tetap jernih)
               </option>
               <option value="standard">
-                Standar (~900 KB · seimbang &amp; cepat)
+                Sedang (2250px · seimbang &amp; jernih)
               </option>
-              <option value="compact">
-                Hemat (~400 KB · unggah super ringan)
+              <option value="high">
+                Tinggi (Otomatis · 2800px paling jernih untuk Unduh &amp; Drive)
               </option>
             </select>
           </div>

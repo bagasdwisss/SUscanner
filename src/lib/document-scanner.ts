@@ -81,6 +81,8 @@ export async function normalizeUploadedImage(file: File): Promise<{
         if (!ctx) {
           throw new Error("Kanvas 2D tidak didukung browser.");
         }
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
         ctx.drawImage(bitmap, 0, 0, w, h);
         const outBlob = await new Promise<Blob>((resolve, reject) => {
           canvas.toBlob(
@@ -122,6 +124,8 @@ export async function normalizeUploadedImage(file: File): Promise<{
     if (!ctx) {
       throw new Error("Kanvas 2D tidak didukung browser.");
     }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(img, 0, 0, w, h);
     const outBlob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
@@ -594,6 +598,8 @@ export async function processDocumentPage(params: {
       outCanvas.height = dstH;
       const outCtx = outCanvas.getContext("2d", { willReadFrequently: true });
       if (!outCtx) throw new Error("Konteks output kanvas tidak tersedia.");
+      outCtx.imageSmoothingEnabled = true;
+      outCtx.imageSmoothingQuality = "high";
       outCtx.drawImage(rotatedCanvas, 0, 0, dstW, dstH);
     }
   } else {
@@ -767,6 +773,8 @@ export async function prepareImageForAi(
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) return dataUrl;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, 0, 0, w, h);
   return canvas.toDataURL("image/jpeg", 0.85);
 }
