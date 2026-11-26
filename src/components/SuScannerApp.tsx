@@ -150,6 +150,7 @@ export function SuScannerApp() {
   const [page1, setPage1] = useState<ScannedPageState | null>(null);
   const [page2, setPage2] = useState<ScannedPageState | null>(null);
   const [activeTab, setActiveTab] = useState<PageSlot>("page1");
+  const [swapSequence, setSwapSequence] = useState(0);
   const [isDecoding, setIsDecoding] = useState(false);
 
   // AI & OCR state
@@ -908,6 +909,7 @@ export function SuScannerApp() {
     const oldP2 = page2;
     setPage1(oldP2);
     setPage2(oldP1);
+    setSwapSequence((n) => n + 1);
     setIsWrongPageSlot(false);
 
     if (oldP2?.processedDataUrl) {
@@ -2091,6 +2093,7 @@ export function SuScannerApp() {
             <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-[minmax(0,63fr)_minmax(340px,37fr)]">
               <DocumentWorkspacePanel
                 activeTab={activeTab}
+                swapSequence={swapSequence}
                 onSelectTab={setActiveTab}
                 page1={page1}
                 page2={page2}

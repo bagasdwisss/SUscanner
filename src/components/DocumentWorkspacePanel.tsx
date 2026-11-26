@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowLeftRight,
   Camera,
@@ -15,6 +15,42 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type { PageSlot, ScanFilter, ScannedPageState } from "@/lib/su-types";
+
+const ANIM_STAGE_CLASSES = [
+  "su-stage-enter-right",
+  "su-stage-enter-left",
+  "su-stage-enter-swap-from-right",
+  "su-stage-enter-swap-from-left",
+] as const;
+
+const ANIM_GHOST_CLASSES = [
+  "su-ghost-exit-left",
+  "su-ghost-exit-right",
+  "su-ghost-exit-swap-left",
+  "su-ghost-exit-swap-right",
+] as const;
+
+const ANIM_THUMB_CLASSES = [
+  "su-thumb-swap-over",
+  "su-thumb-swap-under",
+  "su-thumb-nudge-right",
+  "su-thumb-nudge-left",
+] as const;
+
+function restartClassAnimation(
+  el: HTMLElement | SVGSVGElement | null,
+  activeClass: string,
+  allClasses: readonly string[],
+) {
+  if (!el) return;
+  el.classList.remove(...allClasses);
+  if (el instanceof HTMLElement) {
+    void el.offsetWidth;
+  } else {
+    void el.getBoundingClientRect();
+  }
+  el.classList.add(activeClass);
+}
 
 const ACCEPT_IMAGES =
   "image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.pdf";
@@ -45,6 +81,7 @@ const FILTER_OPTIONS: ReadonlyArray<{
 
 interface DocumentWorkspacePanelProps {
   activeTab: PageSlot;
+  swapSequence?: number;
   onSelectTab: (tab: PageSlot) => void;
   page1: ScannedPageState | null;
   page2: ScannedPageState | null;
@@ -68,6 +105,7 @@ function getOrientationBadge(page: ScannedPageState | null): string {
 
 export function DocumentWorkspacePanel({
   activeTab,
+  swapSequence = 0,
   onSelectTab,
   page1,
   page2,
@@ -84,12 +122,59 @@ export function DocumentWorkspacePanel({
   const activePage = activeTab === "page1" ? page1 : page2;
   const tab1Ref = useRef<HTMLButtonElement>(null);
   const tab2Ref = useRef<HTMLButtonElement>(null);
+  const topSwapIconRef = useRef<SVGSVGElement>(null);
+  const stripSwapIconRef = useRef<SVGSVGElement>(null);
+  const thumb1BtnRef = useRef<HTMLButtonElement>(null);
+  const thumb2BtnRef = useRef<HTMLButtonElement>(null);
+  const thumb1MediaRef = useRef<HTMLDivElement>(null);
+  const thumb2MediaRef = useRef<HTMLDivElement>(null);
+  const previewBodyRef = useRef<HTMLDivElement>(null);
+  const ghostLayerRef = useRef<HTMLDivElement>(null);
+  const ghostImgRef = useRef<HTMLImageElement>(null);
+  const ghostEmptyRef = useRef<HTMLDivElement>(null);
+  const ghostEmptyLabelRef = useRef<HTMLParagraphElement>(null);
+  const ghostTimerRef = useRef<number | null>(null);
+
+  const prevSnapshotRef = useRef<{
+    activeTab: PageSlot;
+    p1Id: string | null;
+    p2Id: string | null;
+    p1Url: string | null;
+    p2Url: string | null;
+    swapSequence: number;
+    initialized: boolean;
+  }>({
+    activeTab,
+    p1Id: null,
+    p2Id: null,
+    p1Url: null,
+    p2Url: null,
+    swapSequence,
+    initialized: false,
+  });
+
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const emptyUploadInputRef = useRef<HTMLInputElement>(null);
 
-  const [zoomPercent, setZoomPercent] = useState<number>(100);
-  const [isFitMode, setIsFitMode] = useState<boolean>(true);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [viewTransform, setViewTransform] = useState<{
+    tab: PageSlot;
+    swapSeq: number;
+    isFitMode: boolean;
+    zoomPercent: number;
+    pan: { x: number; y: number };
+  }>({
+    tab: activeTab,
+    swapSeq: swapSequence,
+    isFitMode: true,
+    zoomPercent: 100,
+    pan: { x: 0, y: 0 },
+  });
+  const isViewCurrent =
+    viewTransform.tab === activeTab && viewTransform.swapSeq === swapSequence;
+  const isFitMode = isViewCurrent ? viewTransform.isFitMode : true;
+  const zoomPercent = isViewCurrent ? viewTransform.zoomPercent : 100;
+  const pan = isViewCurrent ? viewTransform.pan : { x: 0, y: 0 };
+
   const dragRef = useRef<{
     dragging: boolean;
     startX: number;
@@ -98,15 +183,221 @@ export function DocumentWorkspacePanel({
     origY: number;
   }>({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
 
+  const curP1Id = page1?.id ?? null;
+  const curP2Id = page2?.id ?? null;
+  const curP1Url = page1?.processedDataUrl ?? null;
+  const curP2Url = page2?.processedDataUrl ?? null;
+
+  useEffect(() => {
+    return () => {
+      if (ghostTimerRef.current !== null) {
+        window.clearTimeout(ghostTimerRef.current);
+      }
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const prev = prevSnapshotRef.current;
+    const hideGhost = () => {
+      if (ghostTimerRef.current !== null) {
+        window.clearTimeout(ghostTimerRef.current);
+        ghostTimerRef.current = null;
+      }
+      const ghostLayer = ghostLayerRef.current;
+      const ghostImg = ghostImgRef.current;
+      const ghostEmpty = ghostEmptyRef.current;
+      if (ghostLayer) {
+        ghostLayer.classList.remove(...ANIM_GHOST_CLASSES, "flex");
+        ghostLayer.classList.add("hidden");
+      }
+      if (ghostImg) {
+        ghostImg.classList.add("hidden");
+        ghostImg.removeAttribute("src");
+      }
+      if (ghostEmpty) {
+        ghostEmpty.classList.add("hidden");
+      }
+    };
+
+    if (!prev.initialized) {
+      prevSnapshotRef.current = {
+        activeTab,
+        p1Id: curP1Id,
+        p2Id: curP2Id,
+        p1Url: curP1Url,
+        p2Url: curP2Url,
+        swapSequence,
+        initialized: true,
+      };
+      return;
+    }
+
+    const isSwap =
+      swapSequence !== prev.swapSequence ||
+      (prev.p1Id === curP2Id &&
+        prev.p2Id === curP1Id &&
+        (curP1Id !== null || curP2Id !== null));
+    const isTabSwitch = !isSwap && activeTab !== prev.activeTab;
+
+    const prevViewedUrl =
+      prev.activeTab === "page1" ? prev.p1Url : prev.p2Url;
+    const prevViewedLabel =
+      prev.activeTab === "page1"
+        ? "Halaman 1 (Data SU) Kosong"
+        : "Halaman 2 (Peta Bidang) Kosong";
+    const tabSlideDirection =
+      activeTab === "page2" ? "forward" : "backward";
+
+    prevSnapshotRef.current = {
+      activeTab,
+      p1Id: curP1Id,
+      p2Id: curP2Id,
+      p1Url: curP1Url,
+      p2Url: curP2Url,
+      swapSequence,
+      initialized: true,
+    };
+
+    if (!isSwap && !isTabSwitch) {
+      return;
+    }
+
+    tab1Ref.current?.setAttribute("data-slide-dir", tabSlideDirection);
+    tab2Ref.current?.setAttribute("data-slide-dir", tabSlideDirection);
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) {
+      hideGhost();
+      return;
+    }
+
+    // Trigger outgoing ghost layer + directional spring entry for main preview
+    hideGhost();
+    const ghostLayer = ghostLayerRef.current;
+    const ghostImg = ghostImgRef.current;
+    const ghostEmpty = ghostEmptyRef.current;
+    const ghostEmptyLabel = ghostEmptyLabelRef.current;
+    const previewBody = previewBodyRef.current;
+
+    const ghostExitClass = isSwap
+      ? activeTab === "page1"
+        ? "su-ghost-exit-swap-left"
+        : "su-ghost-exit-swap-right"
+      : activeTab === "page2"
+        ? "su-ghost-exit-left"
+        : "su-ghost-exit-right";
+
+    const stageEnterClass = isSwap
+      ? activeTab === "page1"
+        ? "su-stage-enter-swap-from-right"
+        : "su-stage-enter-swap-from-left"
+      : activeTab === "page2"
+        ? "su-stage-enter-right"
+        : "su-stage-enter-left";
+
+    if (ghostLayer && (prevViewedUrl || prev.activeTab !== activeTab || isSwap)) {
+      if (prevViewedUrl && ghostImg) {
+        ghostImg.src = prevViewedUrl;
+        ghostImg.classList.remove("hidden");
+        ghostEmpty?.classList.add("hidden");
+      } else if (ghostEmpty && ghostEmptyLabel) {
+        ghostEmptyLabel.textContent = prevViewedLabel;
+        ghostEmpty.classList.remove("hidden");
+        ghostImg?.classList.add("hidden");
+      }
+      ghostLayer.classList.remove("hidden");
+      ghostLayer.classList.add("flex");
+      restartClassAnimation(ghostLayer, ghostExitClass, ANIM_GHOST_CLASSES);
+      ghostTimerRef.current = window.setTimeout(hideGhost, 260);
+    }
+
+    restartClassAnimation(previewBody, stageEnterClass, ANIM_STAGE_CLASSES);
+
+    // Strip Urutan PDF directional cross-slide / focus pop
+    if (isSwap) {
+      const m1 = thumb1MediaRef.current;
+      const m2 = thumb2MediaRef.current;
+      const b1 = thumb1BtnRef.current;
+      const b2 = thumb2BtnRef.current;
+      if (m1 && m2) {
+        m1.classList.remove(...ANIM_THUMB_CLASSES);
+        m2.classList.remove(...ANIM_THUMB_CLASSES);
+        const r1 = m1.getBoundingClientRect();
+        const r2 = m2.getBoundingClientRect();
+        const dx = Math.round(r2.left - r1.left);
+        const dy = Math.round(r2.top - r1.top);
+        const effDx = Math.abs(dx) > 4 || Math.abs(dy) > 4 ? dx : 132;
+
+        m1.style.setProperty("--su-flip-x", `${effDx}px`);
+        m1.style.setProperty("--su-flip-y", `${dy}px`);
+        m2.style.setProperty("--su-flip-x", `${-effDx}px`);
+        m2.style.setProperty("--su-flip-y", `${-dy}px`);
+
+        restartClassAnimation(m1, "su-thumb-swap-over", ANIM_THUMB_CLASSES);
+        restartClassAnimation(m2, "su-thumb-swap-under", ANIM_THUMB_CLASSES);
+      }
+
+      b1?.classList.remove("z-20", "su-strip-swap-flash");
+      b2?.classList.remove("z-20", "su-strip-swap-flash");
+      if (b1 && b2) {
+        void b1.offsetWidth;
+        b1.classList.add("z-20", "su-strip-swap-flash");
+        b2.classList.add("su-strip-swap-flash");
+      }
+
+      restartClassAnimation(
+        topSwapIconRef.current,
+        "su-swap-icon-spin",
+        ["su-swap-icon-spin"],
+      );
+      restartClassAnimation(
+        stripSwapIconRef.current,
+        "su-swap-icon-spin",
+        ["su-swap-icon-spin", "su-strip-arrow-right", "su-strip-arrow-left"],
+      );
+    } else if (isTabSwitch) {
+      const activeCard =
+        activeTab === "page2" ? thumb2BtnRef.current : thumb1BtnRef.current;
+      const inactiveCard =
+        activeTab === "page2" ? thumb1BtnRef.current : thumb2BtnRef.current;
+      inactiveCard?.classList.remove(...ANIM_THUMB_CLASSES);
+      restartClassAnimation(
+        activeCard,
+        activeTab === "page2" ? "su-thumb-nudge-right" : "su-thumb-nudge-left",
+        ANIM_THUMB_CLASSES,
+      );
+      restartClassAnimation(
+        stripSwapIconRef.current,
+        activeTab === "page2"
+          ? "su-strip-arrow-right"
+          : "su-strip-arrow-left",
+        ["su-swap-icon-spin", "su-strip-arrow-right", "su-strip-arrow-left"],
+      );
+    }
+  }, [activeTab, curP1Id, curP1Url, curP2Id, curP2Url, swapSequence]);
+
   const resetView = () => {
-    setIsFitMode(true);
-    setZoomPercent(100);
-    setPan({ x: 0, y: 0 });
+    setViewTransform({
+      tab: activeTab,
+      swapSeq: swapSequence,
+      isFitMode: true,
+      zoomPercent: 100,
+      pan: { x: 0, y: 0 },
+    });
   };
 
   const handleTabSwitch = (nextTab: PageSlot) => {
     onSelectTab(nextTab);
-    resetView();
+    setViewTransform({
+      tab: nextTab,
+      swapSeq: swapSequence,
+      isFitMode: true,
+      zoomPercent: 100,
+      pan: { x: 0, y: 0 },
+    });
   };
 
   const handleTabKeyDown = (
@@ -131,18 +422,34 @@ export function DocumentWorkspacePanel({
   };
 
   const stepZoom = (delta: number) => {
-    setIsFitMode(false);
-    setZoomPercent((prev) => {
-      const next = Math.max(50, Math.min(300, prev + delta));
-      if (next <= 100) setPan({ x: 0, y: 0 });
-      return next;
+    setViewTransform((prev) => {
+      const baseZoom =
+        prev.tab === activeTab && prev.swapSeq === swapSequence
+          ? prev.zoomPercent
+          : 100;
+      const basePan =
+        prev.tab === activeTab && prev.swapSeq === swapSequence
+          ? prev.pan
+          : { x: 0, y: 0 };
+      const next = Math.max(50, Math.min(300, baseZoom + delta));
+      return {
+        tab: activeTab,
+        swapSeq: swapSequence,
+        isFitMode: false,
+        zoomPercent: next,
+        pan: next <= 100 ? { x: 0, y: 0 } : basePan,
+      };
     });
   };
 
   const setExact100 = () => {
-    setIsFitMode(false);
-    setZoomPercent(100);
-    setPan({ x: 0, y: 0 });
+    setViewTransform({
+      tab: activeTab,
+      swapSeq: swapSequence,
+      isFitMode: false,
+      zoomPercent: 100,
+      pan: { x: 0, y: 0 },
+    });
   };
 
   const tablistFocusgroupProps = {
@@ -224,7 +531,11 @@ export function DocumentWorkspacePanel({
           disabled={!page1 && !page2}
           className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#111114] hover:bg-[#F9FAFB] disabled:opacity-50"
         >
-          <ArrowLeftRight className="h-3.5 w-3.5 text-[#5E17EB]" aria-hidden="true" />
+          <ArrowLeftRight
+            ref={topSwapIconRef}
+            className="h-3.5 w-3.5 text-[#5E17EB]"
+            aria-hidden="true"
+          />
           <span>Tukar Hal 1 &amp; 2</span>
           <kbd className="hidden rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#4B5563] sm:inline">
             S
@@ -417,112 +728,225 @@ export function DocumentWorkspacePanel({
         className="nb-card su-drafting-stage relative flex min-h-[280px] flex-1 flex-col items-center justify-center overflow-hidden p-3 pt-12 sm:min-h-[420px] sm:p-4 sm:pt-11 xl:min-h-[480px]"
       >
         {activePage ? (
-          <>
-            <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-wrap items-center gap-2">
-              <span className="nb-pill bg-white/95 font-mono shadow-xs">
-                {activeTab === "page1" ? "HAL 1" : "HAL 2"} ·{" "}
-                {activePage.processedWidth >= activePage.processedHeight
-                  ? "LANDSCAPE"
-                  : "PORTRAIT"}{" "}
-                ({activePage.processedWidth}×{activePage.processedHeight}PX)
+          <div className="pointer-events-none absolute left-3 right-3 top-3 z-20 flex flex-wrap items-center gap-2">
+            <span className="nb-pill bg-white/95 font-mono shadow-xs">
+              {activeTab === "page1" ? "HAL 1" : "HAL 2"} ·{" "}
+              {activePage.processedWidth >= activePage.processedHeight
+                ? "LANDSCAPE"
+                : "PORTRAIT"}{" "}
+              ({activePage.processedWidth}×{activePage.processedHeight}PX)
+            </span>
+            {activePage.hasAutoContour ? (
+              <span className="inline-flex items-center rounded-full border border-[#A7F3D0] bg-[#ECFDF5] px-3 py-0.5 text-[11px] font-semibold tracking-wide text-[#065F46] uppercase shadow-xs">
+                Auto-Crop Full Dokumen
               </span>
-              {activePage.hasAutoContour ? (
-                <span className="inline-flex items-center rounded-full border border-[#A7F3D0] bg-[#ECFDF5] px-3 py-0.5 text-[11px] font-semibold tracking-wide text-[#065F46] uppercase shadow-xs">
-                  Auto-Crop Full Dokumen
-                </span>
-              ) : (
-                <span className="inline-flex items-center rounded-full border border-[#E5E7EB] bg-white px-3 py-0.5 text-[11px] font-semibold tracking-wide text-[#4B5563] uppercase shadow-xs">
-                  Full Frame
-                </span>
-              )}
-              {activePage.edgeMidpoints ? (
-                <span className="inline-flex items-center rounded-full border border-[#FBCFE8] bg-[#FDF2F8] px-2.5 py-0.5 text-[11px] font-semibold text-[#9D174D] shadow-xs">
-                  Dewarp Jilid 8-Titik
-                </span>
-              ) : null}
-              {activePage.qualityReport ? (
-                <span
-                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold shadow-xs ${
-                    activePage.qualityReport.status === "good"
-                      ? "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]"
-                      : "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]"
-                  }`}
-                >
-                  {activePage.qualityReport.status === "good"
-                    ? `Tajam (${activePage.qualityReport.sharpnessScore}/100)`
-                    : activePage.qualityReport.status === "warn_blur"
-                      ? `Buram (${activePage.qualityReport.sharpnessScore}/100)`
-                      : activePage.qualityReport.status === "warn_glare"
-                        ? `Pantulan Cahaya (${activePage.qualityReport.glarePercent}%)`
-                        : "Buram & Pantulan"}
-                </span>
-              ) : null}
-              {activePage.ocrWords && activePage.ocrWords.length > 0 ? (
-                <span className="inline-flex items-center rounded-full border border-[#DDD6FE] bg-[#F5F3FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#4C0FD1] shadow-xs">
-                  Ctrl+F Siap ({activePage.ocrWords.length} kata)
-                </span>
-              ) : null}
-            </div>
+            ) : (
+              <span className="inline-flex items-center rounded-full border border-[#E5E7EB] bg-white px-3 py-0.5 text-[11px] font-semibold tracking-wide text-[#4B5563] uppercase shadow-xs">
+                Full Frame
+              </span>
+            )}
+            {activePage.edgeMidpoints ? (
+              <span className="inline-flex items-center rounded-full border border-[#FBCFE8] bg-[#FDF2F8] px-2.5 py-0.5 text-[11px] font-semibold text-[#9D174D] shadow-xs">
+                Dewarp Jilid 8-Titik
+              </span>
+            ) : null}
+            {activePage.qualityReport ? (
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold shadow-xs ${
+                  activePage.qualityReport.status === "good"
+                    ? "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]"
+                    : "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]"
+                }`}
+              >
+                {activePage.qualityReport.status === "good"
+                  ? `Tajam (${activePage.qualityReport.sharpnessScore}/100)`
+                  : activePage.qualityReport.status === "warn_blur"
+                    ? `Buram (${activePage.qualityReport.sharpnessScore}/100)`
+                    : activePage.qualityReport.status === "warn_glare"
+                      ? `Pantulan Cahaya (${activePage.qualityReport.glarePercent}%)`
+                      : "Buram & Pantulan"}
+              </span>
+            ) : null}
+            {activePage.ocrWords && activePage.ocrWords.length > 0 ? (
+              <span className="inline-flex items-center rounded-full border border-[#DDD6FE] bg-[#F5F3FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#4C0FD1] shadow-xs">
+                Ctrl+F Siap ({activePage.ocrWords.length} kata)
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
-            <div
-              onPointerDown={(e) => {
-                if (isFitMode && zoomPercent <= 100) return;
-                dragRef.current = {
-                  dragging: true,
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  origX: pan.x,
-                  origY: pan.y,
-                };
-                e.currentTarget.setPointerCapture(e.pointerId);
-              }}
-              onPointerMove={(e) => {
-                if (!dragRef.current.dragging) return;
-                setPan({
-                  x: dragRef.current.origX + (e.clientX - dragRef.current.startX),
-                  y: dragRef.current.origY + (e.clientY - dragRef.current.startY),
-                });
-              }}
-              onPointerUp={(e) => {
-                dragRef.current.dragging = false;
-                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                  e.currentTarget.releasePointerCapture(e.pointerId);
-                }
-              }}
-              style={{
-                touchAction: !isFitMode && zoomPercent > 100 ? "none" : "auto",
-              }}
-              className={`flex h-full w-full items-center justify-center overflow-hidden ${
-                !isFitMode && zoomPercent > 100
-                  ? "cursor-grab active:cursor-grabbing"
-                  : ""
-              }`}
-            >
-              {activePage.processedDataUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={activePage.processedDataUrl}
-                  alt={`Pratinjau hasil pemindaian ${
-                    activeTab === "page1"
-                      ? "Halaman 1 Data Surat Ukur"
-                      : "Halaman 2 Gambar Peta Bidang"
-                  }`}
-                  draggable={false}
-                  style={
-                    isFitMode
-                      ? undefined
-                      : {
-                          transform: `translate(${pan.x}px, ${pan.y}px) scale(${
-                            zoomPercent / 100
-                          })`,
-                          transformOrigin: "center center",
-                        }
+        {/* Shared stage viewport so outgoing ghost and incoming document cross-slide seamlessly */}
+        <div className="relative flex w-full flex-1 items-center justify-center">
+          <div
+            ref={previewBodyRef}
+            className="flex h-full w-full items-center justify-center"
+          >
+            {activePage ? (
+              <div
+                onPointerDown={(e) => {
+                  if (isFitMode && zoomPercent <= 100) return;
+                  dragRef.current = {
+                    dragging: true,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    origX: pan.x,
+                    origY: pan.y,
+                  };
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  if (!dragRef.current.dragging) return;
+                  const nextPan = {
+                    x: dragRef.current.origX + (e.clientX - dragRef.current.startX),
+                    y: dragRef.current.origY + (e.clientY - dragRef.current.startY),
+                  };
+                  setViewTransform({
+                    tab: activeTab,
+                    swapSeq: swapSequence,
+                    isFitMode,
+                    zoomPercent,
+                    pan: nextPan,
+                  });
+                }}
+                onPointerUp={(e) => {
+                  dragRef.current.dragging = false;
+                  if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                    e.currentTarget.releasePointerCapture(e.pointerId);
                   }
-                  className="block max-h-[340px] max-w-full select-none rounded-xl border border-[#E5E7EB] bg-white object-contain shadow-[0_12px_32px_rgba(17,17,20,0.12)] transition-transform duration-100 sm:max-h-[460px] xl:max-h-[520px]"
-                />
-              ) : null}
-            </div>
+                }}
+                style={{
+                  touchAction: !isFitMode && zoomPercent > 100 ? "none" : "auto",
+                }}
+                className={`flex h-full w-full items-center justify-center overflow-hidden ${
+                  !isFitMode && zoomPercent > 100
+                    ? "cursor-grab active:cursor-grabbing"
+                    : ""
+                }`}
+              >
+                {activePage.processedDataUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={activePage.processedDataUrl}
+                    alt={`Pratinjau hasil pemindaian ${
+                      activeTab === "page1"
+                        ? "Halaman 1 Data Surat Ukur"
+                        : "Halaman 2 Gambar Peta Bidang"
+                    }`}
+                    draggable={false}
+                    style={
+                      isFitMode
+                        ? undefined
+                        : {
+                            transform: `translate(${pan.x}px, ${pan.y}px) scale(${
+                              zoomPercent / 100
+                            })`,
+                            transformOrigin: "center center",
+                          }
+                    }
+                    className="block max-h-[340px] max-w-full select-none rounded-xl border border-[#E5E7EB] bg-white object-contain shadow-[0_12px_32px_rgba(17,17,20,0.12)] transition-transform duration-100 sm:max-h-[460px] xl:max-h-[520px]"
+                  />
+                ) : null}
+              </div>
+            ) : (
+              <div className="nb-card max-w-sm bg-white p-6 text-center">
+                <span className="nb-pill">Slot Kosong</span>
+                <h2 className="mt-3 text-base font-bold text-[#111114]">
+                  {activeTab === "page1"
+                    ? "Halaman 1 (Data SU) Belum Diunggah"
+                    : "Halaman 2 (Peta Bidang) Belum Diunggah"}
+                </h2>
+                <p className="mt-1.5 text-xs font-medium text-[#4B5563]">
+                  {activeTab === "page2"
+                    ? "Opsional: tambahkan Gambar Bidang bila Surat Ukur memiliki 2 halaman, atau langsung ekspor PDF 1 halaman."
+                    : "Tambahkan foto/scan halaman utama Surat Ukur untuk pembacaan nama file dan Kecamatan otomatis."}
+                </p>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+                  <input
+                    ref={emptyUploadInputRef}
+                    type="file"
+                    accept={ACCEPT_IMAGES}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) onUploadSlot(activeTab, file);
+                      e.target.value = "";
+                    }}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => emptyUploadInputRef.current?.click()}
+                    className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs"
+                  >
+                    <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                    Pilih File
+                  </button>
 
+                  <button
+                    type="button"
+                    onClick={() => onOpenCamera(activeTab)}
+                    className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-4 py-2 text-xs text-[#374151] hover:bg-[#F9FAFB]"
+                  >
+                    <Camera className="h-4 w-4" aria-hidden="true" />
+                    Kamera
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Outgoing Ghost Snapshot Overlay (purely visual transition layer) */}
+          <div
+            ref={ghostLayerRef}
+            aria-hidden="true"
+            onAnimationEnd={(e) => {
+              if (e.target !== e.currentTarget) return;
+              const animName =
+                e.animationName ||
+                (e.nativeEvent instanceof AnimationEvent
+                  ? e.nativeEvent.animationName
+                  : "");
+              if (animName.includes("fade-out")) {
+                const layer = ghostLayerRef.current;
+                const img = ghostImgRef.current;
+                const empty = ghostEmptyRef.current;
+                if (layer) {
+                  layer.classList.remove(...ANIM_GHOST_CLASSES, "flex");
+                  layer.classList.add("hidden");
+                }
+                if (img) {
+                  img.classList.add("hidden");
+                  img.removeAttribute("src");
+                }
+                if (empty) {
+                  empty.classList.add("hidden");
+                }
+              }
+            }}
+            className="pointer-events-none absolute inset-0 z-10 hidden items-center justify-center"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              ref={ghostImgRef}
+              alt=""
+              className="hidden max-h-[340px] max-w-full select-none rounded-xl border border-[#E5E7EB] bg-white object-contain shadow-[0_12px_32px_rgba(17,17,20,0.12)] sm:max-h-[460px] xl:max-h-[520px]"
+            />
+            <div
+              ref={ghostEmptyRef}
+              className="nb-card hidden max-w-sm bg-white/95 p-6 text-center shadow-md"
+            >
+              <span className="nb-pill">Slot Kosong</span>
+              <p
+                ref={ghostEmptyLabelRef}
+                className="mt-3 text-sm font-bold text-[#111114]"
+              />
+            </div>
+          </div>
+        </div>
+
+        {activePage ? (
+          <>
             {activePage.qualityReport &&
             activePage.qualityReport.warnings.length > 0 ? (
               <div
@@ -536,7 +960,7 @@ export function DocumentWorkspacePanel({
             {activePage.isProcessing ? (
               <div
                 role="status"
-                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#111114]/35 backdrop-blur-[2px]"
+                className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-[#111114]/35 backdrop-blur-[2px]"
               >
                 <div className="nb-card bg-white px-5 py-4 text-center shadow-lg">
                   <p className="text-xs font-bold text-[#111114] uppercase">
@@ -594,70 +1018,28 @@ export function DocumentWorkspacePanel({
               </button>
             </div>
           </>
-        ) : (
-          <div className="nb-card max-w-sm bg-white p-6 text-center">
-            <span className="nb-pill">Slot Kosong</span>
-            <h2 className="mt-3 text-base font-bold text-[#111114]">
-              {activeTab === "page1"
-                ? "Halaman 1 (Data SU) Belum Diunggah"
-                : "Halaman 2 (Peta Bidang) Belum Diunggah"}
-            </h2>
-            <p className="mt-1.5 text-xs font-medium text-[#4B5563]">
-              {activeTab === "page2"
-                ? "Opsional: tambahkan Gambar Bidang bila Surat Ukur memiliki 2 halaman, atau langsung ekspor PDF 1 halaman."
-                : "Tambahkan foto/scan halaman utama Surat Ukur untuk pembacaan nama file dan Kecamatan otomatis."}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
-              <input
-                ref={emptyUploadInputRef}
-                type="file"
-                accept={ACCEPT_IMAGES}
-                tabIndex={-1}
-                aria-hidden="true"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onUploadSlot(activeTab, file);
-                  e.target.value = "";
-                }}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => emptyUploadInputRef.current?.click()}
-                className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs"
-              >
-                <FolderOpen className="h-4 w-4" aria-hidden="true" />
-                Pilih File
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onOpenCamera(activeTab)}
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-4 py-2 text-xs text-[#374151] hover:bg-[#F9FAFB]"
-              >
-                <Camera className="h-4 w-4" aria-hidden="true" />
-                Kamera
-              </button>
-            </div>
-          </div>
-        )}
+        ) : null}
       </div>
 
       {/* Card 4: PDF Page Order Thumbnail Strip */}
       <div className="nb-card flex flex-wrap items-center justify-between gap-3 bg-white px-3.5 py-3 sm:px-4">
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 overflow-visible sm:gap-2.5">
           <span className="nb-pill">Urutan PDF</span>
 
           <button
+            ref={thumb1BtnRef}
             type="button"
             onClick={() => handleTabSwitch("page1")}
-            className={`flex items-center gap-2 rounded-xl border p-1.5 pr-3 text-left transition-colors ${
+            className={`relative flex items-center gap-2 rounded-xl border p-1.5 pr-3 text-left transition-colors ${
               activeTab === "page1"
                 ? "border-[#5E17EB] bg-[#F5F3FF] shadow-xs"
                 : "border-[#E5E7EB] bg-[#F6F7F9] hover:bg-white"
             }`}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
+            <div
+              ref={thumb1MediaRef}
+              className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-white shadow-xs"
+            >
               {page1?.processedDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
@@ -681,20 +1063,35 @@ export function DocumentWorkspacePanel({
             </div>
           </button>
 
-          <span aria-hidden="true" className="text-base font-bold text-[#9CA3AF]">
-            →
-          </span>
-
           <button
             type="button"
+            onClick={onSwapPages}
+            disabled={!page1 && !page2}
+            title="Tukar posisi Halaman 1 & Halaman 2 (S)"
+            aria-label="Tukar posisi Halaman 1 dan Halaman 2"
+            className="inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-full border border-[#E5E7EB] bg-[#F6F7F9] text-[#4B5563] transition-colors hover:border-[#DDD6FE] hover:bg-[#F5F3FF] hover:text-[#5E17EB] disabled:opacity-45"
+          >
+            <ArrowLeftRight
+              ref={stripSwapIconRef}
+              className="h-3.5 w-3.5"
+              aria-hidden="true"
+            />
+          </button>
+
+          <button
+            ref={thumb2BtnRef}
+            type="button"
             onClick={() => handleTabSwitch("page2")}
-            className={`flex items-center gap-2 rounded-xl border p-1.5 pr-3 text-left transition-colors ${
+            className={`relative flex items-center gap-2 rounded-xl border p-1.5 pr-3 text-left transition-colors ${
               activeTab === "page2"
                 ? "border-[#5E17EB] bg-[#F5F3FF] shadow-xs"
                 : "border-[#E5E7EB] bg-[#F6F7F9] hover:bg-white"
             }`}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
+            <div
+              ref={thumb2MediaRef}
+              className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-white shadow-xs"
+            >
               {page2?.processedDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
