@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { unzipSync, strFromU8 } from "fflate";
+import { GOOGLE_APPS_SCRIPT_TEMPLATE } from "./drive-config.ts";
 import {
   applyExtractionToForm,
   buildStandardFilename,
@@ -773,5 +776,218 @@ describe("SU-Scanner formatter & domain rules", () => {
       "Medan Helvetia/Helvetia Timur/SU.00006.2007.M.02246_rev2.pdf" in zipEntries,
     );
     assert.ok("rekap-scan.csv" in zipEntries);
+  });
+
+  it("creates per-Kelurahan sheet tabs grouped adjacent by Kecamatan with matching tab colors", () => {
+    const createAppsScriptEnv = () => {
+      type SheetState = {
+        name: string;
+        tabColor: string | null;
+        rows: unknown[][];
+        metas: Array<{ key: string; value: string }>;
+        bgs: string[][];
+      };
+      const sheets: SheetState[] = [
+        { name: "Sheet1", tabColor: null, rows: [], metas: [], bgs: [] },
+      ];
+      let activeIdx = 0;
+
+      const wrapSheet = (st: SheetState) => {
+        const makeRange = (r0: number, c0: number, nr: number, nc: number) => ({
+          getValue: () => st.rows[r0 - 1]?.[c0 - 1] ?? "",
+          getValues: () =>
+            Array.from({ length: nr }, (_, ri) =>
+              Array.from({ length: nc }, (_, ci) => st.rows[r0 - 1 + ri]?.[c0 - 1 + ci] ?? ""),
+            ),
+          setValues: (vals: unknown[][]) => {
+            for (let ri = 0; ri < nr; ri++) {
+              while (st.rows.length < r0 + ri) st.rows.push([]);
+              st.rows[r0 - 1 + ri] = [...vals[ri]];
+            }
+          },
+          setBackgrounds: (bgs: string[][]) => {
+            for (let ri = 0; ri < nr; ri++) st.bgs[r0 - 1 + ri] = [...bgs[ri]];
+          },
+          setBackground() { return this; },
+          setFontColor() { return this; },
+          setFontColors() { return this; },
+          setFontWeight() { return this; },
+          setVerticalAlignment() { return this; },
+          setBorder() { return this; },
+        });
+
+        const api = {
+          getName: () => st.name,
+          setName: (n: string) => { st.name = n; },
+          getIndex: () => sheets.indexOf(st) + 1,
+          getTabColor: () => st.tabColor,
+          setTabColor: (hex: string) => { st.tabColor = hex; },
+          getLastRow: () => st.rows.length,
+          getLastColumn: () =>
+            st.rows.reduce((m, r) => Math.max(m, r.length), 0) || 15,
+          appendRow: (row: unknown[]) => {
+            st.rows.push([...row]);
+          },
+          setFrozenRows: () => {},
+          getRange: (r0: number, c0: number, nr = 1, nc = 1) =>
+            makeRange(r0, c0, nr, nc),
+          addDeveloperMetadata: (key: string, value: string) => {
+            st.metas.push({ key, value });
+          },
+          getDeveloperMetadata: () =>
+            st.metas.map((m) => ({
+              getKey: () => m.key,
+              getValue: () => m.value,
+            })),
+        };
+        return api;
+      };
+
+      let sheetFileCreated = false;
+      const ssObj = {
+        getId: () => "ss-id-1",
+        getUrl: () => "https://docs.google.com/spreadsheets/d/ss-id-1",
+        getSheets: () => sheets.map(wrapSheet),
+        getSheetByName: (name: string) => {
+          const found = sheets.find((s) => s.name === name);
+          return found ? wrapSheet(found) : null;
+        },
+        insertSheet: (name: string, index?: number) => {
+          const st: SheetState = {
+            name,
+            tabColor: null,
+            rows: [],
+            metas: [],
+            bgs: [],
+          };
+          if (typeof index === "number") sheets.splice(index, 0, st);
+          else sheets.push(st);
+          return wrapSheet(st);
+        },
+        setActiveSheet: (sh: ReturnType<typeof wrapSheet>) => {
+          activeIdx = sheets.findIndex((s) => s.name === sh.getName());
+        },
+        moveActiveSheet: (posOneBased: number) => {
+          const [moved] = sheets.splice(activeIdx, 1);
+          sheets.splice(posOneBased - 1, 0, moved);
+        },
+      };
+
+      const rootFolder = {
+        getFilesByName: () => ({
+          hasNext: () => sheetFileCreated,
+          next: () => ({ getId: () => "ss-id-1" }),
+        }),
+      };
+
+      const sandbox: Record<string, unknown> = {
+        Logger: { log: () => {} },
+        DriveApp: {
+          getFolderById: () => rootFolder,
+          getFileById: () => ({ moveTo: () => {} }),
+        },
+        SpreadsheetApp: {
+          BorderStyle: { SOLID: "SOLID" },
+          openById: () => ssObj,
+          create: () => {
+            sheetFileCreated = true;
+            return ssObj;
+          },
+        },
+      };
+      return { sandbox, sheets, rootFolder };
+    };
+
+    for (const source of [
+      readFileSync(
+        new URL("../../docs/google-apps-script-drive.gs", import.meta.url),
+        "utf8",
+      ),
+      GOOGLE_APPS_SCRIPT_TEMPLATE,
+    ]) {
+      const { sandbox, sheets, rootFolder } = createAppsScriptEnv();
+      const ctx = vm.createContext(sandbox);
+      vm.runInContext(source, ctx);
+
+      // Zero-arg calls in Apps Script Editor must succeed cleanly
+      const authRes = (ctx.authorizeAndCreateSheet as () => { ok: boolean })();
+      assert.equal(authRes.ok, true);
+      assert.equal(sheets[0].name, "Rekap Semua");
+
+      const noArgEnsure = (ctx.ensureRekapSheet as () => { ok: boolean })();
+      assert.equal(noArgEnsure.ok, true);
+
+      const append = ctx.appendScanRowToSheet as (
+        rf: unknown,
+        row: Record<string, unknown>,
+      ) => { logged: boolean };
+
+      // Out-of-order upload across Medan Helvetia (2 kelurahan), Medan Baru (Babura), Medan Sunggal (Babura clash)
+      assert.equal(
+        append(rootFolder, {
+          fileName: "SU.00006.2007.M.02246.pdf",
+          kecamatan: "Medan Helvetia",
+          kelurahan: "Helvetia Timur",
+          nomorSu: "00006",
+          tahunSu: "2007",
+        }).logged,
+        true,
+      );
+      assert.equal(
+        append(rootFolder, {
+          fileName: "SU.00010.2011.M.01001.pdf",
+          kecamatan: "Medan Sunggal",
+          kelurahan: "Babura",
+          nomorSu: "00010",
+          tahunSu: "2011",
+        }).logged,
+        true,
+      );
+      assert.equal(
+        append(rootFolder, {
+          fileName: "SU.00002.2005.M.00555.pdf",
+          kecamatan: "Medan Helvetia",
+          kelurahan: "Helvetia Tengah",
+          nomorSu: "00002",
+          tahunSu: "2005",
+        }).logged,
+        true,
+      );
+      assert.equal(
+        append(rootFolder, {
+          fileName: "SU.00001.2010.M.00111.pdf",
+          kecamatan: "Medan Baru",
+          kelurahan: "Babura",
+          nomorSu: "00001",
+          tahunSu: "2010",
+        }).logged,
+        true,
+      );
+
+      // Expected tab bar order:
+      // [Rekap Semua, Babura (Medan Baru), Helvetia Tengah (Medan Helvetia), Helvetia Timur (Medan Helvetia), Babura (Medan Baru) -> wait: Medan Sunggal created first "Babura", Medan Baru got "Babura (Medan Baru)"]
+      const tabNames = sheets.map((s) => s.name);
+      assert.equal(tabNames[0], "Rekap Semua");
+      assert.equal(tabNames.length, 5);
+
+      const helTengah = sheets.find((s) => s.name === "Helvetia Tengah")!;
+      const helTimur = sheets.find((s) => s.name === "Helvetia Timur")!;
+      const babSunggal = sheets.find((s) => s.name === "Babura")!;
+      const babBaru = sheets.find((s) => s.name === "Babura (Medan Baru)")!;
+
+      // All Kelurahans under Medan Helvetia share exact same tab color & sit adjacent!
+      assert.ok(helTengah.tabColor);
+      assert.equal(helTengah.tabColor, helTimur.tabColor);
+      assert.equal(Math.abs(sheets.indexOf(helTengah) - sheets.indexOf(helTimur)), 1);
+
+      // Different Kecamatans have distinct colors and sit grouped: Medan Baru -> Medan Helvetia -> Medan Sunggal
+      assert.notEqual(babBaru.tabColor, helTengah.tabColor);
+      assert.notEqual(babSunggal.tabColor, helTengah.tabColor);
+      assert.notEqual(babBaru.tabColor, babSunggal.tabColor);
+      assert.deepEqual(
+        sheets.map((s) => s.name),
+        ["Rekap Semua", "Babura (Medan Baru)", "Helvetia Tengah", "Helvetia Timur", "Babura"],
+      );
+    }
   });
 });
