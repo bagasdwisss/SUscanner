@@ -92,14 +92,14 @@ function ConfidenceBadge({ meta }: { meta: FieldConfidenceMeta }) {
   const pct = meta.score !== null ? `${Math.round(meta.score * 100)}%` : null;
 
   const badgeStyles: Record<ConfidenceLevel, string> = {
-    high: "bg-[#D9F99D] text-[#111111]",
-    medium: "bg-[#FEF08A] text-[#111111]",
-    low: "bg-[#FBCFE8] text-[#111111]",
+    high: "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]",
+    medium: "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]",
+    low: "border-[#FECDD3] bg-[#FFF1F2] text-[#9F1239]",
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border-2 border-[#111111] px-2.5 py-0.5 text-[11px] font-extrabold ${badgeStyles[meta.level]}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${badgeStyles[meta.level]}`}
     >
       {meta.level === "high" ? (
         <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -341,25 +341,25 @@ export function NamingExportPanel({
 
   const aiCardBg =
     aiStatus === "success"
-      ? "bg-[#D9F99D]"
+      ? "border-[#A7F3D0] bg-[#ECFDF5]/60"
       : aiStatus === "error"
-        ? "bg-[#FBCFE8]"
-        : "bg-[#FEF08A]";
+        ? "border-[#FECDD3] bg-[#FFF1F2]"
+        : "border-[#DDD6FE] bg-[#F5F3FF]/75";
   const isBusyReading = aiStatus === "extracting" || aiStatus === "ocr-local";
 
   return (
     <aside aria-labelledby={formHeadingId} className="flex flex-col gap-4">
-      {/* Bento Card 1: AI & Built-in Local OCR Status */}
+      {/* Card 1: AI & Built-in Local OCR Status */}
       <div className={`nb-card ${aiCardBg} p-4`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="nb-pill">
-              <Sparkles className="h-3 w-3" aria-hidden="true" />
+            <span className="nb-pill bg-white">
+              <Sparkles className="h-3 w-3 text-[#5E17EB]" aria-hidden="true" />
               {aiSource === "local-ocr" || aiStatus === "ocr-local"
                 ? "OCR LOKAL"
                 : "STATUS AI"}
             </span>
-            <span className="text-xs font-extrabold text-[#111111]">
+            <span className="text-xs font-bold text-[#111114]">
               {aiStatus === "extracting"
                 ? "Menganalisis Vision AI…"
                 : aiStatus === "ocr-local"
@@ -380,10 +380,10 @@ export function NamingExportPanel({
               type="button"
               onClick={onReExtractAi}
               disabled={pageCount === 0 || isBusyReading}
-              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-2.5 py-1 text-xs text-[#111111] disabled:opacity-50"
+              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-2.5 py-1 text-xs text-[#111114] hover:bg-[#F9FAFB] disabled:opacity-50"
             >
               <RefreshCw
-                className={`h-3.5 w-3.5 ${
+                className={`h-3.5 w-3.5 text-[#5E17EB] ${
                   aiStatus === "extracting" ? "animate-spin" : ""
                 }`}
                 aria-hidden="true"
@@ -395,7 +395,7 @@ export function NamingExportPanel({
               onClick={onRunLocalOcr}
               disabled={pageCount === 0 || isBusyReading}
               title="Jalankan OCR bawaan sistem (tesseract.js) di browser tanpa API key"
-              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-[#BAE6FD] px-2.5 py-1 text-xs text-[#111111] disabled:opacity-50"
+              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-[#F6F7F9] px-2.5 py-1 text-xs text-[#111114] hover:bg-white disabled:opacity-50"
             >
               <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
               OCR Lokal
@@ -419,7 +419,7 @@ export function NamingExportPanel({
         ) : null}
 
         {aiMessage ? (
-          <p className="mt-2.5 text-xs font-semibold leading-relaxed text-[#111111]/85">
+          <p className="mt-2.5 text-xs font-medium leading-relaxed text-[#4B5563]">
             {aiMessage}
           </p>
         ) : null}
@@ -427,8 +427,11 @@ export function NamingExportPanel({
 
       {/* Wrong Page Slot Banner (FR-03) */}
       {isWrongPageSlot ? (
-        <div role="alert" className="nb-card bg-[#FBCFE8] p-3.5 text-xs">
-          <p className="font-extrabold text-[#111111]">
+        <div
+          role="alert"
+          className="nb-card border-[#FECDD3] bg-[#FFF1F2] p-3.5 text-xs"
+        >
+          <p className="font-bold text-[#9F1239]">
             Gambar di Halaman 1 tampak seperti Peta Bidang. Apakah Anda ingin
             menukar posisi Halaman 1 dan Halaman 2?
           </p>
@@ -436,7 +439,7 @@ export function NamingExportPanel({
             <button
               type="button"
               onClick={onSwapPages}
-              className="nb-btn-sm mt-2.5 inline-flex min-h-9 items-center gap-1.5 bg-[#FEF08A] px-3 py-1.5 text-xs text-[#111111]"
+              className="nb-btn-sm mt-2.5 inline-flex min-h-9 items-center gap-1.5 bg-white px-3 py-1.5 text-xs text-[#111114]"
             >
               <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
               Tukar Halaman 1 &amp; 2
@@ -451,7 +454,7 @@ export function NamingExportPanel({
           {warnings.map((w, idx) => (
             <p
               key={idx}
-              className="nb-card-sm flex items-start gap-2 bg-[#FEF08A] px-3.5 py-2.5 text-xs font-bold text-[#111111]"
+              className="nb-card-sm flex items-start gap-2 border-[#FDE68A] bg-[#FFFBEB] px-3.5 py-2.5 text-xs font-semibold text-[#92400E]"
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{w}</span>
@@ -464,7 +467,7 @@ export function NamingExportPanel({
       {isDuplicateFilename ? (
         <div
           role="status"
-          className="nb-card-sm flex items-start gap-2 bg-[#FBCFE8] px-3.5 py-2.5 text-xs font-bold text-[#111111]"
+          className="nb-card-sm flex items-start gap-2 border-[#FECDD3] bg-[#FFF1F2] px-3.5 py-2.5 text-xs font-semibold text-[#9F1239]"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
@@ -482,19 +485,19 @@ export function NamingExportPanel({
         aria-labelledby={formHeadingId}
         className="flex flex-col gap-4"
       >
-        {/* Bento Card 2: Structured Fields */}
+        {/* Card 2: Structured Fields */}
         <div className="nb-card flex flex-col gap-4 bg-white p-4 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#111111] pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E5E7EB] pb-3">
             <h2
               id={formHeadingId}
-              className="nb-micro text-sm font-black text-[#111111]"
+              className="nb-micro text-xs font-bold text-[#111114] sm:text-sm"
             >
               Penamaan File Otomatis
             </h2>
 
             <fieldset className="flex items-center gap-3 border-0 p-0">
               <legend className="visually-hidden">Mode Penamaan File</legend>
-              <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 text-xs font-extrabold text-[#111111]">
+              <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 text-xs font-semibold text-[#111114]">
                 <input
                   type="radio"
                   name="namingMode"
@@ -505,7 +508,7 @@ export function NamingExportPanel({
                 />
                 <span>Mode Standar</span>
               </label>
-              <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 text-xs font-extrabold text-[#111111]">
+              <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 text-xs font-semibold text-[#111114]">
                 <input
                   type="radio"
                   name="namingMode"
@@ -525,11 +528,11 @@ export function NamingExportPanel({
           {namingMode === "standard" ? (
             <div className="space-y-3.5">
               {/* 1. Prefix */}
-              <div className="flex items-center justify-between rounded-xl border-2 border-[#111111] bg-[#F6F5F0] px-3.5 py-2.5">
-                <span className="nb-micro text-[#111111]">
+              <div className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3.5 py-2.5">
+                <span className="nb-micro text-[#4B5563]">
                   1. Prefix Dokumen
                 </span>
-                <span className="nb-pill font-mono text-xs">SU</span>
+                <span className="nb-pill bg-white font-mono text-xs">SU</span>
               </div>
 
               {/* 2. Nomor SU */}
@@ -906,9 +909,9 @@ export function NamingExportPanel({
           )}
 
           {/* 6. Kecamatan (Subfolder Drive) — active for both standard and custom naming */}
-          <div className="flex flex-col gap-1 border-t-2 border-dashed border-[#111111]/35 pt-3.5">
+          <div className="flex flex-col gap-1 border-t border-dashed border-[#E5E7EB] pt-3.5">
             <div className="flex items-center justify-between gap-2">
-              <label htmlFor={kecamatanId} className="nb-micro text-[#111111]">
+              <label htmlFor={kecamatanId} className="nb-micro text-[#111114]">
                 6. Kecamatan (Subfolder Drive)
               </label>
               <ConfidenceBadge
@@ -921,7 +924,7 @@ export function NamingExportPanel({
             </div>
             <span
               id={kecamatanHintId}
-              className="text-[11px] font-semibold text-[#3F3F46]"
+              className="text-[11px] font-medium text-[#4B5563]"
             >
               {rawEvidence.teksLokasi
                 ? `Terbaca lokasi: "${rawEvidence.teksLokasi}" · dipakai sebagai subfolder Drive`
@@ -953,14 +956,14 @@ export function NamingExportPanel({
                 }
               }}
               placeholder="Misal: Medan Helvetia"
-              className="su-control w-full rounded-xl px-3.5 py-2 text-sm font-extrabold"
+              className="su-control w-full rounded-xl px-3.5 py-2 text-sm font-bold"
             />
           </div>
 
           {/* 7. Kelurahan / Desa (Nested Subfolder Drive inside Kecamatan) */}
-          <div className="flex flex-col gap-1 border-t-2 border-dashed border-[#111111]/25 pt-3.5">
+          <div className="flex flex-col gap-1 border-t border-dashed border-[#E5E7EB] pt-3.5">
             <div className="flex items-center justify-between gap-2">
-              <label htmlFor={kelurahanId} className="nb-micro text-[#111111]">
+              <label htmlFor={kelurahanId} className="nb-micro text-[#111114]">
                 7. Kelurahan / Desa (Subfolder Drive)
               </label>
               <ConfidenceBadge
@@ -975,7 +978,7 @@ export function NamingExportPanel({
             </div>
             <span
               id={kelurahanHintId}
-              className="text-[11px] font-semibold text-[#3F3F46]"
+              className="text-[11px] font-medium text-[#4B5563]"
             >
               Otomatis dibuat di dalam folder Kecamatan (opsional untuk SU lama 1960-an)
             </span>
@@ -1005,23 +1008,25 @@ export function NamingExportPanel({
                 }
               }}
               placeholder="Misal: Helvetia Timur"
-              className="su-control w-full rounded-xl px-3.5 py-2 text-sm font-extrabold"
+              className="su-control w-full rounded-xl px-3.5 py-2 text-sm font-bold"
             />
           </div>
         </div>
 
-        {/* Bento Card 3: Live Final Filename Preview */}
-        <div className="nb-card bg-[#FEF08A] p-4">
+        {/* Card 3: Live Final Filename Preview */}
+        <div className="nb-card border-[#DDD6FE] bg-[#F5F3FF]/70 p-4">
           <div className="flex items-center justify-between gap-2">
-            <span className="nb-pill">Preview Nama File Final</span>
+            <span className="nb-pill bg-white text-[#4C0FD1]">
+              Preview Nama File Final
+            </span>
             <button
               type="button"
               onClick={handleCopyFilename}
-              className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-white px-2.5 py-0.5 text-[11px] text-[#111111]"
+              className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-white px-2.5 py-0.5 text-[11px] text-[#111114] hover:bg-[#F9FAFB]"
             >
               {copied ? (
                 <>
-                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Check className="h-3.5 w-3.5 text-[#065F46]" aria-hidden="true" />
                   Tersalin
                 </>
               ) : (
@@ -1032,15 +1037,15 @@ export function NamingExportPanel({
               )}
             </button>
           </div>
-          <p className="mt-2.5 break-all rounded-xl border-2 border-[#111111] bg-white px-3 py-2.5 font-mono text-sm font-black text-[#111111]">
+          <p className="mt-2.5 break-all rounded-xl border border-[#DDD6FE] bg-white px-3 py-2.5 font-mono text-sm font-bold text-[#111114]">
             {finalFilename}
           </p>
         </div>
 
-        {/* Bento Card 4: PDF Quality, Local Export & Google Drive Subfolder */}
-        <div className="nb-card flex flex-col gap-3 bg-[#BAE6FD] p-4">
+        {/* Card 4: PDF Quality, Local Export & Google Drive Subfolder */}
+        <div className="nb-card flex flex-col gap-3 bg-white p-4 sm:p-5">
           <div className="flex flex-col gap-1">
-            <label htmlFor={qualityId} className="nb-micro text-[#111111]">
+            <label htmlFor={qualityId} className="nb-micro text-[#111114]">
               Tingkat Resolusi PDF (Semua Tetap Jernih)
             </label>
             <select
@@ -1050,7 +1055,7 @@ export function NamingExportPanel({
               onChange={(e) =>
                 onChangePdfQuality(e.target.value as PdfQualityPreset)
               }
-              className="su-control w-full rounded-xl px-3 py-2 text-sm font-extrabold"
+              className="su-control w-full rounded-xl px-3 py-2 text-sm font-semibold"
             >
               <option value="compact">
                 Rendah (1750px · ukuran ringan, teks tetap jernih)
@@ -1064,7 +1069,7 @@ export function NamingExportPanel({
             </select>
           </div>
 
-          <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border-2 border-[#111111] bg-white px-3 py-2 text-xs font-extrabold text-[#111111]">
+          <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]">
             <input
               type="checkbox"
               checked={autoUploadOnExport}
@@ -1080,7 +1085,7 @@ export function NamingExportPanel({
           <button
             type="submit"
             disabled={isGeneratingPdf || isUploadingDrive || pageCount === 0}
-            className="nb-btn inline-flex min-h-12 w-full items-center justify-center gap-2 bg-[#D9F99D] px-5 py-3 text-sm font-black text-[#111111] disabled:cursor-not-allowed disabled:opacity-55"
+            className="nb-btn wollo-cta-primary inline-flex min-h-12 w-full items-center justify-center gap-2 px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-55"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             <span>
@@ -1095,7 +1100,7 @@ export function NamingExportPanel({
             type="button"
             onClick={handleClickUploadDrive}
             disabled={isGeneratingPdf || isUploadingDrive || pageCount === 0}
-            className="nb-btn inline-flex min-h-12 w-full items-center justify-center gap-2 bg-[#FDE047] px-5 py-3 text-sm font-black text-[#111111] disabled:cursor-not-allowed disabled:opacity-55"
+            className="nb-btn wollo-cta-dark inline-flex min-h-12 w-full items-center justify-center gap-2 px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-55"
           >
             <CloudUpload className="h-4 w-4" aria-hidden="true" />
             <span>
@@ -1110,37 +1115,37 @@ export function NamingExportPanel({
           </button>
 
           {/* Google Drive Subfolder Info & Result Box */}
-          <div className="rounded-xl border-2 border-[#111111] bg-white p-3 space-y-2">
+          <div className="space-y-2 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="nb-pill text-[10px]">
-                <FolderOpen className="h-3 w-3" aria-hidden="true" />
+              <span className="nb-pill bg-white text-[10px]">
+                <FolderOpen className="h-3 w-3 text-[#5E17EB]" aria-hidden="true" />
                 Tujuan Subfolder Drive
               </span>
               <button
                 type="button"
                 onClick={onOpenDriveConfig}
-                className="inline-flex min-h-8 items-center gap-1 rounded-lg border-2 border-[#111111] bg-[#F6F5F0] px-2.5 py-0.5 text-[11px] font-extrabold text-[#111111] hover:bg-[#FEF08A]"
+                className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-0.5 text-[11px] font-semibold text-[#111114] hover:bg-[#F6F7F9]"
               >
                 <Settings className="h-3 w-3" aria-hidden="true" />
                 {driveReady ? "Terhubung" : "Hubungkan Drive"}
               </button>
             </div>
 
-            <div className="rounded-lg border border-[#111111]/35 bg-[#F6F5F0] px-2.5 py-2 text-[11px]">
-              <div className="flex items-center justify-between gap-2 font-bold text-[#3F3F46]">
+            <div className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-[11px]">
+              <div className="flex items-center justify-between gap-2 font-semibold text-[#4B5563]">
                 <span>Jalur folder otomatis:</span>
                 <a
                   href={driveFolderUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 font-mono font-extrabold text-[#111111] underline"
+                  className="inline-flex items-center gap-1 font-mono font-bold text-[#5E17EB] hover:underline"
                   title={`Buka Folder Induk Drive (${driveFolderId})`}
                 >
                   Drive Induk
                   <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
                 </a>
               </div>
-              <p className="mt-1 break-all font-mono text-xs font-extrabold text-[#111111]">
+              <p className="mt-1 break-all font-mono text-xs font-bold text-[#111114]">
                 / {normalizedKecamatan || "(Isi Kecamatan)"}
                 {normalizedKelurahan ? ` / ${normalizedKelurahan}` : ""} /{" "}
                 {finalFilename}
@@ -1150,15 +1155,15 @@ export function NamingExportPanel({
             {lastDriveError ? (
               <div
                 role="alert"
-                className="rounded-lg border-2 border-[#111111] bg-[#FECACA] p-2.5 text-xs space-y-1.5"
+                className="space-y-1.5 rounded-lg border border-[#FECDD3] bg-[#FFF1F2] p-2.5 text-xs"
               >
-                <p className="font-extrabold text-[#111111]">
+                <p className="font-bold text-[#9F1239]">
                   Upload Google Drive Gagal: {lastDriveError}
                 </p>
                 <button
                   type="button"
                   onClick={onOpenDriveConfig}
-                  className="nb-btn-sm inline-flex items-center gap-1 bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#111111]"
+                  className="nb-btn-sm inline-flex items-center gap-1 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#111114]"
                 >
                   <Settings className="h-3 w-3" aria-hidden="true" />
                   Cek Koneksi &amp; Pengaturan Drive
@@ -1167,8 +1172,8 @@ export function NamingExportPanel({
             ) : null}
 
             {lastDriveResult ? (
-              <div className="rounded-lg border-2 border-[#111111] bg-[#D9F99D] p-2.5 text-xs space-y-1.5">
-                <p className="font-extrabold text-[#111111]">
+              <div className="space-y-1.5 rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] p-2.5 text-xs">
+                <p className="font-bold text-[#065F46]">
                   {lastDriveResult.kelurahanName
                     ? `Tersimpan ke subfolder "${lastDriveResult.kecamatanName || normalizedKecamatan} / ${lastDriveResult.kelurahanName}" (${lastDriveResult.kelurahanCreated ? "folder Kelurahan baru dibuat" : "memakai folder Kelurahan yang sudah ada"}).`
                     : lastDriveResult.folderCreated
@@ -1177,7 +1182,7 @@ export function NamingExportPanel({
                 </p>
                 {normalizedKelurahan &&
                 lastDriveResult.nestedSupported === false ? (
-                  <p className="rounded border border-[#111111] bg-[#FEF08A] px-2 py-1 text-[11px] font-bold text-[#111111]">
+                  <p className="rounded border border-[#FDE68A] bg-[#FFFBEB] px-2 py-1 text-[11px] font-semibold text-[#92400E]">
                     Catatan: Web App Google Apps Script masih versi lama sehingga berkas masuk ke folder Kecamatan saja. Klik tombol Terhubung di atas lalu salin &amp; Deploy New version agar subfolder Kelurahan aktif otomatis.
                   </p>
                 ) : null}
@@ -1186,7 +1191,7 @@ export function NamingExportPanel({
                     href={lastDriveResult.folderUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md border border-[#111111] bg-white px-2 py-0.5 text-[11px] font-extrabold text-[#111111]"
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#111114] hover:bg-[#F9FAFB]"
                   >
                     Buka Folder
                     <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -1195,7 +1200,7 @@ export function NamingExportPanel({
                     href={lastDriveResult.fileUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md border border-[#111111] bg-[#FEF08A] px-2 py-0.5 text-[11px] font-extrabold text-[#111111]"
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#DDD6FE] bg-[#F5F3FF] px-2.5 py-1 text-[11px] font-semibold text-[#4C0FD1] hover:bg-[#EDE9FE]"
                   >
                     Lihat File PDF
                     <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -1208,7 +1213,7 @@ export function NamingExportPanel({
           <button
             type="button"
             onClick={onResetWorkspace}
-            className="nb-btn-sm inline-flex min-h-10 w-full items-center justify-center gap-1.5 bg-white px-4 py-2 text-xs text-[#111111]"
+            className="nb-btn-sm inline-flex min-h-10 w-full items-center justify-center gap-1.5 bg-white px-4 py-2 text-xs text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#111114]"
           >
             <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
             Reset / Scan Berikutnya

@@ -158,13 +158,13 @@ export function DocumentWorkspacePanel({
       aria-label="Panel Pratinjau dan Pemindaian Dokumen"
       className="flex flex-col gap-4"
     >
-      {/* Bento Card 1: Page Tabs & Swap Header */}
-      <div className="nb-card flex flex-wrap items-center justify-between gap-2 bg-[#FEF08A] px-3.5 py-2.5 sm:px-4">
+      {/* Card 1: Page Tabs & Swap Header */}
+      <div className="nb-card flex flex-wrap items-center justify-between gap-2 bg-white px-3.5 py-2.5 sm:px-4">
         <div
           role="tablist"
           aria-label="Pilih Halaman Surat Ukur"
           {...tablistFocusgroupProps}
-          className="flex items-center gap-2 overflow-x-auto py-0.5"
+          className="flex items-center gap-1.5 overflow-x-auto rounded-full bg-[#F6F7F9] p-1"
         >
           <button
             ref={tab1Ref}
@@ -175,14 +175,14 @@ export function DocumentWorkspacePanel({
             {...tab1FocusProps}
             onClick={() => handleTabSwitch("page1")}
             onKeyDown={(e) => handleTabKeyDown(e, "page1")}
-            className="su-tab inline-flex min-h-10 flex-none items-center gap-2 rounded-xl border-2 border-[#111111] bg-white px-3.5 py-2 text-xs font-extrabold text-[#111111] sm:text-sm"
+            className="su-tab inline-flex min-h-9 flex-none items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:text-sm"
           >
             <span>Hal 1 · Data SU</span>
             <span
-              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-black ${
+              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
                 activeTab === "page1"
-                  ? "bg-[#FEF08A] text-[#111111]"
-                  : "bg-[#111111] text-[#F6F5F0]"
+                  ? "bg-[#5E17EB]/10 text-[#5E17EB]"
+                  : "bg-white text-[#4B5563] border border-[#E5E7EB]"
               }`}
             >
               {getOrientationBadge(page1)}
@@ -198,14 +198,14 @@ export function DocumentWorkspacePanel({
             {...tab2FocusProps}
             onClick={() => handleTabSwitch("page2")}
             onKeyDown={(e) => handleTabKeyDown(e, "page2")}
-            className="su-tab inline-flex min-h-10 flex-none items-center gap-2 rounded-xl border-2 border-[#111111] bg-white px-3.5 py-2 text-xs font-extrabold text-[#111111] sm:text-sm"
+            className="su-tab inline-flex min-h-9 flex-none items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:text-sm"
           >
             <span>Hal 2 · Peta Bidang</span>
             <span
-              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-black ${
+              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
                 activeTab === "page2"
-                  ? "bg-[#FEF08A] text-[#111111]"
-                  : "bg-[#111111] text-[#F6F5F0]"
+                  ? "bg-[#5E17EB]/10 text-[#5E17EB]"
+                  : "bg-white text-[#4B5563] border border-[#E5E7EB]"
               }`}
             >
               {getOrientationBadge(page2)}
@@ -217,26 +217,26 @@ export function DocumentWorkspacePanel({
           type="button"
           onClick={onSwapPages}
           disabled={!page1 && !page2}
-          className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FBCFE8] px-3.5 py-1.5 text-xs text-[#111111] disabled:opacity-50"
+          className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#111114] hover:bg-[#F9FAFB] disabled:opacity-50"
         >
-          <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
+          <ArrowLeftRight className="h-3.5 w-3.5 text-[#5E17EB]" aria-hidden="true" />
           <span>Tukar Hal 1 &amp; 2</span>
-          <kbd className="hidden rounded border border-[#111111] bg-[#111111] px-1.5 py-0.5 font-mono text-[10px] text-[#FEF08A] sm:inline">
+          <kbd className="hidden rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#4B5563] sm:inline">
             S
           </kbd>
         </button>
       </div>
 
-      {/* Bento Card 2: Active Image Toolbar */}
+      {/* Card 2: Active Image Toolbar */}
       {activePage ? (
-        <div className="nb-card space-y-3 bg-[#BAE6FD] px-3.5 py-3.5 sm:px-4">
+        <div className="nb-card space-y-3 bg-white px-3.5 py-3.5 sm:px-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => onRotateActive(-90)}
                 disabled={activePage.isProcessing}
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111111] disabled:opacity-50"
+                className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111114] hover:bg-[#F6F7F9] disabled:opacity-50"
               >
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                 -90°
@@ -245,11 +245,11 @@ export function DocumentWorkspacePanel({
                 type="button"
                 onClick={() => onRotateActive(90)}
                 disabled={activePage.isProcessing}
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111111] disabled:opacity-50"
+                className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111114] hover:bg-[#F6F7F9] disabled:opacity-50"
               >
                 <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
                 +90°
-                <kbd className="hidden rounded bg-[#111111] px-1 font-mono text-[10px] text-[#FEF08A] sm:inline">
+                <kbd className="hidden rounded bg-[#F6F7F9] px-1 font-mono text-[10px] font-semibold text-[#4B5563] sm:inline">
                   R
                 </kbd>
               </button>
@@ -258,7 +258,7 @@ export function DocumentWorkspacePanel({
                 onClick={onAutoCropActive}
                 disabled={activePage.isProcessing}
                 title="Deteksi otomatis 4 sudut kertas dan potong rapat dari ujung ke ujung dokumen"
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#D9F99D] px-3 py-1.5 text-xs text-[#111111] disabled:opacity-50"
+                className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 border-[#DDD6FE] bg-[#F5F3FF] px-3 py-1.5 text-xs font-semibold text-[#4C0FD1] hover:bg-[#EDE9FE] disabled:opacity-50"
               >
                 <Scan className="h-3.5 w-3.5" aria-hidden="true" />
                 Auto-Crop
@@ -267,7 +267,7 @@ export function DocumentWorkspacePanel({
                 type="button"
                 onClick={onOpenManualCrop}
                 disabled={activePage.isProcessing}
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FEF08A] px-3 py-1.5 text-xs text-[#111111] disabled:opacity-50"
+                className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3 py-1.5 text-xs text-[#111114] hover:bg-[#F6F7F9] disabled:opacity-50"
               >
                 <Crop className="h-3.5 w-3.5" aria-hidden="true" />
                 Atur Sudut Crop
@@ -289,7 +289,7 @@ export function DocumentWorkspacePanel({
               <button
                 type="button"
                 onClick={() => replaceInputRef.current?.click()}
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111111]"
+                className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111114] hover:bg-[#F6F7F9]"
               >
                 <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
                 Ganti File
@@ -297,7 +297,7 @@ export function DocumentWorkspacePanel({
               <button
                 type="button"
                 onClick={() => onOpenCamera(activeTab)}
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FBCFE8] px-2.5 py-1.5 text-xs text-[#111111]"
+                className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-2.5 py-1.5 text-xs text-[#111114] hover:bg-[#F6F7F9]"
               >
                 <Camera className="h-3.5 w-3.5" aria-hidden="true" />
                 Kamera
@@ -307,7 +307,7 @@ export function DocumentWorkspacePanel({
             <div
               role="group"
               aria-label="Filter Pemindaian Dokumen"
-              className="flex flex-wrap items-center gap-1.5"
+              className="flex flex-wrap items-center gap-1 rounded-full border border-[#E5E7EB] bg-[#F6F7F9] p-1"
             >
               {FILTER_OPTIONS.map((f) => {
                 const selected = activePage.filter === f.id;
@@ -318,10 +318,10 @@ export function DocumentWorkspacePanel({
                     aria-pressed={selected}
                     title={f.hint}
                     onClick={() => onFilterChange(f.id)}
-                    className={`inline-flex min-h-9 items-center rounded-xl border-2 border-[#111111] px-2.5 py-1 text-xs font-extrabold transition-colors ${
+                    className={`inline-flex min-h-8 items-center rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
                       selected
-                        ? "bg-[#111111] text-[#FEF08A]"
-                        : "bg-white text-[#111111] hover:bg-[#FEF08A]"
+                        ? "bg-[#0E0E10] text-white shadow-xs"
+                        : "bg-transparent text-[#4B5563] hover:bg-white hover:text-[#111114]"
                     }`}
                   >
                     {f.label}
@@ -331,15 +331,15 @@ export function DocumentWorkspacePanel({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border-2 border-[#111111] bg-white px-3 py-2 text-xs">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-2 text-xs">
             <div className="flex w-full items-center gap-2 sm:min-w-[180px] sm:flex-1">
               <SlidersHorizontal
-                className="h-3.5 w-3.5 shrink-0 text-[#111111]"
+                className="h-3.5 w-3.5 shrink-0 text-[#4B5563]"
                 aria-hidden="true"
               />
               <label
                 htmlFor={`brightness-${activeTab}`}
-                className="nb-micro w-20 shrink-0 text-[#111111]"
+                className="nb-micro w-20 shrink-0 text-[#111114]"
               >
                 Kecerahan
               </label>
@@ -355,7 +355,7 @@ export function DocumentWorkspacePanel({
                 }
                 className="h-2 w-full cursor-pointer"
               />
-              <span className="w-9 text-right font-mono font-extrabold text-[#111111]">
+              <span className="w-9 text-right font-mono font-bold text-[#111114]">
                 {activePage.brightness > 0
                   ? `+${activePage.brightness}`
                   : activePage.brightness}
@@ -365,7 +365,7 @@ export function DocumentWorkspacePanel({
             <div className="flex w-full items-center gap-2 sm:min-w-[180px] sm:flex-1">
               <label
                 htmlFor={`contrast-${activeTab}`}
-                className="nb-micro w-16 shrink-0 text-[#111111]"
+                className="nb-micro w-16 shrink-0 text-[#111114]"
               >
                 Kontras
               </label>
@@ -384,7 +384,7 @@ export function DocumentWorkspacePanel({
                 }
                 className="h-2 w-full cursor-pointer"
               />
-              <span className="w-9 text-right font-mono font-extrabold text-[#111111]">
+              <span className="w-9 text-right font-mono font-bold text-[#111114]">
                 {activePage.contrast > 0
                   ? `+${activePage.contrast}`
                   : activePage.contrast}
@@ -395,7 +395,7 @@ export function DocumentWorkspacePanel({
               <button
                 type="button"
                 onClick={onResetAdjustments}
-                className="rounded-lg border border-[#111111] bg-[#FEF08A] px-2 py-0.5 text-[11px] font-extrabold text-[#111111]"
+                className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#111114] hover:bg-[#F9FAFB]"
               >
                 Reset
               </button>
@@ -414,7 +414,7 @@ export function DocumentWorkspacePanel({
         {activePage ? (
           <>
             <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-wrap items-center gap-2">
-              <span className="nb-pill font-mono">
+              <span className="nb-pill bg-white/95 font-mono shadow-xs">
                 {activeTab === "page1" ? "HAL 1" : "HAL 2"} ·{" "}
                 {activePage.processedWidth >= activePage.processedHeight
                   ? "LANDSCAPE"
@@ -422,11 +422,11 @@ export function DocumentWorkspacePanel({
                 ({activePage.processedWidth}×{activePage.processedHeight}PX)
               </span>
               {activePage.hasAutoContour ? (
-                <span className="inline-flex items-center rounded-full border-2 border-[#111111] bg-[#D9F99D] px-3 py-0.5 text-[11px] font-extrabold tracking-wider text-[#111111] uppercase">
+                <span className="inline-flex items-center rounded-full border border-[#A7F3D0] bg-[#ECFDF5] px-3 py-0.5 text-[11px] font-semibold tracking-wide text-[#065F46] uppercase shadow-xs">
                   Auto-Crop Full Dokumen
                 </span>
               ) : (
-                <span className="inline-flex items-center rounded-full border-2 border-[#111111] bg-white px-3 py-0.5 text-[11px] font-extrabold tracking-wider text-[#111111] uppercase">
+                <span className="inline-flex items-center rounded-full border border-[#E5E7EB] bg-white px-3 py-0.5 text-[11px] font-semibold tracking-wide text-[#4B5563] uppercase shadow-xs">
                   Full Frame
                 </span>
               )}
@@ -486,7 +486,7 @@ export function DocumentWorkspacePanel({
                           transformOrigin: "center center",
                         }
                   }
-                  className="block max-h-[340px] max-w-full select-none rounded-lg border-2 border-[#111111] bg-white object-contain shadow-[6px_6px_0px_#111111] transition-transform duration-100 sm:max-h-[460px] xl:max-h-[520px]"
+                  className="block max-h-[340px] max-w-full select-none rounded-xl border border-[#E5E7EB] bg-white object-contain shadow-[0_12px_32px_rgba(17,17,20,0.12)] transition-transform duration-100 sm:max-h-[460px] xl:max-h-[520px]"
                 />
               ) : null}
             </div>
@@ -494,37 +494,37 @@ export function DocumentWorkspacePanel({
             {activePage.isProcessing ? (
               <div
                 role="status"
-                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#111111]/45"
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#111114]/35 backdrop-blur-[2px]"
               >
-                <div className="nb-card bg-[#FEF08A] px-5 py-3.5 text-center">
-                  <p className="text-xs font-extrabold text-[#111111] uppercase">
+                <div className="nb-card bg-white px-5 py-4 text-center shadow-lg">
+                  <p className="text-xs font-bold text-[#111114] uppercase">
                     Memproses perspektif &amp; filter…
                   </p>
                   <progress
                     aria-label="Memproses pemindaian"
-                    className="su-progress mt-2 h-2 w-44"
+                    className="su-progress mt-2.5 h-2 w-44"
                   />
                 </div>
               </div>
             ) : null}
 
-            {/* Floating Neo-Brutalist Zoom Controls */}
+            {/* Floating Clean Zoom Controls */}
             <div className="nb-card-sm mt-3 inline-flex items-center gap-1 bg-white p-1">
               <button
                 type="button"
                 aria-label="Perkecil pratinjau"
                 onClick={() => stepZoom(-25)}
-                className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg text-[#111111] hover:bg-[#FEF08A]"
+                className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-[#4B5563] hover:bg-[#F6F7F9] hover:text-[#111114]"
               >
                 <ZoomOut className="h-4 w-4" aria-hidden="true" />
               </button>
               <button
                 type="button"
                 onClick={setExact100}
-                className={`min-h-9 rounded-lg px-2.5 font-mono text-xs font-extrabold ${
+                className={`min-h-8 rounded-lg px-2.5 font-mono text-xs font-bold ${
                   !isFitMode && zoomPercent === 100
-                    ? "bg-[#111111] text-[#FEF08A]"
-                    : "text-[#111111] hover:bg-[#BAE6FD]"
+                    ? "bg-[#0E0E10] text-white"
+                    : "text-[#4B5563] hover:bg-[#F6F7F9] hover:text-[#111114]"
                 }`}
               >
                 {isFitMode ? "FIT" : `${zoomPercent}%`}
@@ -533,7 +533,7 @@ export function DocumentWorkspacePanel({
                 type="button"
                 aria-label="Perbesar pratinjau"
                 onClick={() => stepZoom(25)}
-                className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg text-[#111111] hover:bg-[#FEF08A]"
+                className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-[#4B5563] hover:bg-[#F6F7F9] hover:text-[#111114]"
               >
                 <ZoomIn className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -541,10 +541,10 @@ export function DocumentWorkspacePanel({
                 type="button"
                 onClick={resetView}
                 aria-label="Sesuaikan layar"
-                className={`inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-extrabold ${
+                className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold ${
                   isFitMode
-                    ? "bg-[#D9F99D] text-[#111111]"
-                    : "text-[#111111] hover:bg-[#D9F99D]"
+                    ? "bg-[#F5F3FF] text-[#5E17EB]"
+                    : "text-[#4B5563] hover:bg-[#F6F7F9] hover:text-[#111114]"
                 }`}
               >
                 <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -555,12 +555,12 @@ export function DocumentWorkspacePanel({
         ) : (
           <div className="nb-card max-w-sm bg-white p-6 text-center">
             <span className="nb-pill">Slot Kosong</span>
-            <h2 className="mt-3 text-base font-extrabold text-[#111111]">
+            <h2 className="mt-3 text-base font-bold text-[#111114]">
               {activeTab === "page1"
                 ? "Halaman 1 (Data SU) Belum Diunggah"
                 : "Halaman 2 (Peta Bidang) Belum Diunggah"}
             </h2>
-            <p className="mt-1.5 text-xs font-medium text-[#3F3F46]">
+            <p className="mt-1.5 text-xs font-medium text-[#4B5563]">
               {activeTab === "page2"
                 ? "Opsional: tambahkan Gambar Bidang bila Surat Ukur memiliki 2 halaman, atau langsung ekspor PDF 1 halaman."
                 : "Tambahkan foto/scan halaman utama Surat Ukur untuk pembacaan nama file dan Kecamatan otomatis."}
@@ -582,7 +582,7 @@ export function DocumentWorkspacePanel({
               <button
                 type="button"
                 onClick={() => emptyUploadInputRef.current?.click()}
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FDE047] px-4 py-2 text-xs text-[#111111]"
+                className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs"
               >
                 <FolderOpen className="h-4 w-4" aria-hidden="true" />
                 Pilih File
@@ -591,7 +591,7 @@ export function DocumentWorkspacePanel({
               <button
                 type="button"
                 onClick={() => onOpenCamera(activeTab)}
-                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FBCFE8] px-4 py-2 text-xs text-[#111111]"
+                className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-4 py-2 text-xs text-[#374151] hover:bg-[#F9FAFB]"
               >
                 <Camera className="h-4 w-4" aria-hidden="true" />
                 Kamera
@@ -601,21 +601,21 @@ export function DocumentWorkspacePanel({
         )}
       </div>
 
-      {/* Bento Card 4: PDF Page Order Thumbnail Strip */}
-      <div className="nb-card flex flex-wrap items-center justify-between gap-3 bg-[#D9F99D] px-3.5 py-3 sm:px-4">
+      {/* Card 4: PDF Page Order Thumbnail Strip */}
+      <div className="nb-card flex flex-wrap items-center justify-between gap-3 bg-white px-3.5 py-3 sm:px-4">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="nb-pill">Urutan PDF</span>
 
           <button
             type="button"
             onClick={() => handleTabSwitch("page1")}
-            className={`flex items-center gap-2 rounded-xl border-2 border-[#111111] p-1.5 pr-3 text-left transition-colors ${
+            className={`flex items-center gap-2 rounded-xl border p-1.5 pr-3 text-left transition-colors ${
               activeTab === "page1"
-                ? "bg-[#FEF08A] shadow-[3px_3px_0px_#111111]"
-                : "bg-white hover:bg-[#FEF08A]/50"
+                ? "border-[#5E17EB] bg-[#F5F3FF] shadow-xs"
+                : "border-[#E5E7EB] bg-[#F6F7F9] hover:bg-white"
             }`}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 border-[#111111] bg-[#F6F5F0]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
               {page1?.processedDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
@@ -624,35 +624,35 @@ export function DocumentWorkspacePanel({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="font-mono text-xs font-black text-[#111111]">
+                <span className="font-mono text-xs font-bold text-[#4B5563]">
                   —
                 </span>
               )}
             </div>
             <div>
-              <p className="text-xs font-extrabold text-[#111111]">
+              <p className="text-xs font-bold text-[#111114]">
                 01 · {getOrientationBadge(page1)}
               </p>
-              <p className="text-[11px] font-semibold text-[#3F3F46]">
+              <p className="text-[11px] font-medium text-[#4B5563]">
                 Data SU
               </p>
             </div>
           </button>
 
-          <span aria-hidden="true" className="text-base font-black text-[#111111]">
+          <span aria-hidden="true" className="text-base font-bold text-[#9CA3AF]">
             →
           </span>
 
           <button
             type="button"
             onClick={() => handleTabSwitch("page2")}
-            className={`flex items-center gap-2 rounded-xl border-2 border-[#111111] p-1.5 pr-3 text-left transition-colors ${
+            className={`flex items-center gap-2 rounded-xl border p-1.5 pr-3 text-left transition-colors ${
               activeTab === "page2"
-                ? "bg-[#FEF08A] shadow-[3px_3px_0px_#111111]"
-                : "bg-white hover:bg-[#FEF08A]/50"
+                ? "border-[#5E17EB] bg-[#F5F3FF] shadow-xs"
+                : "border-[#E5E7EB] bg-[#F6F7F9] hover:bg-white"
             }`}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 border-[#111111] bg-[#F6F5F0]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
               {page2?.processedDataUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
@@ -661,16 +661,16 @@ export function DocumentWorkspacePanel({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="font-mono text-sm font-black text-[#111111]">
+                <span className="font-mono text-sm font-bold text-[#4B5563]">
                   +
                 </span>
               )}
             </div>
             <div>
-              <p className="text-xs font-extrabold text-[#111111]">
+              <p className="text-xs font-bold text-[#111114]">
                 02 · {getOrientationBadge(page2)}
               </p>
-              <p className="text-[11px] font-semibold text-[#3F3F46]">
+              <p className="text-[11px] font-medium text-[#4B5563]">
                 {page2 ? "Peta Bidang" : "Opsional"}
               </p>
             </div>
@@ -678,7 +678,7 @@ export function DocumentWorkspacePanel({
         </div>
 
         {(page1 && !page2) || (!page1 && page2) ? (
-          <span className="nb-pill bg-[#111111] text-[#FEF08A]">
+          <span className="nb-pill border-[#DDD6FE] bg-[#F5F3FF] text-[#4C0FD1]">
             Mode SU 1 Lembar · Siap Ekspor 1 Hal
           </span>
         ) : null}

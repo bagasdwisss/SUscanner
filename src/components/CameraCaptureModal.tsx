@@ -448,10 +448,10 @@ export function CameraCaptureModal({
     onClose();
   };
 
-  const bracketColor = isEdgesLocked ? "border-[#D9F99D]" : "border-[#FDE047]";
+  const bracketColor = isEdgesLocked ? "border-[#34D399]" : "border-[#FBD93B]";
   const frameBorderColor = isEdgesLocked
-    ? "border-[#D9F99D]/90"
-    : "border-[#FDE047]/80";
+    ? "border-[#34D399]/90"
+    : "border-[#FBD93B]/80";
 
   return (
     <AppDialog
@@ -460,7 +460,7 @@ export function CameraCaptureModal({
       title={`Ambil Foto Kamera — ${slotLabel}`}
       subtitle="Sejajarkan ke-4 tepi Surat Ukur tepat di garis target. Hasil foto otomatis dipotong pas sesuai kotak target."
       maxWidthClass="max-w-3xl"
-      headerBgClass="bg-[#D9F99D]"
+      headerBgClass="bg-white"
       footer={
         <>
           <input
@@ -486,9 +486,9 @@ export function CameraCaptureModal({
           <button
             type="button"
             onClick={() => fallbackInputRef.current?.click()}
-            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#BAE6FD] px-3.5 py-2 text-xs text-[#111111]"
+            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-3.5 py-2 text-xs text-[#111114] hover:bg-[#F9FAFB]"
           >
-            <FolderOpen className="h-4 w-4" aria-hidden="true" />
+            <FolderOpen className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
             Kamera / Galeri Sistem
           </button>
 
@@ -502,7 +502,7 @@ export function CameraCaptureModal({
                   m === "environment" ? "user" : "environment",
                 );
               }}
-              className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-3.5 py-2 text-xs text-[#111111]"
+              className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-3.5 py-2 text-xs text-[#111114] hover:bg-[#F9FAFB]"
             >
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
               Ganti Kamera
@@ -512,7 +512,7 @@ export function CameraCaptureModal({
           <button
             type="button"
             onClick={handleClose}
-            className="nb-btn-sm inline-flex min-h-10 items-center bg-[#FBCFE8] px-3.5 py-2 text-xs text-[#111111]"
+            className="nb-btn-sm inline-flex min-h-10 items-center bg-[#F6F7F9] px-3.5 py-2 text-xs text-[#374151] hover:bg-[#E5E7EB]"
           >
             Batal
           </button>
@@ -521,7 +521,7 @@ export function CameraCaptureModal({
             type="button"
             disabled={status !== "ready"}
             onClick={handleTakeSnapshot}
-            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FEF08A] px-4 py-2 text-xs font-black text-[#111111] disabled:opacity-50"
+            className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs font-semibold disabled:opacity-50"
           >
             <Camera className="h-4 w-4" aria-hidden="true" />
             Ambil Foto
@@ -531,9 +531,9 @@ export function CameraCaptureModal({
     >
       <div className="space-y-3">
         {/* Framing Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-[#111111] bg-white px-3 py-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-xs">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="nb-micro mr-1 text-[#3F3F46]">Kotak Target:</span>
+            <span className="nb-micro mr-1 text-[#4B5563]">Kotak Target:</span>
             {(
               [
                 { id: "portrait", label: "Potret SU" },
@@ -546,10 +546,10 @@ export function CameraCaptureModal({
                 type="button"
                 aria-pressed={frameMode === opt.id}
                 onClick={() => setFrameMode(opt.id)}
-                className={`inline-flex min-h-8 items-center gap-1 rounded-lg border-2 border-[#111111] px-2.5 py-1 text-[11px] font-extrabold ${
+                className={`inline-flex min-h-8 items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                   frameMode === opt.id
-                    ? "bg-[#111111] text-[#FEF08A]"
-                    : "bg-[#F6F5F0] text-[#111111] hover:bg-[#FEF08A]"
+                    ? "border-[#0E0E10] bg-[#0E0E10] text-white"
+                    : "border-[#E5E7EB] bg-[#F6F7F9] text-[#374151] hover:bg-white"
                 }`}
               >
                 {opt.id === "full" ? (
@@ -563,7 +563,7 @@ export function CameraCaptureModal({
           </div>
 
           {frameMode !== "full" ? (
-            <label className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-lg border-2 border-[#111111] bg-[#D9F99D] px-2.5 py-1 text-[11px] font-extrabold text-[#111111]">
+            <label className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#DDD6FE] bg-[#F5F3FF] px-2.5 py-1 text-[11px] font-semibold text-[#4C0FD1]">
               <input
                 type="checkbox"
                 checked={cropToTarget}
@@ -578,14 +578,14 @@ export function CameraCaptureModal({
         {/* Camera Stage with Video-Locked Precision Target Box */}
         <div
           ref={stageRef}
-          className="nb-card relative flex h-[54dvh] min-h-[300px] w-full flex-col items-center justify-center overflow-hidden bg-[#141414]"
+          className="wollo-dark-surface relative flex h-[54dvh] min-h-[300px] w-full flex-col items-center justify-center overflow-hidden rounded-2xl border border-[#27272A]"
         >
           {status === "error" ? (
-            <div className="flex max-w-md flex-col items-center gap-3 p-6 text-center text-[#F6F5F0]">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border-2 border-[#111111] bg-[#FEF08A] text-[#111111] shadow-[3px_3px_0px_#FBCFE8]">
+            <div className="flex max-w-md flex-col items-center gap-3 p-6 text-center text-white">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#5E17EB] text-white shadow-lg">
                 <VideoOff className="h-7 w-7" aria-hidden="true" />
               </div>
-              <p className="text-sm font-extrabold">
+              <p className="text-sm font-bold">
                 Kamera Langsung Tidak Tersedia
               </p>
               <p className="text-xs leading-relaxed text-zinc-300">
@@ -632,7 +632,7 @@ export function CameraCaptureModal({
                       boxShadow:
                         frameMode === "full"
                           ? "none"
-                          : "0 0 0 9999px rgba(17, 17, 17, 0.56)",
+                          : "0 0 0 9999px rgba(14, 14, 16, 0.56)",
                     }}
                     className={`absolute rounded-lg border-2 ${frameBorderColor} transition-colors duration-150`}
                   >
@@ -653,22 +653,22 @@ export function CameraCaptureModal({
                     {/* Midpoint Edge Alignment Ticks */}
                     <span
                       className={`absolute left-1/2 top-0 h-1.5 w-8 -translate-x-1/2 rounded-b ${
-                        isEdgesLocked ? "bg-[#D9F99D]" : "bg-[#FDE047]"
+                        isEdgesLocked ? "bg-[#34D399]" : "bg-[#FBD93B]"
                       }`}
                     />
                     <span
                       className={`absolute bottom-0 left-1/2 h-1.5 w-8 -translate-x-1/2 rounded-t ${
-                        isEdgesLocked ? "bg-[#D9F99D]" : "bg-[#FDE047]"
+                        isEdgesLocked ? "bg-[#34D399]" : "bg-[#FBD93B]"
                       }`}
                     />
                     <span
                       className={`absolute left-0 top-1/2 h-8 w-1.5 -translate-y-1/2 rounded-r ${
-                        isEdgesLocked ? "bg-[#D9F99D]" : "bg-[#FDE047]"
+                        isEdgesLocked ? "bg-[#34D399]" : "bg-[#FBD93B]"
                       }`}
                     />
                     <span
                       className={`absolute right-0 top-1/2 h-8 w-1.5 -translate-y-1/2 rounded-l ${
-                        isEdgesLocked ? "bg-[#D9F99D]" : "bg-[#FDE047]"
+                        isEdgesLocked ? "bg-[#34D399]" : "bg-[#FBD93B]"
                       }`}
                     />
 
@@ -683,10 +683,12 @@ export function CameraCaptureModal({
 
               {/* Status pill on camera viewfinder */}
               {status === "ready" ? (
-                <div className="pointer-events-none absolute bottom-2.5 left-1/2 z-10 -translate-x-1/2">
+                <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
                   <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border-2 border-[#111111] px-3 py-1 text-[11px] font-extrabold text-[#111111] shadow-[2px_2px_0px_#111111] ${
-                      isEdgesLocked ? "bg-[#D9F99D]" : "bg-[#FEF08A]"
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold shadow-md backdrop-blur-sm ${
+                      isEdgesLocked
+                        ? "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]"
+                        : "border-white/20 bg-[#111114]/80 text-white"
                     }`}
                   >
                     {isEdgesLocked ? (
@@ -696,7 +698,7 @@ export function CameraCaptureModal({
                       </>
                     ) : (
                       <>
-                        <Scan className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <Scan className="h-3.5 w-3.5 shrink-0 text-[#FBD93B]" aria-hidden="true" />
                         Paskan ke-4 tepi kertas SU ke garis kotak target
                       </>
                     )}
@@ -707,9 +709,9 @@ export function CameraCaptureModal({
               {status === "starting" ? (
                 <div
                   role="status"
-                  className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-[#141414]/85 text-[#F6F5F0]"
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-[#0E0E10]/85 text-white"
                 >
-                  <span className="text-xs font-extrabold tracking-wide uppercase">
+                  <span className="text-xs font-semibold tracking-wide uppercase">
                     Mengaktifkan kamera perangkat…
                   </span>
                   <progress

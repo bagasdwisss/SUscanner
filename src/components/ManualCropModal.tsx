@@ -104,7 +104,7 @@ export function ManualCropModal({
     ctx.restore();
 
     ctx.save();
-    ctx.strokeStyle = "#fde047";
+    ctx.strokeStyle = "#a855f7";
     ctx.lineWidth = 3;
     ctx.beginPath();
     corners.forEach((pt, idx) => {
@@ -122,10 +122,10 @@ export function ManualCropModal({
       const isSelected = activeIdx === idx;
       ctx.beginPath();
       ctx.arc(px, py, isSelected ? 12 : 10, 0, Math.PI * 2);
-      ctx.fillStyle = isSelected ? "#fde047" : "#ffffff";
+      ctx.fillStyle = isSelected ? "#5e17eb" : "#ffffff";
       ctx.fill();
       ctx.lineWidth = 3;
-      ctx.strokeStyle = "#111111";
+      ctx.strokeStyle = isSelected ? "#fbd93b" : "#111114";
       ctx.stroke();
     });
     ctx.restore();
@@ -259,13 +259,13 @@ export function ManualCropModal({
       title={`Sesuaikan Sudut Kertas — ${pageLabel}`}
       subtitle="Seret 4 titik sudut ke tepi kertas atau gunakan tombol panah keyboard saat sudut dipilih."
       maxWidthClass="max-w-4xl"
-      headerBgClass="bg-[#BAE6FD]"
+      headerBgClass="bg-white"
       footer={
         <>
           <button
             type="button"
             onClick={handleAutoDetect}
-            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FEF08A] px-3.5 py-2 text-xs text-[#111111]"
+            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 border-[#DDD6FE] bg-[#F5F3FF] px-3.5 py-2 text-xs text-[#4C0FD1] hover:bg-[#EDE9FE]"
           >
             <Scan className="h-4 w-4" aria-hidden="true" />
             Deteksi Ulang Otomatis
@@ -273,7 +273,7 @@ export function ManualCropModal({
           <button
             type="button"
             onClick={handleFullFrame}
-            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-3.5 py-2 text-xs text-[#111111]"
+            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-white px-3.5 py-2 text-xs text-[#111114] hover:bg-[#F9FAFB]"
           >
             <Maximize2 className="h-4 w-4" aria-hidden="true" />
             Pilih Penuh
@@ -284,7 +284,7 @@ export function ManualCropModal({
               setCorners(cloneCorners(initialCorners));
               onClose();
             }}
-            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#FBCFE8] px-3.5 py-2 text-xs text-[#111111]"
+            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#F6F7F9] px-3.5 py-2 text-xs text-[#374151] hover:bg-[#E5E7EB]"
           >
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
             Batal
@@ -295,7 +295,7 @@ export function ManualCropModal({
               onApply(cloneCorners(corners));
               onClose();
             }}
-            className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 bg-[#D9F99D] px-4 py-2 text-xs text-[#111111]"
+            className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs"
           >
             <Check className="h-4 w-4" aria-hidden="true" />
             Terapkan Crop
@@ -304,7 +304,7 @@ export function ManualCropModal({
       }
     >
       <div className="flex flex-col items-center gap-4">
-        <div className="nb-card relative inline-flex max-w-full items-center justify-center overflow-hidden bg-[#141414] p-2">
+        <div className="wollo-dark-surface relative inline-flex max-w-full items-center justify-center overflow-hidden rounded-2xl border border-[#27272A] p-2 shadow-lg">
           <canvas
             ref={stageCanvasRef}
             width={canvasDims.width}
@@ -319,13 +319,13 @@ export function ManualCropModal({
 
           {activeIdx !== null ? (
             <div
-              className={`pointer-events-none absolute ${loupeSideClass} flex flex-col items-center gap-1 rounded-2xl border-2 border-[#111111] bg-[#FEF08A] p-1.5 shadow-[3px_3px_0px_#111111]`}
+              className={`pointer-events-none absolute ${loupeSideClass} flex flex-col items-center gap-1 rounded-2xl border border-[#E5E7EB] bg-white p-1.5 shadow-lg`}
             >
               <canvas
                 ref={loupeCanvasRef}
                 width={128}
                 height={128}
-                className="block h-20 w-20 rounded-full border-2 border-[#111111] sm:h-28 sm:w-28"
+                className="block h-20 w-20 rounded-full border-2 border-[#5E17EB] sm:h-28 sm:w-28"
               />
               <span className="nb-pill text-[10px]">
                 Loupe · {CORNER_NAMES[activeIdx]}
@@ -359,8 +359,8 @@ export function ManualCropModal({
               }}
               className={`nb-btn-sm px-3 py-1.5 text-xs ${
                 activeIdx === idx
-                  ? "bg-[#111111] text-[#FEF08A]"
-                  : "bg-white text-[#111111]"
+                  ? "wollo-cta-dark"
+                  : "bg-white text-[#111114] hover:bg-[#F9FAFB]"
               }`}
             >
               {label}

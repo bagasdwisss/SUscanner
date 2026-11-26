@@ -162,20 +162,20 @@ export function DriveConfigDialog({
       title="Pengaturan Google Drive & Subfolder Kecamatan / Kelurahan"
       subtitle="Berkas PDF yang selesai dipindai akan otomatis dimasukkan ke subfolder Kecamatan lalu subfolder Kelurahan/Desa di dalamnya."
       maxWidthClass="max-w-3xl"
-      headerBgClass="bg-[#BAE6FD]"
+      headerBgClass="bg-white"
       footer={
         <>
           <button
             type="button"
             onClick={onClose}
-            className="nb-btn-sm inline-flex min-h-10 items-center bg-white px-4 py-2 text-xs font-extrabold text-[#111111]"
+            className="nb-btn-sm inline-flex min-h-10 items-center bg-white px-4 py-2 text-xs font-semibold text-[#374151] hover:bg-[#F9FAFB]"
           >
             Batal
           </button>
           <button
             type="submit"
             form="drive-config-form"
-            className="nb-btn-sm inline-flex min-h-10 items-center bg-[#D9F99D] px-5 py-2 text-xs font-black text-[#111111]"
+            className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center px-5 py-2 text-xs font-semibold"
           >
             Simpan Pengaturan Drive
           </button>
@@ -186,20 +186,27 @@ export function DriveConfigDialog({
         {/* Connection Status Banner */}
         <div
           className={`nb-card-sm flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${
-            isReady ? "bg-[#D9F99D]" : "bg-[#FEF08A]"
+            isReady
+              ? "border-[#A7F3D0] bg-[#ECFDF5]"
+              : "border-[#FDE68A] bg-[#FFFBEB]"
           }`}
         >
           <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="h-5 w-5 shrink-0 text-[#111111]" aria-hidden="true" />
+            <CheckCircle2
+              className={`h-5 w-5 shrink-0 ${
+                isReady ? "text-[#065F46]" : "text-[#92400E]"
+              }`}
+              aria-hidden="true"
+            />
             <div>
-              <p className="text-xs font-black text-[#111111] uppercase">
+              <p className="text-xs font-bold text-[#111114] uppercase">
                 {serverConfigured
                   ? `Koneksi Server Aktif (${serverStatus?.mode})`
                   : browserConfigured
                     ? "Koneksi Google Apps Script Aktif (Browser Ini)"
                     : "Belum Terhubung — Pilih Cara Hubungkan di Bawah"}
               </p>
-              <p className="text-xs font-semibold text-[#111111]/85">
+              <p className="text-xs font-medium text-[#4B5563]">
                 {isReady
                   ? "Siap membuat subfolder Kecamatan dan subfolder Kelurahan/Desa otomatis di Drive."
                   : "Isi URL Web App Apps Script (2 menit) atau atur variabel .env.local di server."}
@@ -211,24 +218,24 @@ export function DriveConfigDialog({
             href={resolvedFolderUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3 py-1.5 text-xs font-extrabold text-[#111111]"
+            className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3 py-1.5 text-xs font-semibold text-[#111114] hover:bg-[#F9FAFB]"
           >
-            <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
+            <FolderOpen className="h-3.5 w-3.5 text-[#5E17EB]" aria-hidden="true" />
             Buka Folder Induk
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
           </a>
         </div>
 
         {/* Folder Induk Config */}
-        <div className="nb-card bg-white p-4 space-y-2.5">
+        <div className="nb-card space-y-2.5 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <label htmlFor={folderId} className="nb-micro text-[#111111]">
+            <label htmlFor={folderId} className="nb-micro text-[#111114]">
               1. URL atau ID Folder Induk Google Drive
             </label>
             <button
               type="button"
               onClick={() => setFolderDraft(DEFAULT_DRIVE_ROOT_FOLDER_ID)}
-              className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-[#F6F5F0] px-2.5 py-1 text-[11px] text-[#111111]"
+              className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-[#F6F7F9] px-2.5 py-1 text-[11px] text-[#111114] hover:bg-white"
             >
               <RotateCcw className="h-3 w-3" aria-hidden="true" />
               Gunakan Folder Bawaan
@@ -242,17 +249,19 @@ export function DriveConfigDialog({
             placeholder="https://drive.google.com/drive/folders/1D5f..."
             className="su-control w-full rounded-xl px-3.5 py-2 font-mono text-xs font-bold"
           />
-          <p className="text-xs font-medium text-[#3F3F46]">
+          <p className="text-xs font-medium text-[#4B5563]">
             Folder aktif:{" "}
-            <code className="rounded border border-[#111111]/30 bg-[#F6F5F0] px-1.5 py-0.5 font-mono font-bold text-[#111111]">
+            <code className="rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1.5 py-0.5 font-mono font-bold text-[#111114]">
               {resolvedFolderId}
             </code>{" "}
             — Subfolder bertingkat seperti{" "}
-            <code className="font-mono font-bold">/Medan Helvetia/Helvetia Timur/</code>{" "}
+            <code className="font-mono font-bold text-[#111114]">
+              /Medan Helvetia/Helvetia Timur/
+            </code>{" "}
             akan dibuat otomatis di dalam folder ini.
           </p>
 
-          <label className="mt-1 inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border-2 border-[#111111] bg-[#FEF08A] px-3 py-2 text-xs font-extrabold text-[#111111]">
+          <label className="mt-1 inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]">
             <input
               type="checkbox"
               checked={autoDraft}
@@ -267,16 +276,18 @@ export function DriveConfigDialog({
         </div>
 
         {/* Apps Script Setup */}
-        <div className="nb-card bg-[#FEF08A] p-4 space-y-3">
+        <div className="nb-card space-y-3 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="nb-pill">2. URL Web App Google Apps Script (Tertanam Permanen)</span>
+            <span className="nb-pill border-[#DDD6FE] bg-[#F5F3FF] text-[#4C0FD1]">
+              2. URL Web App Google Apps Script (Tertanam Permanen)
+            </span>
             <button
               type="button"
               onClick={() => {
                 setUrlDraft(DEFAULT_APPS_SCRIPT_URL);
                 onClearAppsScript();
               }}
-              className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-white px-2.5 py-1 text-[11px] text-[#111111]"
+              className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-[#F6F7F9] px-2.5 py-1 text-[11px] text-[#111114] hover:bg-white"
             >
               <RotateCcw className="h-3 w-3" aria-hidden="true" />
               Gunakan URL Bawaan
@@ -284,7 +295,7 @@ export function DriveConfigDialog({
           </div>
 
           <div>
-            <label htmlFor={urlId} className="nb-micro mb-1 block text-[#111111]">
+            <label htmlFor={urlId} className="nb-micro mb-1 block text-[#111114]">
               Web App URL Google Apps Script (berakhiran /exec)
             </label>
             <input
@@ -302,7 +313,7 @@ export function DriveConfigDialog({
               type="button"
               disabled={isTesting}
               onClick={() => void handleTestConnection()}
-              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-[#D9F99D] px-3 py-1.5 text-xs font-extrabold text-[#111111] disabled:opacity-55"
+              className="nb-btn-sm wollo-cta-dark inline-flex min-h-9 items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold disabled:opacity-55"
             >
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
               {isTesting
@@ -314,38 +325,40 @@ export function DriveConfigDialog({
           {verifyFeedback ? (
             <p
               role="status"
-              className={`rounded-xl border-2 border-[#111111] px-3 py-2 text-xs font-extrabold text-[#111111] ${
-                verifyFeedback.ok ? "bg-[#D9F99D]" : "bg-[#FECACA]"
+              className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+                verifyFeedback.ok
+                  ? "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]"
+                  : "border-[#FECDD3] bg-[#FFF1F2] text-[#9F1239]"
               }`}
             >
               {verifyFeedback.message}
             </p>
           ) : null}
 
-          <div className="rounded-xl border-2 border-[#111111] bg-white p-3.5 text-xs space-y-2">
+          <div className="space-y-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] p-3.5 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="font-extrabold text-[#111111]">
+              <p className="font-bold text-[#111114]">
                 Pastikan pengaturan Deploy Apps Script Anda seperti berikut:
               </p>
               <button
                 type="button"
                 onClick={handleCopyScript}
-                className="nb-btn-sm inline-flex min-h-8 items-center gap-1.5 bg-[#D9F99D] px-3 py-1 text-[11px] text-[#111111]"
+                className="nb-btn-sm inline-flex min-h-8 items-center gap-1.5 bg-white px-3 py-1 text-[11px] text-[#111114] hover:bg-[#F9FAFB]"
               >
                 {copiedScript ? (
                   <>
-                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    <Check className="h-3.5 w-3.5 text-[#065F46]" aria-hidden="true" />
                     Kode Tersalin
                   </>
                 ) : (
                   <>
-                    <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                    <Copy className="h-3.5 w-3.5 text-[#5E17EB]" aria-hidden="true" />
                     Salin Kode Apps Script
                   </>
                 )}
               </button>
             </div>
-            <ol className="list-decimal space-y-1 pl-4 font-semibold text-[#3F3F46]">
+            <ol className="list-decimal space-y-1 pl-4 font-medium text-[#4B5563]">
               <li>
                 Script otomatis mencari subfolder Kecamatan lalu subfolder Kelurahan/Desa di dalamnya (jika sudah ada, PDF dimasukkan ke folder yang ada tanpa membuat folder duplikat).
               </li>
@@ -355,7 +368,7 @@ export function DriveConfigDialog({
                   href="https://script.google.com/home"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-extrabold text-[#111111] underline"
+                  className="font-bold text-[#5E17EB] underline"
                 >
                   script.google.com
                 </a>
@@ -377,21 +390,21 @@ export function DriveConfigDialog({
         </div>
 
         {/* Server Env Alternative */}
-        <div className="nb-card-sm bg-[#FBCFE8] p-3.5 text-xs">
-          <p className="font-extrabold text-[#111111]">
+        <div className="nb-card-sm bg-white p-3.5 text-xs">
+          <p className="font-bold text-[#111114]">
             Opsi Admin Server / Vercel (`.env.local`):
           </p>
-          <p className="mt-1 font-semibold text-[#111111]/85">
+          <p className="mt-1 font-medium text-[#4B5563]">
             Untuk menghubungkan semua operator tanpa mengisi ulang di browser, set{" "}
-            <code className="rounded bg-white px-1 font-mono font-bold">
+            <code className="rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1 font-mono font-bold text-[#111114]">
               GOOGLE_DRIVE_APPS_SCRIPT_URL
             </code>
             , atau kombinasi OAuth{" "}
-            <code className="rounded bg-white px-1 font-mono font-bold">
+            <code className="rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1 font-mono font-bold text-[#111114]">
               GOOGLE_DRIVE_CLIENT_ID / SECRET / REFRESH_TOKEN
             </code>
             , atau{" "}
-            <code className="rounded bg-white px-1 font-mono font-bold">
+            <code className="rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1 font-mono font-bold text-[#111114]">
               GOOGLE_SERVICE_ACCOUNT_JSON
             </code>{" "}
             (Shared Drive).
@@ -401,7 +414,7 @@ export function DriveConfigDialog({
         {errorMsg ? (
           <p
             role="alert"
-            className="nb-card-sm bg-[#FECACA] px-3.5 py-2.5 text-xs font-extrabold text-[#111111]"
+            className="nb-card-sm border-[#FECDD3] bg-[#FFF1F2] px-3.5 py-2.5 text-xs font-semibold text-[#9F1239]"
           >
             {errorMsg}
           </p>

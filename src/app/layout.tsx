@@ -20,10 +20,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" className="h-full antialiased">
-      <body className="min-h-full bg-[#F6F5F0] text-[#111111] flex flex-col">
+      <body className="min-h-full bg-[#FFFFFF] text-[#111114] flex flex-col selection:bg-[#5E17EB] selection:text-white">
         <a
           href="#main-workspace"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-2xl focus:border-2 focus:border-[#111111] focus:bg-[#FDE047] focus:px-4 focus:py-2 focus:text-sm focus:font-extrabold focus:text-[#111111] focus:shadow-[4px_4px_0px_#111111]"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-[10px] focus:border focus:border-[#4C0FD1] focus:bg-[#5E17EB] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:shadow-[0_8px_20px_-4px_rgba(94,23,235,0.35)]"
         >
           Lewati ke area kerja utama
         </a>

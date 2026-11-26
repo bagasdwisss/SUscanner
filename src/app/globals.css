@@ -3,28 +3,46 @@
 :root {
   color-scheme: light;
 
-  --nb-canvas: #f6f5f0;
-  --nb-drafting: #eceae2;
-  --nb-sidebar: #141414;
-  --nb-sidebar-elevated: #1f1f24;
-  --nb-ink: #111111;
-  --nb-ink-muted: #3f3f46;
+  /* Wollo Clean Minimalist SaaS + Pop-3D Tokens */
+  --bg-canvas: #e4e6eb;
+  --bg-page: #ffffff;
+  --bg-pill-nav: #f6f7f9;
+  --border-subtle: #e5e7eb;
+  --text-primary: #111114;
+  --text-secondary: #4b5563;
+  --text-inverse: #ffffff;
+
+  --brand-purple: #5e17eb;
+  --brand-purple-hover: #4c0fd1;
+  --accent-purple-card: #4a0ec4;
+  --accent-purple-deep: #33068f;
+  --accent-pink-card: #f562ae;
+  --accent-yellow-card: #fbd93b;
+  --accent-orange-3d: #ff5e1e;
+
+  /* Semantic Aliases for SU-Scanner Workspace */
+  --nb-canvas: #ffffff;
+  --nb-drafting: #f6f7f9;
+  --nb-sidebar: #0e0e10;
+  --nb-sidebar-elevated: #1c1c21;
+  --nb-ink: #111114;
+  --nb-ink-muted: #4b5563;
   --nb-white: #ffffff;
 
-  --nb-butter: #fef08a;
-  --nb-butter-strong: #fde047;
-  --nb-pink: #fbcfe8;
-  --nb-matcha: #d9f99d;
-  --nb-blue: #bae6fd;
+  --nb-butter: #fef9c3;
+  --nb-butter-strong: #fbd93b;
+  --nb-pink: #fce7f3;
+  --nb-matcha: #ecfdf5;
+  --nb-blue: #eff6ff;
 
-  --nb-danger: #991b1b;
-  --nb-danger-bg: #fecaca;
+  --nb-danger: #be123c;
+  --nb-danger-bg: #fff1f2;
 
-  --font-plus-jakarta: "Plus Jakarta Sans", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-plus-jakarta: "Plus Jakarta Sans", "Inter", "DM Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-jetbrains-mono: "JetBrains Mono", "Cascadia Code", "Consolas", ui-monospace, monospace;
 
-  accent-color: #111111;
-  scrollbar-color: #111111 #e5e3dc;
+  accent-color: #5e17eb;
+  scrollbar-color: #cbd5e1 #ffffff;
 }
 
 @theme inline {
@@ -33,84 +51,143 @@
 }
 
 body {
-  background-color: var(--nb-canvas);
-  color: var(--nb-ink);
+  background-color: var(--bg-page);
+  color: var(--text-primary);
   font-family: var(--font-plus-jakarta);
   line-height: 1.5;
   text-align: start;
 }
 
-.nb-dark-sidebar {
+.wollo-dark-surface {
   color-scheme: dark;
   background-color: var(--nb-sidebar);
-  color: var(--nb-canvas);
-  scrollbar-color: #52525b #141414;
+  color: var(--text-inverse);
+  scrollbar-color: #52525b #0e0e10;
 }
 
-/* Accessible focus ring that stays ultra-crisp against pastels & dark surfaces */
+/* Accessible WCAG AAA/AA focus ring across white, pill, and dark surfaces */
 :where(a[href], button, input, select, textarea, [tabindex]):focus-visible {
-  outline: 3px solid #111111;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 5px #fde047;
-}
-
-.nb-dark-sidebar :where(a[href], button, input, select, textarea, [tabindex]):focus-visible {
-  outline: 3px solid #fde047;
+  outline: 2px solid var(--brand-purple);
   outline-offset: 2px;
   box-shadow: none;
 }
 
-/* Soft Neo-Brutalism card, button, and badge primitives */
+.wollo-dark-surface :where(a[href], button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-yellow-card);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Clean Minimalist SaaS card, button, and badge primitives */
 .nb-card {
-  border-radius: 1rem;
-  border: 2px solid #111111;
-  box-shadow: 4px 4px 0px #111111;
+  border-radius: 1.25rem;
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    0 1px 3px rgba(16, 24, 40, 0.05),
+    0 1px 2px rgba(16, 24, 40, 0.03);
 }
 
 .nb-card-sm {
   border-radius: 0.875rem;
-  border: 2px solid #111111;
-  box-shadow: 3px 3px 0px #111111;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
 .nb-btn {
-  border-radius: 1rem;
-  border: 2px solid #111111;
-  box-shadow: 4px 4px 0px #111111;
-  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  font-weight: 600;
 }
 
 .nb-btn-sm {
-  border-radius: 0.75rem;
-  border: 2px solid #111111;
-  box-shadow: 3px 3px 0px #111111;
-  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.03);
+  font-weight: 600;
+}
+
+.wollo-cta-primary {
+  background-color: var(--brand-purple);
+  border-color: var(--brand-purple);
+  color: var(--text-inverse);
+}
+
+.wollo-cta-dark {
+  background-color: var(--nb-sidebar);
+  border-color: var(--nb-sidebar);
+  color: var(--text-inverse);
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .nb-btn,
   .nb-btn-sm {
-    transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+    transition:
+      transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 150ms ease,
+      background-color 150ms ease,
+      border-color 150ms ease;
   }
 
-  .nb-btn:not(:disabled):hover {
-    transform: translate(-1px, -1px);
-    box-shadow: 5px 5px 0px #111111;
-  }
-
-  .nb-btn:not(:disabled):active {
-    transform: translate(3px, 3px);
-    box-shadow: 0px 0px 0px #111111;
-  }
-
+  .nb-btn:not(:disabled):hover,
   .nb-btn-sm:not(:disabled):hover {
-    transform: translate(-1px, -1px);
-    box-shadow: 4px 4px 0px #111111;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px -4px rgba(17, 17, 20, 0.12);
   }
 
+  .nb-btn:not(:disabled):active,
   .nb-btn-sm:not(:disabled):active {
-    transform: translate(2px, 2px);
-    box-shadow: 0px 0px 0px #111111;
+    transform: translateY(0px);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+  }
+
+  .wollo-cta-primary:not(:disabled):hover {
+    background-color: var(--brand-purple-hover);
+    border-color: var(--brand-purple-hover);
+    box-shadow: 0 8px 20px -4px rgba(94, 23, 235, 0.38);
+  }
+
+  .wollo-cta-dark:not(:disabled):hover {
+    background-color: #1f1f24;
+    border-color: #1f1f24;
+    box-shadow: 0 8px 18px -4px rgba(14, 14, 16, 0.28);
+  }
+
+  .wollo-enter-1 {
+    animation: wollo-fade-up 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .wollo-enter-2 {
+    animation: wollo-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
+  }
+
+  .wollo-enter-3 {
+    animation: wollo-fade-up 560ms cubic-bezier(0.16, 1, 0.3, 1) 170ms both;
+  }
+
+  .wollo-float-3d {
+    animation: wollo-float 6s ease-in-out infinite;
+  }
+}
+
+@keyframes wollo-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wollo-float {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(-1deg);
   }
 }
 
@@ -119,54 +196,57 @@ body {
   align-items: center;
   gap: 0.375rem;
   border-radius: 9999px;
-  background-color: #111111;
-  color: #f6f5f0;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-pill-nav);
+  color: var(--text-primary);
   padding: 0.25rem 0.75rem;
   font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .nb-micro {
   font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 /* Native <dialog> top-layer scroll containment (prevent-page-scroll-under-modal-dialog) */
 dialog:modal {
   overscroll-behavior: contain;
-  background-color: var(--nb-canvas);
-  color: var(--nb-ink);
-  border-radius: 1rem;
-  border: 2px solid #111111;
-  box-shadow: 6px 6px 0px #111111;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  border-radius: 1.25rem;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 24px 48px -12px rgba(17, 17, 20, 0.18);
 }
 
 dialog::backdrop {
   overflow: hidden;
   overscroll-behavior: contain;
-  background-color: rgb(17 17 17 / 0.68);
-  backdrop-filter: blur(2px);
+  background-color: rgb(17 17 20 / 0.48);
+  backdrop-filter: blur(4px);
 }
 
-/* Accessible tab active indicator using thick solid border (WCAG 1.4.1 & Forced Colors safe) */
+/* Accessible tab active indicator using solid border underline (WCAG 1.4.1 & Forced Colors safe) */
 .su-tab {
   position: relative;
 }
 
 .su-tab[aria-selected="true"] {
-  background-color: #111111;
-  color: #f6f5f0;
+  background-color: #ffffff;
+  color: var(--brand-purple);
+  border-color: #ddd6fe;
 }
 
 .su-tab[aria-selected="true"]::after {
   content: "";
   position: absolute;
-  inset: auto 0.5rem -2px;
-  border-block-end: 4px solid var(--nb-butter-strong);
+  inset: auto 0.625rem 0px;
+  border-block-end: 3px solid var(--brand-purple);
+  border-radius: 9999px;
 }
 
 /* Form controls: prevent iOS zoom & defer validity visuals until user interaction */
@@ -174,9 +254,14 @@ dialog::backdrop {
   font: inherit;
   font-size: max(1rem, 1em);
   min-block-size: 46px;
-  border: 2px solid #111111;
+  border: 1px solid #d1d5db;
   background-color: #ffffff;
-  color: #111111;
+  color: var(--text-primary);
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.su-control:hover:not(:disabled) {
+  border-color: #9ca3af;
 }
 
 @media (pointer: coarse) {
@@ -191,18 +276,18 @@ dialog::backdrop {
 }
 
 .su-control:not([type="range"]):is(:user-valid, .user-valid-fallback) {
-  border-color: #111111;
-  background-color: #f7fee7;
+  border-color: #a7f3d0;
+  background-color: #f9fffb;
 }
 
 /* Native <progress> styling for AI extraction status */
 progress.su-progress {
   appearance: none;
-  border: 2px solid #111111;
+  border: 1px solid var(--border-subtle);
   overflow: clip;
   container-type: inline-size;
   border-radius: 9999px;
-  background: #ffffff;
+  background: var(--bg-pill-nav);
   --progress-bar-indeterminate-size: 32%;
   --progress-bar-indeterminate-animation-duration: 1.4s;
 }
@@ -218,12 +303,12 @@ progress.su-progress::-webkit-progress-bar {
 }
 
 progress.su-progress::-webkit-progress-value {
-  background: #111111;
+  background: var(--brand-purple);
   border-radius: 9999px;
 }
 
 progress.su-progress::-moz-progress-bar {
-  background: #111111;
+  background: var(--brand-purple);
   border-radius: 9999px;
 }
 
@@ -251,12 +336,12 @@ progress.su-progress:indeterminate::-moz-progress-bar {
   }
 }
 
-/* Warm drafting grid texture for document preview stage */
+/* Minimalist clean grid texture for document preview stage */
 .su-drafting-stage {
-  background-color: var(--nb-drafting);
+  background-color: var(--bg-pill-nav);
   background-image: radial-gradient(
     circle at 1px 1px,
-    rgb(17 17 17 / 0.16) 1.25px,
+    rgb(17 17 20 / 0.08) 1.15px,
     transparent 0
   );
   background-size: 18px 18px;

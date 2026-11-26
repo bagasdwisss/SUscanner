@@ -73,29 +73,29 @@ export function AiUsageSidebar({
       <div
         aria-hidden="true"
         onClick={onClose}
-        className="fixed inset-0 bg-[#111111]/55 backdrop-blur-[2px]"
+        className="fixed inset-0 bg-[#111114]/45 backdrop-blur-xs"
       />
 
       {/* Dedicated Right Side Bar Panel */}
       <aside
         role="region"
         aria-labelledby={headingId}
-        className="relative z-10 flex h-dvh w-full max-w-md flex-col border-l-2 border-[#111111] bg-[#F6F5F0] shadow-[-6px_0px_0px_#111111]"
+        className="relative z-10 flex h-dvh w-full max-w-md flex-col border-l border-[#E5E7EB] bg-[#F9FAFB] shadow-[-16px_0_36px_rgba(17,17,20,0.14)]"
       >
-        <header className="nb-dark-sidebar flex items-center justify-between gap-3 border-b-2 border-[#111111] px-4 py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-[#F6F5F0] bg-[#D9F99D] text-[#111111]">
+        <header className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] bg-white px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#DDD6FE] bg-[#F5F3FF] text-[#5E17EB]">
               <Activity className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
               <h2
                 id={headingId}
-                className="text-base font-black tracking-tight text-[#F6F5F0]"
+                className="text-base font-bold tracking-tight text-[#111114]"
               >
                 Sidebar Usage AI &amp; Kuota
               </h2>
-              <p className="text-[11px] font-bold text-[#FEF08A]">
-                Pemantauan pemakaian request, token &amp; jadwal reset harian
+              <p className="text-[11px] font-medium text-[#4B5563]">
+                Pemantauan request, token &amp; jadwal reset harian
               </p>
             </div>
           </div>
@@ -104,47 +104,47 @@ export function AiUsageSidebar({
             type="button"
             onClick={onClose}
             aria-label="Tutup Sidebar Usage AI"
-            className="nb-btn-sm inline-flex min-h-10 min-w-10 items-center justify-center bg-white text-[#111111] hover:bg-[#FBCFE8]"
+            className="nb-btn-sm inline-flex min-h-9 min-w-9 items-center justify-center bg-[#F6F7F9] text-[#111114] hover:bg-[#E5E7EB]"
           >
-            <X className="h-5 w-5" aria-hidden="true" />
+            <X className="h-4.5 w-4.5" aria-hidden="true" />
           </button>
         </header>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4 [overscroll-behavior:contain]">
-          {/* Bento Card 1: Kuota & Terpakai */}
-          <div className="nb-card space-y-3 bg-[#FEF08A] p-4">
+          {/* Card 1: Kuota & Terpakai */}
+          <div className="nb-card space-y-3 bg-white p-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="nb-pill">
+              <span className="nb-pill border-[#DDD6FE] bg-[#F5F3FF] text-[#4C0FD1]">
                 <Sparkles className="h-3 w-3" aria-hidden="true" />
                 KUOTA AI HARIAN
               </span>
-              <span className="rounded-full border-2 border-[#111111] bg-white px-2.5 py-0.5 font-mono text-xs font-black text-[#111111]">
+              <span className="rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2.5 py-0.5 font-mono text-xs font-bold text-[#111114]">
                 {pct}% Terpakai
               </span>
             </div>
 
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-xl border-2 border-[#111111] bg-white p-2.5">
-                <span className="nb-micro block text-[10px] text-[#3F3F46]">
+              <div className="rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] p-2.5">
+                <span className="nb-micro block text-[10px] text-[#4B5563]">
                   TOTAL KUOTA
                 </span>
-                <span className="mt-0.5 block font-mono text-xl font-black text-[#111111]">
+                <span className="mt-0.5 block font-mono text-xl font-extrabold text-[#111114]">
                   {limit}
                 </span>
               </div>
-              <div className="rounded-xl border-2 border-[#111111] bg-[#FBCFE8] p-2.5">
-                <span className="nb-micro block text-[10px] text-[#111111]">
+              <div className="rounded-xl border border-[#DDD6FE] bg-[#F5F3FF] p-2.5">
+                <span className="nb-micro block text-[10px] text-[#4C0FD1]">
                   DIGUNAKAN
                 </span>
-                <span className="mt-0.5 block font-mono text-xl font-black text-[#111111]">
+                <span className="mt-0.5 block font-mono text-xl font-extrabold text-[#4C0FD1]">
                   {used}
                 </span>
               </div>
-              <div className="rounded-xl border-2 border-[#111111] bg-[#D9F99D] p-2.5">
-                <span className="nb-micro block text-[10px] text-[#111111]">
+              <div className="rounded-xl border border-[#A7F3D0] bg-[#ECFDF5] p-2.5">
+                <span className="nb-micro block text-[10px] text-[#065F46]">
                   SISA KUOTA
                 </span>
-                <span className="mt-0.5 block font-mono text-xl font-black text-[#111111]">
+                <span className="mt-0.5 block font-mono text-xl font-extrabold text-[#065F46]">
                   {remaining}
                 </span>
               </div>
@@ -155,9 +155,9 @@ export function AiUsageSidebar({
                 aria-label="Persentase pemakaian kuota AI harian"
                 value={used}
                 max={limit}
-                className="su-progress h-3 w-full"
+                className="su-progress h-2.5 w-full"
               />
-              <div className="flex items-center justify-between text-[11px] font-bold text-[#111111]/85">
+              <div className="flex items-center justify-between text-[11px] font-medium text-[#4B5563]">
                 <span>Sukses Gemini: {stats.successToday}</span>
                 <span>Gagal/Limit: {stats.failedToday}</span>
                 <span>Total Sesi: {stats.totalRequestsAllTime}</span>
@@ -167,12 +167,12 @@ export function AiUsageSidebar({
             {/* Target Limit Customizer */}
             <form
               onSubmit={handleSaveLimit}
-              className="flex items-end gap-2 rounded-xl border-2 border-[#111111] bg-white p-2.5"
+              className="flex items-end gap-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] p-2.5"
             >
               <div className="flex-1">
                 <label
                   htmlFor={limitInputId}
-                  className="nb-micro block text-[10px] text-[#3F3F46]"
+                  className="nb-micro block text-[10px] text-[#4B5563]"
                 >
                   Atur Batas Kuota Harian (sesuai tier Google AI Anda)
                 </label>
@@ -182,42 +182,42 @@ export function AiUsageSidebar({
                   inputMode="numeric"
                   value={limitDraft}
                   onChange={(e) => setLimitDraft(e.target.value.replace(/\D/g, ""))}
-                  className="mt-1 w-full rounded-lg border-2 border-[#111111] bg-[#F6F5F0] px-2.5 py-1 font-mono text-xs font-extrabold text-[#111111]"
+                  className="mt-1 w-full rounded-lg border border-[#D1D5DB] bg-white px-2.5 py-1 font-mono text-xs font-bold text-[#111114]"
                 />
               </div>
               <button
                 type="submit"
-                className="nb-btn-sm min-h-9 bg-[#D9F99D] px-3 py-1.5 text-xs text-[#111111]"
+                className="nb-btn-sm wollo-cta-primary min-h-9 px-3.5 py-1.5 text-xs"
               >
                 Simpan
               </button>
             </form>
           </div>
 
-          {/* Bento Card 2: Jadwal Reset Harian */}
-          <div className="nb-card space-y-2.5 bg-[#BAE6FD] p-4">
+          {/* Card 2: Jadwal Reset Harian */}
+          <div className="nb-card space-y-2.5 bg-white p-4">
             <div className="flex items-center justify-between gap-2">
               <span className="nb-pill">
-                <Clock className="h-3 w-3" aria-hidden="true" />
+                <Clock className="h-3 w-3 text-[#5E17EB]" aria-hidden="true" />
                 WAKTU RESET KUOTA
               </span>
-              <span className="rounded-full border-2 border-[#111111] bg-white px-2.5 py-0.5 font-mono text-xs font-black text-[#111111]">
+              <span className="rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2.5 py-0.5 font-mono text-xs font-bold text-[#111114]">
                 {resetInfo ? resetInfo.wibTimeLabel : "15:00 WIB"}
               </span>
             </div>
 
-            <div className="rounded-xl border-2 border-[#111111] bg-white p-3">
-              <p className="nb-micro text-[10px] text-[#3F3F46]">
+            <div className="rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] p-3">
+              <p className="nb-micro text-[10px] text-[#4B5563]">
                 RESET BERIKUTNYA DALAM
               </p>
-              <p className="mt-0.5 font-mono text-2xl font-black text-[#111111]">
+              <p className="mt-0.5 font-mono text-2xl font-extrabold text-[#111114]">
                 {resetInfo ? resetInfo.countdownLabel : "Menghitung…"}
               </p>
-              <p className="mt-1 text-xs font-semibold text-[#3F3F46]">
+              <p className="mt-1 text-xs font-medium text-[#4B5563]">
                 Kuota harian Google AI Studio direset setiap pukul{" "}
-                <strong>00:00 Waktu Pasifik (PT)</strong> (sekitar{" "}
-                <strong>{resetInfo ? resetInfo.wibTimeLabel : "15:00 WIB"}</strong>). Siklus aktif:{" "}
-                <code className="font-mono font-bold">
+                <strong className="text-[#111114]">00:00 Waktu Pasifik (PT)</strong> (sekitar{" "}
+                <strong className="text-[#111114]">{resetInfo ? resetInfo.wibTimeLabel : "15:00 WIB"}</strong>). Siklus aktif:{" "}
+                <code className="font-mono font-bold text-[#111114]">
                   {resetInfo ? resetInfo.ptDateLabel : stats.dayKeyPt || "—"}
                 </code>
                 .
@@ -225,57 +225,57 @@ export function AiUsageSidebar({
             </div>
           </div>
 
-          {/* Bento Card 3: Token & OCR Lokal Cadangan */}
-          <div className="nb-card space-y-2.5 bg-[#D9F99D] p-4">
+          {/* Card 3: Token & OCR Lokal Cadangan */}
+          <div className="nb-card space-y-2.5 bg-white p-4">
             <span className="nb-pill">
-              <Cpu className="h-3 w-3" aria-hidden="true" />
+              <Cpu className="h-3 w-3 text-[#5E17EB]" aria-hidden="true" />
               RINCIAN TOKEN &amp; OCR LOKAL
             </span>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-xl border-2 border-[#111111] bg-white p-2.5">
-                <span className="nb-micro block text-[10px] text-[#3F3F46]">
+              <div className="rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] p-2.5">
+                <span className="nb-micro block text-[10px] text-[#4B5563]">
                   TOKEN HARI INI
                 </span>
-                <span className="mt-0.5 block font-mono text-base font-black text-[#111111]">
+                <span className="mt-0.5 block font-mono text-base font-extrabold text-[#111114]">
                   {stats.totalTokensToday.toLocaleString("id-ID")}
                 </span>
-                <span className="text-[11px] font-semibold text-[#3F3F46]">
+                <span className="text-[11px] font-medium text-[#4B5563]">
                   In: {stats.promptTokensToday.toLocaleString("id-ID")} · Out:{" "}
                   {stats.outputTokensToday.toLocaleString("id-ID")}
                 </span>
               </div>
 
-              <div className="rounded-xl border-2 border-[#111111] bg-white p-2.5">
-                <span className="nb-micro block text-[10px] text-[#3F3F46]">
+              <div className="rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] p-2.5">
+                <span className="nb-micro block text-[10px] text-[#4B5563]">
                   OCR LOKAL (GRATIS)
                 </span>
-                <span className="mt-0.5 block font-mono text-base font-black text-[#111111]">
+                <span className="mt-0.5 block font-mono text-base font-extrabold text-[#111114]">
                   {stats.localOcrToday} kali
                 </span>
-                <span className="text-[11px] font-semibold text-[#3F3F46]">
+                <span className="text-[11px] font-medium text-[#4B5563]">
                   Tanpa kuota API
                 </span>
               </div>
             </div>
 
-            <div className="rounded-xl border-2 border-[#111111] bg-white px-3 py-2 text-xs">
+            <div className="rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-2 text-xs">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-[#3F3F46]">Model Terakhir:</span>
-                <span className="font-mono font-extrabold text-[#111111]">
+                <span className="font-medium text-[#4B5563]">Model Terakhir:</span>
+                <span className="font-mono font-bold text-[#111114]">
                   {stats.lastModelUsed || "Belum ada"}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between">
-                <span className="font-bold text-[#3F3F46]">Total Token Akumulasi:</span>
-                <span className="font-mono font-extrabold text-[#111111]">
+                <span className="font-medium text-[#4B5563]">Total Token Akumulasi:</span>
+                <span className="font-mono font-bold text-[#111114]">
                   {stats.totalTokensAllTime.toLocaleString("id-ID")}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Bento Card 4: Log Terakhir & Dashboard Resmi */}
+          {/* Card 4: Log Terakhir & Dashboard Resmi */}
           <div className="nb-card space-y-3 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="nb-pill">AKTIVITAS TERBARU</span>
@@ -283,7 +283,7 @@ export function AiUsageSidebar({
                 href="https://aistudio.google.com/usage"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-[#FBCFE8] px-2.5 py-1 text-[11px] text-[#111111]"
+                className="nb-btn-sm inline-flex min-h-8 items-center gap-1 bg-white px-2.5 py-1 text-[11px] text-[#5E17EB] hover:bg-[#F5F3FF]"
               >
                 Cek Kuota Resmi AI Studio
                 <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -291,7 +291,7 @@ export function AiUsageSidebar({
             </div>
 
             {stats.recentLogs.length === 0 ? (
-              <p className="rounded-xl border-2 border-dashed border-[#111111]/40 p-3 text-center text-xs font-semibold text-[#3F3F46]">
+              <p className="rounded-xl border border-dashed border-[#D1D5DB] p-3 text-center text-xs font-medium text-[#4B5563]">
                 Belum ada riwayat pemakaian AI/OCR di sesi browser ini.
               </p>
             ) : (
@@ -299,14 +299,14 @@ export function AiUsageSidebar({
                 {stats.recentLogs.slice(0, 6).map((log) => (
                   <li
                     key={log.id}
-                    className="flex items-center justify-between gap-2 rounded-xl border border-[#111111] bg-[#F6F5F0] px-2.5 py-1.5"
+                    className="flex items-center justify-between gap-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-2.5 py-1.5"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-mono text-[11px] font-extrabold text-[#111111]">
+                      <p className="truncate font-mono text-[11px] font-bold text-[#111114]">
                         {log.engine === "gemini" ? "Gemini" : "OCR Lokal"} ·{" "}
                         {log.model}
                       </p>
-                      <p className="text-[10px] font-semibold text-[#3F3F46]">
+                      <p className="text-[10px] font-medium text-[#4B5563]">
                         {new Date(log.timestamp).toLocaleTimeString("id-ID")} ·{" "}
                         {log.totalTokens > 0
                           ? `${log.totalTokens} token`
@@ -314,8 +314,10 @@ export function AiUsageSidebar({
                       </p>
                     </div>
                     <span
-                      className={`shrink-0 rounded-full border border-[#111111] px-2 py-0.5 font-mono text-[10px] font-black ${
-                        log.ok ? "bg-[#D9F99D]" : "bg-[#FECACA]"
+                      className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold ${
+                        log.ok
+                          ? "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]"
+                          : "border-[#FECDD3] bg-[#FFF1F2] text-[#9F1239]"
                       }`}
                     >
                       {log.ok ? `${log.status} OK` : `${log.status}`}
@@ -328,13 +330,13 @@ export function AiUsageSidebar({
             <button
               type="button"
               onClick={onResetLocalCounters}
-              className="nb-btn-sm inline-flex min-h-9 w-full items-center justify-center gap-1.5 bg-[#F6F5F0] px-3 py-1.5 text-xs text-[#111111]"
+              className="nb-btn-sm inline-flex min-h-9 w-full items-center justify-center gap-1.5 bg-[#F6F7F9] px-3 py-1.5 text-xs text-[#4B5563] hover:bg-white hover:text-[#111114]"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
               Reset Catatan Pemakaian Lokal
             </button>
 
-            <p className="text-[11px] font-medium text-[#3F3F46]">
+            <p className="text-[11px] font-medium text-[#4B5563]">
               Catatan: Google AI Studio tidak menyediakan endpoint API publik untuk
               sisa kuota cloud secara langsung, sehingga hitungan di atas dilacak
               akurat per request di aplikasi dan disinkronkan dengan jadwal reset

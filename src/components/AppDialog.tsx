@@ -22,7 +22,7 @@ export function AppDialog({
   subtitle,
   lightDismiss = true,
   maxWidthClass = "max-w-2xl",
-  headerBgClass = "bg-[#FEF08A]",
+  headerBgClass = "bg-white",
   children,
   footer,
 }: AppDialogProps) {
@@ -98,17 +98,17 @@ export function AppDialog({
     >
       <div className="flex max-h-[90dvh] flex-col">
         <header
-          className={`flex items-start justify-between gap-3 border-b-2 border-[#111111] ${headerBgClass} px-3.5 py-3 sm:gap-4 sm:px-5 sm:py-4`}
+          className={`flex items-start justify-between gap-3 border-b border-[#E5E7EB] ${headerBgClass} px-4 py-3.5 sm:gap-4 sm:px-6 sm:py-4`}
         >
           <div>
             <h1
               id={titleId}
-              className="text-base font-extrabold tracking-tight text-[#111111] sm:text-lg"
+              className="text-base font-bold tracking-tight text-[#111114] sm:text-lg"
             >
               {title}
             </h1>
             {subtitle ? (
-              <p className="mt-0.5 text-xs font-medium text-[#111111]/80 sm:text-sm">
+              <p className="mt-0.5 text-xs font-medium text-[#4B5563] sm:text-sm">
                 {subtitle}
               </p>
             ) : null}
@@ -117,18 +117,18 @@ export function AppDialog({
             type="button"
             onClick={() => dialogRef.current?.close()}
             aria-label={`Tutup ${title}`}
-            className="nb-btn-sm inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center bg-white text-[#111111] hover:bg-[#FBCFE8]"
+            className="nb-btn-sm inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center bg-[#F6F7F9] text-[#111114] hover:bg-[#E5E7EB]"
           >
-            <X className="h-5 w-5" aria-hidden="true" />
+            <X className="h-4.5 w-4.5" aria-hidden="true" />
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto bg-[#F6F5F0] px-3.5 py-3.5 [overscroll-behavior:contain] sm:px-5 sm:py-4">
+        <div className="flex-1 overflow-y-auto bg-[#F9FAFB] px-4 py-4 [overscroll-behavior:contain] sm:px-6 sm:py-5">
           {children}
         </div>
 
         {footer ? (
-          <footer className="flex flex-wrap items-center justify-end gap-2 border-t-2 border-[#111111] bg-white px-3.5 py-3 sm:gap-2.5 sm:px-5 sm:py-3.5">
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-[#E5E7EB] bg-white px-4 py-3 sm:gap-2.5 sm:px-6 sm:py-3.5">
             {footer}
           </footer>
         ) : null}

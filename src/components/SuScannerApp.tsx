@@ -5,12 +5,14 @@ import {
   Activity,
   BookOpen,
   History,
+  Menu,
   Plus,
-  ScanLine,
   CheckCircle2,
   AlertCircle,
   Keyboard,
   FolderOpen,
+  Upload,
+  X,
 } from "lucide-react";
 import { UploadScreen } from "./UploadScreen";
 import { DocumentWorkspacePanel } from "./DocumentWorkspacePanel";
@@ -165,11 +167,13 @@ export function SuScannerApp() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cameraSlot, setCameraSlot] = useState<PageSlot | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<ToastNotice | null>(null);
   const [liveMessage, setLiveMessage] = useState("");
 
   const aiAbortRef = useRef<AbortController | null>(null);
   const aiTargetIdRef = useRef<string | null>(null);
+  const headerUploadInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadSessionHistory().then(setSessionHistory);
@@ -1144,59 +1148,66 @@ export function SuScannerApp() {
     : null;
 
   return (
-    <div className="flex min-h-dvh flex-col bg-[#F6F5F0] lg:grid lg:grid-cols-[276px_minmax(0,1fr)]">
-      {/* Split-Tone Dark Sidebar (Desktop) & Top Dark Bar (Mobile & Tablet) */}
-      <aside className="nb-dark-sidebar border-b-2 border-[#111111] lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:justify-between lg:border-b-0 lg:border-r-2 lg:overflow-y-auto">
-        <div className="flex flex-col gap-3 px-3.5 py-3 sm:px-5 sm:py-3.5 lg:gap-5 lg:p-5">
-          {/* Brand Identity + Compact Mobile Status Pill */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border-2 border-[#F6F5F0] bg-[#FEF08A] text-[#111111] shadow-[3px_3px_0px_#FBCFE8] sm:h-11 sm:w-11">
-                <ScanLine className="h-5 w-5" aria-hidden="true" />
-              </div>
-              <div>
-                <span className="block text-base font-black tracking-tight text-[#F6F5F0]">
-                  SU-Scanner
-                </span>
-                <span className="block text-[10px] font-extrabold tracking-[0.1em] text-[#FEF08A] uppercase">
-                  ATR/BPN Archive Studio
-                </span>
-              </div>
-            </div>
+    <div className="flex min-h-dvh flex-col bg-[#FFFFFF] text-[#111114]">
+      {/* Hidden Quick File Input for Header Primary CTA */}
+      <input
+        ref={headerUploadInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+        multiple
+        disabled={isDecoding}
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => {
+          const files = e.target.files ? Array.from(e.target.files) : [];
+          if (files.length > 0) void handleUploadSlotFiles("page1", files);
+          e.target.value = "";
+        }}
+        className="hidden"
+      />
 
-            <div className="flex items-center gap-2 lg:hidden">
-              <span className="rounded-xl border border-[#3F3F46] bg-[#1F1F24] px-2.5 py-1 font-mono text-xs font-extrabold text-[#D9F99D]">
-                0{loadedPagesCount}/02 Hal
+      {/* Wollo 3-Column Sticky Minimalist SaaS Header */}
+      <header className="sticky top-0 z-30 border-b border-[#E5E7EB]/80 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto flex h-[76px] w-full max-w-[1280px] items-center justify-between gap-3 px-4 sm:px-6 lg:grid lg:h-[88px] lg:grid-cols-[1fr_auto_1fr] lg:px-12">
+          {/* Column 1 (Left): Brand Wordmark su-scanner with curved smile/scan underline */}
+          <div className="flex items-center gap-2.5 lg:justify-self-start">
+            <div className="flex items-baseline gap-2">
+              <span className="relative inline-block text-[22px] font-extrabold leading-none tracking-[-0.04em] text-[#111114] sm:text-[24px]">
+                su
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 28 8"
+                  className="pointer-events-none absolute -bottom-1.5 left-0 h-2 w-7 text-[#5E17EB]"
+                  fill="none"
+                >
+                  <path
+                    d="M2 2.5C7 6.5 18 6.5 25 2"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                -scanner
+              </span>
+              <span className="hidden rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2 py-0.5 text-[10px] font-bold tracking-wider text-[#4B5563] uppercase sm:inline-flex">
+                ATR/BPN
               </span>
             </div>
           </div>
 
-          {/* Navigation & Actions */}
+          {/* Column 2 (Center): Centered Floating Pill Navbar (Desktop) */}
           <nav
             aria-label="Utilitas Aplikasi"
-            className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:flex-col lg:items-stretch lg:gap-2.5"
+            className="hidden items-center gap-1.5 rounded-full border border-[#E5E7EB]/80 bg-[#F6F7F9] px-2.5 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] lg:flex lg:justify-self-center"
           >
-            {hasWorkspace ? (
-              <button
-                type="button"
-                onClick={handleResetWorkspace}
-                className="nb-btn-sm col-span-2 inline-flex min-h-11 items-center justify-center gap-1.5 bg-[#FDE047] px-3.5 py-2 text-xs text-[#111111] sm:col-span-1 lg:w-full"
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                <span>Scan Baru</span>
-              </button>
-            ) : null}
-
             <button
               type="button"
               onClick={() => setHistoryOpen(true)}
-              className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:px-3.5 lg:w-full"
+              className="inline-flex min-h-9 items-center gap-2 rounded-full px-3.5 py-1.5 text-[14px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
             >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <History className="h-4 w-4 shrink-0 text-[#FBCFE8]" aria-hidden="true" />
-                <span className="truncate">Riwayat ({sessionHistory.length})</span>
-              </span>
-              <span className="hidden rounded-full bg-[#FBCFE8] px-2 py-0.5 font-mono text-[11px] font-black text-[#111111] lg:inline-block">
+              <History className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+              <span>Riwayat</span>
+              <span className="rounded-full bg-white px-2 py-0.5 font-mono text-[11px] font-bold text-[#111114] shadow-2xs">
                 {sessionHistory.length}
               </span>
             </button>
@@ -1204,26 +1215,24 @@ export function SuScannerApp() {
             <button
               type="button"
               onClick={() => setGuideOpen(true)}
-              className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:px-3.5 lg:w-full"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
             >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <BookOpen className="h-4 w-4 shrink-0 text-[#BAE6FD]" aria-hidden="true" />
-                <span className="truncate">Panduan</span>
-              </span>
+              <BookOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+              <span>Panduan</span>
             </button>
 
             <button
               type="button"
               onClick={() => setDriveConfigOpen(true)}
-              className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:px-3.5 lg:w-full"
+              className="inline-flex min-h-9 items-center gap-2 rounded-full px-3.5 py-1.5 text-[14px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
             >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <FolderOpen className="h-4 w-4 shrink-0 text-[#D9F99D]" aria-hidden="true" />
-                <span className="truncate">Google Drive</span>
-              </span>
+              <FolderOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+              <span>Google Drive</span>
               <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-black text-[#111111] ${
-                  driveReady ? "bg-[#D9F99D]" : "bg-[#FEF08A]"
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                  driveReady
+                    ? "bg-[#ECFDF5] text-[#065F46]"
+                    : "bg-[#FFFBEB] text-[#92400E]"
                 }`}
               >
                 {driveReady ? "Aktif" : "Atur"}
@@ -1233,115 +1242,200 @@ export function SuScannerApp() {
             <button
               type="button"
               onClick={() => setAiUsageOpen(true)}
-              className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#1F1F24] px-3 py-2 text-xs text-[#F6F5F0] hover:bg-[#2A2A32] sm:px-3.5 lg:w-full"
+              className="inline-flex min-h-9 items-center gap-2 rounded-full px-3.5 py-1.5 text-[14px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
             >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <Activity className="h-4 w-4 shrink-0 text-[#FEF08A]" aria-hidden="true" />
-                <span className="truncate">Usage AI</span>
-              </span>
-              <span className="rounded-full bg-[#FEF08A] px-2 py-0.5 font-mono text-[10px] font-black text-[#111111]">
+              <Activity className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+              <span>Usage AI</span>
+              <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 font-mono text-[11px] font-bold text-[#4C0FD1]">
                 {aiUsageStats.usedTodayRequests}/{aiUsageStats.dailyQuotaLimit}
               </span>
             </button>
           </nav>
 
-          {/* Desktop Bento Telemetry inside Dark Sidebar */}
-          <div className="hidden space-y-3 lg:block">
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3">
-                <span className="nb-micro block text-zinc-400">BERKAS</span>
-                <span className="mt-1 block font-mono text-2xl font-black text-[#D9F99D]">
-                  0{loadedPagesCount}/02
-                </span>
-                <span className="text-[11px] font-semibold text-zinc-300">
-                  Halaman siap
-                </span>
-              </div>
-
-              <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3">
-                <span className="nb-micro block text-zinc-400">EKSPOR</span>
-                <span className="mt-1 block font-mono text-2xl font-black text-[#BAE6FD]">
-                  {String(sessionHistory.length).padStart(2, "0")}
-                </span>
-                <span className="text-[11px] font-semibold text-zinc-300">
-                  PDF diunduh
-                </span>
-              </div>
-            </div>
-
-            {/* Compact Live AI Quota Card in Dark Sidebar */}
+          {/* Column 3 (Right): Compact Live Quota Telemetry + Solid Black Header CTA + Mobile Menu Toggle */}
+          <div className="flex items-center gap-2 sm:gap-2.5 lg:justify-self-end">
             <button
               type="button"
               onClick={() => setAiUsageOpen(true)}
-              className="w-full rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3 text-left transition-colors hover:border-[#FEF08A]"
+              title={`KUOTA AI HARI INI: Sisa ${aiRemaining} dari ${aiUsageStats.dailyQuotaLimit} · Reset ${aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}`}
+              className="hidden items-center gap-2 rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-1.5 text-left text-xs transition-colors hover:border-[#D1D5DB] hover:bg-white sm:inline-flex"
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="nb-micro text-[#FEF08A]">KUOTA AI HARI INI</span>
-                <span className="font-mono text-[11px] font-black text-[#D9F99D]">
-                  Sisa {aiRemaining}
-                </span>
-              </div>
-              <div className="mt-1.5 flex items-baseline justify-between gap-2">
-                <span className="font-mono text-lg font-black text-[#F6F5F0]">
-                  {aiUsageStats.usedTodayRequests} / {aiUsageStats.dailyQuotaLimit}
-                </span>
-                <span className="text-[11px] font-semibold text-zinc-300">
-                  Reset {aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}
-                </span>
-              </div>
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full border border-[#52525B] bg-[#141414]">
-                <div
-                  style={{ width: `${aiPct}%` }}
-                  className="h-full bg-[#FEF08A]"
-                />
-              </div>
+              <span className="h-2 w-2 rounded-full bg-[#5E17EB]" aria-hidden="true" />
+              <span className="font-semibold text-[#111114]">
+                <span className="sr-only">KUOTA AI HARI INI: </span>
+                Sisa {aiRemaining} AI
+              </span>
+              <span className="hidden text-[#9CA3AF] xl:inline" aria-hidden="true">
+                ·
+              </span>
+              <span className="hidden font-mono text-[11px] text-[#4B5563] xl:inline">
+                {aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}
+              </span>
             </button>
 
-            <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3.5">
-              <span className="nb-micro block text-[#FEF08A]">
-                POLA STANDAR ARSIP
-              </span>
-              <p className="mt-1.5 font-mono text-xs font-bold leading-relaxed text-[#F6F5F0]">
-                SU.[5D No].[4D Thn].[Hak].[5D Hak].pdf
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Desktop Sidebar Bottom Shortcut Legend */}
-        <div className="hidden border-t-2 border-[#27272A] p-5 lg:block">
-          <div className="rounded-2xl border-2 border-[#3F3F46] bg-[#1F1F24] p-3.5">
-            <div className="flex items-center gap-1.5 text-[11px] font-extrabold tracking-wider text-[#FBCFE8] uppercase">
-              <Keyboard className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Shortcut Cepat</span>
-            </div>
-            <ul className="mt-2.5 space-y-1.5 text-xs">
-              {[
-                { k: "Ctrl+Enter", d: "Unduh PDF" },
-                { k: "R", d: "Putar +90°" },
-                { k: "S", d: "Tukar Hal 1 & 2" },
-                { k: "1 / 2", d: "Ganti Tab" },
-              ].map((item) => (
-                <li
-                  key={item.k}
-                  className="flex items-center justify-between text-zinc-300"
+            {hasWorkspace ? (
+              <>
+                <span className="hidden rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2.5 py-1 font-mono text-xs font-semibold text-[#111114] md:inline-flex lg:hidden xl:inline-flex">
+                  0{loadedPagesCount}/02 Hal
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetWorkspace}
+                  className="nb-btn-sm wollo-cta-dark inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs font-semibold sm:text-[13px]"
                 >
-                  <span>{item.d}</span>
-                  <kbd className="rounded-md border border-[#52525B] bg-[#141414] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#FEF08A]">
-                    {item.k}
-                  </kbd>
-                </li>
-              ))}
-            </ul>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  <span>Scan Baru</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={isDecoding}
+                onClick={() => headerUploadInputRef.current?.click()}
+                className="nb-btn-sm wollo-cta-dark inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs font-semibold disabled:opacity-60 sm:text-[13px]"
+              >
+                <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Pilih Berkas</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((v) => !v)}
+              aria-expanded={mobileMenuOpen}
+              aria-label={mobileMenuOpen ? "Tutup menu navigasi" : "Buka menu navigasi"}
+              className="nb-btn-sm inline-flex min-h-10 min-w-10 items-center justify-center bg-[#F6F7F9] text-[#111114] hover:bg-white lg:hidden"
+            >
+              {mobileMenuOpen ? (
+                <X className="h-5 w-5" aria-hidden="true" />
+              ) : (
+                <Menu className="h-5 w-5" aria-hidden="true" />
+              )}
+            </button>
           </div>
         </div>
-      </aside>
 
-      {/* Main Warm Off-White Canvas (#F6F5F0) */}
+        {/* Responsive Mobile/Tablet Navigation Drawer */}
+        {mobileMenuOpen ? (
+          <div className="border-t border-[#E5E7EB] bg-white px-4 py-3.5 lg:hidden">
+            <nav
+              aria-label="Utilitas Aplikasi Mobile"
+              className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setHistoryOpen(true);
+                }}
+                className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <History className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+                  Riwayat
+                </span>
+                <span className="rounded-full bg-white px-2 py-0.5 font-mono text-[11px]">
+                  {sessionHistory.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setGuideOpen(true);
+                }}
+                className="nb-btn-sm inline-flex min-h-11 items-center gap-1.5 bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]"
+              >
+                <BookOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+                Panduan
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setDriveConfigOpen(true);
+                }}
+                className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <FolderOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+                  Drive
+                </span>
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    driveReady
+                      ? "bg-[#ECFDF5] text-[#065F46]"
+                      : "bg-[#FFFBEB] text-[#92400E]"
+                  }`}
+                >
+                  {driveReady ? "Aktif" : "Atur"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setAiUsageOpen(true);
+                }}
+                className="nb-btn-sm inline-flex min-h-11 items-center justify-between gap-2 bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Activity className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+                  Usage AI
+                </span>
+                <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 font-mono text-[10px] font-bold text-[#4C0FD1]">
+                  {aiUsageStats.usedTodayRequests}/{aiUsageStats.dailyQuotaLimit}
+                </span>
+              </button>
+            </nav>
+
+            {/* Mobile Live Quota Bar */}
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setAiUsageOpen(true);
+              }}
+              className="mt-2.5 flex w-full items-center justify-between rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-2 text-xs"
+            >
+              <span className="font-bold text-[#111114]">
+                KUOTA AI HARI INI ({aiUsageStats.usedTodayRequests}/
+                {aiUsageStats.dailyQuotaLimit})
+              </span>
+              <span className="font-mono text-[#4B5563]">
+                Reset {aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}
+              </span>
+            </button>
+          </div>
+        ) : null}
+      </header>
+
+      {/* Subtle SSR Quota Strip so AI usage remains immediately inspectable without sidebar clutter */}
+      <div className="border-b border-[#E5E7EB]/60 bg-[#F6F7F9]/60 px-4 py-1.5 text-[11px] text-[#4B5563] sm:hidden">
+        <button
+          type="button"
+          onClick={() => setAiUsageOpen(true)}
+          className="flex w-full items-center justify-between gap-2 text-left"
+        >
+          <span className="font-semibold text-[#111114]">
+            KUOTA AI HARI INI: Sisa {aiRemaining} / {aiUsageStats.dailyQuotaLimit}
+          </span>
+          <span className="font-mono">
+            Reset {aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}
+          </span>
+        </button>
+      </div>
+
+      {/* Main Clean White Canvas (#FFFFFF / #F9FAFB inside workspace) */}
       <main
         id="main-workspace"
         tabIndex={-1}
-        className="flex min-w-0 flex-1 flex-col bg-[#F6F5F0]"
+        className={`flex min-w-0 flex-1 flex-col ${
+          hasWorkspace ? "bg-[#F9FAFB]" : "bg-[#FFFFFF]"
+        }`}
       >
         {!hasWorkspace ? (
           <UploadScreen
@@ -1351,75 +1445,113 @@ export function SuScannerApp() {
             isDecoding={isDecoding}
           />
         ) : (
-          <div className="mx-auto grid w-full max-w-[1400px] flex-1 grid-cols-1 gap-4 p-3 sm:gap-5 sm:p-5 xl:grid-cols-[minmax(0,63fr)_minmax(340px,37fr)]">
-            <DocumentWorkspacePanel
-              activeTab={activeTab}
-              onSelectTab={setActiveTab}
-              page1={page1}
-              page2={page2}
-              onSwapPages={handleSwapPages}
-              onRotateActive={handleRotateActive}
-              onAutoCropActive={() => void handleAutoCropActive()}
-              onOpenManualCrop={() => setCropModalOpen(true)}
-              onFilterChange={handleFilterChange}
-              onAdjustmentChange={handleAdjustmentChange}
-              onResetAdjustments={() => handleAdjustmentChange(0, 0)}
-              onUploadSlot={(slot, file) =>
-                void handleUploadSingleFile(slot, file)
-              }
-              onOpenCamera={(slot) => setCameraSlot(slot)}
-            />
+          <div className="mx-auto flex w-full max-w-[1360px] flex-1 flex-col gap-4 p-4 sm:gap-5 sm:p-6">
+            <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-[minmax(0,63fr)_minmax(340px,37fr)]">
+              <DocumentWorkspacePanel
+                activeTab={activeTab}
+                onSelectTab={setActiveTab}
+                page1={page1}
+                page2={page2}
+                onSwapPages={handleSwapPages}
+                onRotateActive={handleRotateActive}
+                onAutoCropActive={() => void handleAutoCropActive()}
+                onOpenManualCrop={() => setCropModalOpen(true)}
+                onFilterChange={handleFilterChange}
+                onAdjustmentChange={handleAdjustmentChange}
+                onResetAdjustments={() => handleAdjustmentChange(0, 0)}
+                onUploadSlot={(slot, file) =>
+                  void handleUploadSingleFile(slot, file)
+                }
+                onOpenCamera={(slot) => setCameraSlot(slot)}
+              />
 
-            <NamingExportPanel
-              aiStatus={aiStatus}
-              aiSource={aiSource}
-              ocrProgress={ocrProgress}
-              aiMessage={aiMessage}
-              isWrongPageSlot={isWrongPageSlot}
-              hasPage1={Boolean(page1)}
-              hasPage2={Boolean(page2)}
-              namingMode={namingMode}
-              onChangeNamingMode={setNamingMode}
-              fields={fields}
-              onChangeFields={setFields}
-              customFilename={customFilename}
-              onChangeCustomFilename={setCustomFilename}
-              confidences={confidences}
-              rawEvidence={rawEvidence}
-              warnings={warnings}
-              pdfQuality={pdfQuality}
-              onChangePdfQuality={setPdfQuality}
-              isGeneratingPdf={isGeneratingPdf}
-              isUploadingDrive={isUploadingDrive}
-              driveReady={driveReady}
-              autoUploadOnExport={autoUploadOnExport}
-              onToggleAutoUpload={handleToggleAutoUpload}
-              driveFolderId={driveRootFolderId}
-              driveFolderUrl={driveFolderUrl}
-              lastDriveResult={lastDriveResult}
-              lastDriveError={lastDriveError}
-              isDuplicateFilename={isDuplicateFilename}
-              extractionVersion={extractionVersion}
-              onReExtractAi={() => {
-                const target = page1 ?? page2;
-                if (target?.processedDataUrl) {
-                  void runVisionExtraction(target);
-                }
-              }}
-              onRunLocalOcr={() => {
-                const target = page1 ?? page2;
-                if (target?.processedDataUrl) {
-                  void runLocalOcrExtraction(target);
-                }
-              }}
-              onSwapPages={handleSwapPages}
-              onExportPdf={() => void handleExportPdf()}
-              onUploadToDrive={() => void handleUploadOnlyToDrive()}
-              onOpenDriveConfig={() => setDriveConfigOpen(true)}
-              onResetWorkspace={handleResetWorkspace}
-              onAnnounce={setLiveMessage}
-              onNotifyError={(msg) => showToast("error", msg)}
-            />
+              <NamingExportPanel
+                aiStatus={aiStatus}
+                aiSource={aiSource}
+                ocrProgress={ocrProgress}
+                aiMessage={aiMessage}
+                isWrongPageSlot={isWrongPageSlot}
+                hasPage1={Boolean(page1)}
+                hasPage2={Boolean(page2)}
+                namingMode={namingMode}
+                onChangeNamingMode={setNamingMode}
+                fields={fields}
+                onChangeFields={setFields}
+                customFilename={customFilename}
+                onChangeCustomFilename={setCustomFilename}
+                confidences={confidences}
+                rawEvidence={rawEvidence}
+                warnings={warnings}
+                pdfQuality={pdfQuality}
+                onChangePdfQuality={setPdfQuality}
+                isGeneratingPdf={isGeneratingPdf}
+                isUploadingDrive={isUploadingDrive}
+                driveReady={driveReady}
+                autoUploadOnExport={autoUploadOnExport}
+                onToggleAutoUpload={handleToggleAutoUpload}
+                driveFolderId={driveRootFolderId}
+                driveFolderUrl={driveFolderUrl}
+                lastDriveResult={lastDriveResult}
+                lastDriveError={lastDriveError}
+                isDuplicateFilename={isDuplicateFilename}
+                extractionVersion={extractionVersion}
+                onReExtractAi={() => {
+                  const target = page1 ?? page2;
+                  if (target?.processedDataUrl) {
+                    void runVisionExtraction(target);
+                  }
+                }}
+                onRunLocalOcr={() => {
+                  const target = page1 ?? page2;
+                  if (target?.processedDataUrl) {
+                    void runLocalOcrExtraction(target);
+                  }
+                }}
+                onSwapPages={handleSwapPages}
+                onExportPdf={() => void handleExportPdf()}
+                onUploadToDrive={() => void handleUploadOnlyToDrive()}
+                onOpenDriveConfig={() => setDriveConfigOpen(true)}
+                onResetWorkspace={handleResetWorkspace}
+                onAnnounce={setLiveMessage}
+                onNotifyError={(msg) => showToast("error", msg)}
+              />
+            </div>
+
+            {/* Subtle Desktop Shortcut Legend Bar at bottom of Workspace */}
+            <div className="hidden flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-xs text-[#4B5563] lg:flex">
+              <div className="flex items-center gap-2 font-semibold text-[#111114]">
+                <Keyboard className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+                <span>Shortcut Operator</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                {[
+                  { k: "Ctrl+Enter", d: "Unduh PDF" },
+                  { k: "R", d: "Putar +90°" },
+                  { k: "S", d: "Tukar Hal 1 & 2" },
+                  { k: "1 / 2", d: "Ganti Tab" },
+                ].map((item) => (
+                  <span key={item.k} className="inline-flex items-center gap-1.5">
+                    <span>{item.d}</span>
+                    <kbd className="rounded-md border border-[#E5E7EB] bg-[#F6F7F9] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#111114]">
+                      {item.k}
+                    </kbd>
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 font-mono text-[11px]">
+                <span>Ekspor sesi: {String(sessionHistory.length).padStart(2, "0")}</span>
+                <span aria-hidden="true">·</span>
+                <div className="flex items-center gap-1.5">
+                  <span>Kuota AI:</span>
+                  <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[#E5E7EB]">
+                    <div
+                      style={{ width: `${aiPct}%` }}
+                      className="h-full bg-[#5E17EB]"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </main>
@@ -1428,8 +1560,10 @@ export function SuScannerApp() {
       {toast ? (
         <div
           role="status"
-          className={`nb-card fixed bottom-3 left-3 right-3 z-40 flex items-start gap-2.5 px-4 py-3 text-xs font-extrabold text-[#111111] sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-md sm:text-sm ${
-            toast.kind === "success" ? "bg-[#D9F99D]" : "bg-[#FBCFE8]"
+          className={`nb-card fixed bottom-3 left-3 right-3 z-40 flex items-start gap-2.5 px-4 py-3 text-xs font-semibold shadow-lg sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-md sm:text-sm ${
+            toast.kind === "success"
+              ? "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]"
+              : "border-[#FECDD3] bg-[#FFF1F2] text-[#9F1239]"
           }`}
         >
           {toast.kind === "success" ? (
