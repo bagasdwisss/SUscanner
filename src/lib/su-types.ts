@@ -185,6 +185,7 @@ export interface DriveUploadResult {
   overwritten?: boolean;
   sheetLogged?: boolean;
   sheetUrl?: string;
+  sheetError?: string;
 }
 
 export interface DriveDuplicateCheckResult {

@@ -419,15 +419,43 @@ async function callAppsScriptPost(
   webhookUrl: string,
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(webhookUrl, {
-    method: "POST",
-    redirect: "follow",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({
-      ...payload,
-      secret: process.env.GOOGLE_DRIVE_APPS_SCRIPT_SECRET || "",
-    }),
-  });
+  const action = String(payload.action || "upload");
+  const isIdempotentRead =
+    action === "verify" ||
+    action === "exists" ||
+    action === "explore" ||
+    action === "init_sheet";
+  const maxAttempts = isIdempotentRead ? 2 : 1;
+
+  let res: Response | null = null;
+  let lastNetworkErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      res = await fetch(webhookUrl, {
+        method: "POST",
+        redirect: "follow",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        signal: AbortSignal.timeout(25_000),
+        body: JSON.stringify({
+          ...payload,
+          secret: process.env.GOOGLE_DRIVE_APPS_SCRIPT_SECRET || "",
+        }),
+      });
+      lastNetworkErr = null;
+      break;
+    } catch (err) {
+      lastNetworkErr = err;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 350));
+      }
+    }
+  }
+  if (!res) {
+    throw lastNetworkErr instanceof Error
+      ? lastNetworkErr
+      : new Error("Gagal terhubung ke Google Apps Script.");
+  }
+
   const rawText = await res.text();
   if (res.status === 403 || rawText.trim().startsWith("<")) {
     throw new DriveServiceError(
@@ -642,6 +670,10 @@ async function uploadViaAppsScript(params: {
     overwritten: Boolean(parsed.overwritten),
     sheetLogged: Boolean(parsed.sheetLogged),
     sheetUrl: typeof parsed.sheetUrl === "string" ? parsed.sheetUrl : undefined,
+    sheetError:
+      typeof parsed.sheetError === "string" && parsed.sheetError
+        ? parsed.sheetError
+        : undefined,
     provider: "apps-script",
     fileId,
     fileName: String(parsed.fileName || params.filename),
@@ -1089,6 +1121,83 @@ export async function moveDriveFile(params: {
   };
 }
 
+export async function initRekapSheetInDrive(params: {
+  rootFolderId?: string | null;
+  appsScriptUrl?: string | null;
+  clientAccessToken?: string | null;
+}): Promise<{
+  ok: boolean;
+  sheetUrl?: string;
+  existed?: boolean;
+  error?: string;
+}> {
+  const rootFolderId = resolveConfiguredRootFolderId(params.rootFolderId);
+  const route = await resolveRestAccessToken(params);
+
+  if (route.kind === "rest") {
+    const explored = await exploreDriveFolder({
+      folderId: rootFolderId,
+      rootFolderId,
+      query: "Rekap_Scan_SU",
+      clientAccessToken: params.clientAccessToken,
+    });
+    const found = explored.items.find(
+      (it) =>
+        it.kind === "file" && it.name.toLowerCase() === "rekap_scan_su",
+    );
+    if (found) {
+      return { ok: true, sheetUrl: found.url, existed: true };
+    }
+    return {
+      ok: false,
+      error:
+        'Spreadsheet "Rekap_Scan_SU" belum ada di Folder Induk Drive dan hanya dibuat otomatis melalui jalur Google Apps Script.',
+    };
+  }
+
+  const res = await callAppsScriptPost(route.webhookUrl, {
+    action: "init_sheet",
+    rootFolderId,
+  });
+
+  if (res.ok && typeof res.sheetUrl === "string" && res.sheetUrl) {
+    return {
+      ok: true,
+      sheetUrl: res.sheetUrl,
+      existed: Boolean(res.existed),
+    };
+  }
+
+  // Fallback for deployed Apps Script versions that do not have `init_sheet` yet:
+  // look up existing `Rekap_Scan_SU` via `explore`, otherwise give crystal-clear guidance.
+  try {
+    const explored = await exploreDriveFolder({
+      folderId: rootFolderId,
+      rootFolderId,
+      query: "Rekap_Scan_SU",
+      appsScriptUrl: route.webhookUrl,
+    });
+    const existing = explored.items.find(
+      (it) =>
+        it.kind === "file" && it.name.toLowerCase().includes("rekap_scan_su"),
+    );
+    if (existing) {
+      return { ok: true, sheetUrl: existing.url, existed: true };
+    }
+  } catch {
+    // Ignore secondary check error
+  }
+
+  return {
+    ok: false,
+    error:
+      typeof res.error === "string" &&
+      !res.error.toLowerCase().includes("kecamatan wajib")
+        ? res.error
+        : 'Spreadsheet "Rekap_Scan_SU" otomatis dibuat di dalam folder "Scan Surat Ukur" saat Anda upload PDF pertama ke Drive (pastikan opsi "Catat otomatis ke Google Sheets" dicentang), atau salin & Deploy New version script terbaru untuk tombol buat instan.',
+  };
+}
+
 export async function verifyDriveConnection(params: {
   rootFolderId?: string | null;
   appsScriptUrl?: string | null;
@@ -1099,6 +1208,7 @@ export async function verifyDriveConnection(params: {
   nestedSupported: boolean;
   explorerSupported: boolean;
   sheetSupported: boolean;
+  sheetUrl?: string;
   rootFolderId: string;
   rootFolderName?: string;
   rootFolderUrl: string;
@@ -1139,6 +1249,8 @@ export async function verifyDriveConnection(params: {
       nestedSupported: Boolean(postJson.nestedSupported),
       explorerSupported: Boolean(postJson.explorerSupported),
       sheetSupported: Boolean(postJson.sheetSupported),
+      sheetUrl:
+        typeof postJson.sheetUrl === "string" ? postJson.sheetUrl : undefined,
       rootFolderId,
       rootFolderName:
         typeof postJson.folderName === "string" ? postJson.folderName : undefined,

@@ -45,6 +45,7 @@ import {
   DRIVE_AUTO_UPLOAD_STORAGE_KEY,
   DRIVE_CONFLICT_POLICY_KEY,
   DRIVE_ROOT_STORAGE_KEY,
+  DRIVE_SHEET_URL_KEY,
   DRIVE_SYNC_SHEET_KEY,
   validateAppsScriptWebhookUrl,
 } from "@/lib/drive-config";
@@ -194,6 +195,8 @@ export function SuScannerApp() {
   const [conflictPolicy, setConflictPolicy] =
     useState<DriveConflictPolicy>("revision");
   const [syncToSheet, setSyncToSheet] = useState(true);
+  const [driveSheetUrl, setDriveSheetUrl] = useState<string | null>(null);
+  const [isEnsuringSheet, setIsEnsuringSheet] = useState(false);
   const [searchablePdf, setSearchablePdf] = useState(true);
   const [isUploadingDrive, setIsUploadingDrive] = useState(false);
   const [lastDriveResult, setLastDriveResult] =
@@ -278,6 +281,7 @@ export function SuScannerApp() {
           DRIVE_CONFLICT_POLICY_KEY,
         ) as DriveConflictPolicy | null;
         const storedSheet = localStorage.getItem(DRIVE_SYNC_SHEET_KEY);
+        const storedSheetUrl = localStorage.getItem(DRIVE_SHEET_URL_KEY);
 
         if (storedUrl && validateAppsScriptWebhookUrl(storedUrl)) {
           setAppsScriptUrl(storedUrl);
@@ -300,6 +304,47 @@ export function SuScannerApp() {
         if (storedSheet === "false") {
           setSyncToSheet(false);
         }
+        if (storedSheetUrl && storedSheetUrl.startsWith("https://docs.google.com/")) {
+          setDriveSheetUrl(storedSheetUrl);
+        }
+
+        const effectiveRoot = storedRoot || DEFAULT_DRIVE_ROOT_FOLDER_ID;
+        const effectiveScript =
+          storedUrl && validateAppsScriptWebhookUrl(storedUrl)
+            ? storedUrl
+            : DEFAULT_APPS_SCRIPT_URL;
+        fetch("/api/drive/explore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "list",
+            rootFolderId: effectiveRoot,
+            query: "Rekap_Scan_SU",
+            appsScriptUrl: effectiveScript,
+          }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then(
+            (resData: { items?: Array<{ name: string; kind: string; url: string }> } | null) => {
+              const found = resData?.items?.find(
+                (it) =>
+                  it.kind === "file" &&
+                  it.name.toLowerCase().includes("rekap_scan_su") &&
+                  it.url,
+              );
+              if (found?.url) {
+                setDriveSheetUrl(found.url);
+                try {
+                  localStorage.setItem(DRIVE_SHEET_URL_KEY, found.url);
+                } catch {
+                  // Ignore
+                }
+              }
+            },
+          )
+          .catch(() => {
+            // Non-blocking discovery
+          });
       } catch {
         // Ignore storage unavailable errors
       }
@@ -321,6 +366,57 @@ export function SuScannerApp() {
       kind === "error" ? 6500 : 4500,
     );
   }, []);
+
+  const rememberSheetUrl = useCallback((url?: string | null) => {
+    if (!url || !url.startsWith("https://")) return;
+    setDriveSheetUrl(url);
+    try {
+      localStorage.setItem(DRIVE_SHEET_URL_KEY, url);
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, []);
+
+  const handleEnsureSheet = useCallback(async () => {
+    setIsEnsuringSheet(true);
+    try {
+      const res = await fetch("/api/drive/explore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "init_sheet",
+          rootFolderId: driveRootFolderId,
+          appsScriptUrl: appsScriptUrl.trim() || null,
+        }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        sheetUrl?: string;
+        existed?: boolean;
+        error?: string;
+      } | null;
+      if (res.ok && json?.ok && json.sheetUrl) {
+        rememberSheetUrl(json.sheetUrl);
+        showToast(
+          "success",
+          json.existed
+            ? 'Google Sheets "Rekap_Scan_SU" ditemukan dan siap dibuka!'
+            : 'Google Sheets "Rekap_Scan_SU" berhasil dibuat di Drive Induk!',
+        );
+        window.open(json.sheetUrl, "_blank", "noopener,noreferrer");
+      } else {
+        showToast(
+          "error",
+          json?.error ||
+            'Spreadsheet "Rekap_Scan_SU" otomatis dibuat di Folder Induk Drive saat Anda mengunggah PDF pertama.',
+        );
+      }
+    } catch {
+      showToast("error", "Gagal menghubungi endpoint Google Sheets.");
+    } finally {
+      setIsEnsuringSheet(false);
+    }
+  }, [appsScriptUrl, driveRootFolderId, rememberSheetUrl, showToast]);
 
   const runLocalOcrExtraction = useCallback(
     async (
@@ -1097,6 +1193,7 @@ export function SuScannerApp() {
 
         setLastDriveResult(payload);
         setLastDriveError(null);
+        rememberSheetUrl(payload.sheetUrl);
 
         if (rawEvidence.teksNomorHak) {
           const updatedMem = learnWilayahCodeFromConfirmedScan({
@@ -1148,6 +1245,7 @@ export function SuScannerApp() {
       driveRootFolderId,
       kioskState.operatorName,
       rawEvidence.teksNomorHak,
+      rememberSheetUrl,
       showToast,
       syncToSheet,
     ],
@@ -1209,6 +1307,7 @@ export function SuScannerApp() {
               | null;
             if (res.ok && data && "ok" in data && data.ok) {
               sentCount++;
+              rememberSheetUrl(data.sheetUrl);
               const nextQ = await removeOfflineJob(job.id);
               setOfflineJobs(nextQ);
             } else {
@@ -1239,7 +1338,14 @@ export function SuScannerApp() {
         setIsSyncingOffline(false);
       }
     },
-    [appsScriptUrl, driveRootFolderId, kioskState.operatorName, showToast, syncToSheet],
+    [
+      appsScriptUrl,
+      driveRootFolderId,
+      kioskState.operatorName,
+      rememberSheetUrl,
+      showToast,
+      syncToSheet,
+    ],
   );
 
   useEffect(() => {
@@ -2051,6 +2157,9 @@ export function SuScannerApp() {
                     // Ignore
                   }
                 }}
+                driveSheetUrl={driveSheetUrl}
+                isEnsuringSheet={isEnsuringSheet}
+                onEnsureSheet={() => void handleEnsureSheet()}
                 learnedWilayahCodes={correctionMemory.wilayahCodes}
                 appsScriptUrl={appsScriptUrl}
                 pendingOfflineCount={offlineJobs.length}
@@ -2194,6 +2303,7 @@ export function SuScannerApp() {
           showToast("success", "Memori koreksi lokal dibersihkan.");
         }}
         auditLogs={kioskState.auditLogs}
+        driveSheetUrl={driveSheetUrl}
         isAdminUnlocked={isAdminUnlocked}
         onRequirePinUnlock={() => setKioskDialogOpen(true)}
         onNotify={showToast}
@@ -2225,6 +2335,8 @@ export function SuScannerApp() {
         autoUploadOnExport={autoUploadOnExport}
         conflictPolicy={conflictPolicy}
         syncToSheet={syncToSheet}
+        sheetUrl={driveSheetUrl}
+        onSheetUrlDiscovered={rememberSheetUrl}
         isAdminUnlocked={isAdminUnlocked}
         onRequirePinUnlock={() => {
           setDriveConfigOpen(false);
@@ -2336,6 +2448,8 @@ export function SuScannerApp() {
         rootFolderId={driveRootFolderId}
         operatorName={kioskState.operatorName || "Operator Meja 1"}
         syncToSheet={syncToSheet}
+        driveSheetUrl={driveSheetUrl}
+        onSheetUrlDiscovered={rememberSheetUrl}
         onExportedItem={async (item) => {
           const updated = await saveSessionHistoryItem(item);
           setSessionHistory(updated);

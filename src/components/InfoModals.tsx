@@ -46,6 +46,7 @@ interface HistoryDialogProps {
   onDeleteCorrectionRule?: (id: string) => void;
   onClearCorrectionMemory?: () => void;
   auditLogs?: KioskAuditEntry[];
+  driveSheetUrl?: string | null;
   isAdminUnlocked?: boolean;
   onRequirePinUnlock?: () => void;
   onNotify?: (kind: "success" | "error", text: string) => void;
@@ -65,6 +66,7 @@ export function HistoryDialog({
   onDeleteCorrectionRule,
   onClearCorrectionMemory,
   auditLogs = [],
+  driveSheetUrl,
   isAdminUnlocked = true,
   onRequirePinUnlock,
   onNotify,
@@ -187,37 +189,53 @@ export function HistoryDialog({
 
         {activeTab === "history" ? (
           <div className="space-y-3">
-            {items.length > 0 ? (
+            {items.length > 0 || driveSheetUrl ? (
               <div className="nb-card flex flex-wrap items-center justify-between gap-2 bg-white p-3.5">
                 <span className="text-xs font-semibold text-[#4B5563]">
-                  Unduh Laporan &amp; Backup Offline:
+                  Unduh Laporan, Backup &amp; Google Sheets:
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleDownloadXlsx}
-                    className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 border-[#A7F3D0] bg-[#ECFDF5] px-3 py-1.5 text-xs text-[#065F46]"
-                  >
-                    <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />
-                    Excel (.xlsx)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDownloadCsv}
-                    className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-[#F6F7F9] px-3 py-1.5 text-xs text-[#111114]"
-                  >
-                    <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                    CSV
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isExportingZip}
-                    onClick={() => void handleDownloadZipBackup()}
-                    className="nb-btn-sm wollo-cta-primary inline-flex min-h-9 items-center gap-1.5 px-3 py-1.5 text-xs disabled:opacity-50"
-                  >
-                    <Archive className="h-3.5 w-3.5" aria-hidden="true" />
-                    {isExportingZip ? "Mengemas…" : "Backup ZIP (Kec/Kel)"}
-                  </button>
+                  {driveSheetUrl ? (
+                    <a
+                      href={driveSheetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 border-[#A7F3D0] bg-[#ECFDF5] px-3 py-1.5 text-xs font-semibold text-[#065F46] hover:bg-[#D1FAE5]"
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />
+                      Buka Google Sheets
+                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    </a>
+                  ) : null}
+                  {items.length > 0 ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleDownloadXlsx}
+                        className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 border-[#A7F3D0] bg-[#ECFDF5] px-3 py-1.5 text-xs text-[#065F46]"
+                      >
+                        <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />
+                        Excel (.xlsx)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDownloadCsv}
+                        className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-[#F6F7F9] px-3 py-1.5 text-xs text-[#111114]"
+                      >
+                        <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                        CSV
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isExportingZip}
+                        onClick={() => void handleDownloadZipBackup()}
+                        className="nb-btn-sm wollo-cta-primary inline-flex min-h-9 items-center gap-1.5 px-3 py-1.5 text-xs disabled:opacity-50"
+                      >
+                        <Archive className="h-3.5 w-3.5" aria-hidden="true" />
+                        {isExportingZip ? "Mengemas…" : "Backup ZIP (Kec/Kel)"}
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             ) : null}

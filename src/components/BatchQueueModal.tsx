@@ -6,6 +6,8 @@ import {
   Archive,
   CheckCircle2,
   CloudUpload,
+  ExternalLink,
+  FileSpreadsheet,
   FileText,
   FolderPlus,
   Layers,
@@ -74,6 +76,8 @@ interface BatchQueueModalProps {
   rootFolderId: string;
   operatorName: string;
   syncToSheet: boolean;
+  driveSheetUrl?: string | null;
+  onSheetUrlDiscovered?: (url: string) => void;
   onExportedItem: (item: SessionHistoryItem) => Promise<void> | void;
   onEnqueueOffline: (job: OfflineUploadJob) => Promise<void> | void;
   onNotify: (kind: "success" | "error", text: string) => void;
@@ -116,6 +120,8 @@ export function BatchQueueModal({
   rootFolderId,
   operatorName,
   syncToSheet,
+  driveSheetUrl,
+  onSheetUrlDiscovered,
   onExportedItem,
   onEnqueueOffline,
   onNotify,
@@ -140,6 +146,9 @@ export function BatchQueueModal({
   const [isProcessingAi, setIsProcessingAi] = useState(false);
   const [isUploadingAll, setIsUploadingAll] = useState(false);
   const [isBuildingZip, setIsBuildingZip] = useState(false);
+  const [discoveredSheetUrl, setDiscoveredSheetUrl] = useState<string | null>(
+    driveSheetUrl ?? null,
+  );
 
   const kecamatanOptions = useMemo(() => getKecamatanOptions(), []);
   const allKelurahanOptions = useMemo(() => getKelurahanOptions(), []);
@@ -615,6 +624,10 @@ export function BatchQueueModal({
 
           if (res.ok && data && "ok" in data && data.ok) {
             successCount++;
+            if (data.sheetUrl) {
+              setDiscoveredSheetUrl(data.sheetUrl);
+              onSheetUrlDiscovered?.(data.sheetUrl);
+            }
             learnWilayahCodeFromConfirmedScan({
               rawNomorHak: "",
               kecamatan: kec,
@@ -781,6 +794,18 @@ export function BatchQueueModal({
               <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
               Kosongkan Antrean
             </button>
+          ) : null}
+          {discoveredSheetUrl || driveSheetUrl ? (
+            <a
+              href={discoveredSheetUrl || driveSheetUrl || undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="nb-btn-sm inline-flex min-h-10 items-center gap-1.5 border-[#A7F3D0] bg-[#ECFDF5] px-3.5 py-2 text-xs text-[#065F46] hover:bg-[#D1FAE5]"
+            >
+              <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+              Buka Google Sheets
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </a>
           ) : null}
           <button
             type="button"

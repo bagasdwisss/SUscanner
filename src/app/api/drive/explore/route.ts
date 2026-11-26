@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   DriveServiceError,
   exploreDriveFolder,
+  initRekapSheetInDrive,
   moveDriveFile,
   renameDriveFile,
 } from "@/lib/drive-service";
@@ -10,7 +11,7 @@ import {
 export const maxDuration = 30;
 
 const exploreSchema = z.object({
-  action: z.enum(["list", "rename", "move"]).default("list"),
+  action: z.enum(["list", "rename", "move", "init_sheet"]).default("list"),
   folderId: z.string().trim().max(250).optional().nullable(),
   rootFolderId: z.string().trim().max(250).optional().nullable(),
   query: z.string().trim().max(120).optional().nullable(),
@@ -70,6 +71,15 @@ export async function POST(request: NextRequest) {
         rootFolderId: body.rootFolderId,
         targetKecamatan: body.targetKecamatan,
         targetKelurahan: body.targetKelurahan,
+        appsScriptUrl: body.appsScriptUrl,
+        clientAccessToken: body.clientAccessToken,
+      });
+      return NextResponse.json(res);
+    }
+
+    if (body.action === "init_sheet") {
+      const res = await initRekapSheetInDrive({
+        rootFolderId: body.rootFolderId,
         appsScriptUrl: body.appsScriptUrl,
         clientAccessToken: body.clientAccessToken,
       });

@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
+  FileSpreadsheet,
   FolderOpen,
   Lock,
   RotateCcw,
@@ -32,6 +33,8 @@ interface DriveConfigDialogProps {
   autoUploadOnExport: boolean;
   conflictPolicy?: DriveConflictPolicy;
   syncToSheet?: boolean;
+  sheetUrl?: string | null;
+  onSheetUrlDiscovered?: (url: string) => void;
   isAdminUnlocked?: boolean;
   onRequirePinUnlock?: () => void;
   onSaveConfig: (next: {
@@ -53,6 +56,8 @@ export function DriveConfigDialog({
   autoUploadOnExport,
   conflictPolicy = "revision",
   syncToSheet = true,
+  sheetUrl = null,
+  onSheetUrlDiscovered,
   isAdminUnlocked = true,
   onRequirePinUnlock,
   onSaveConfig,
@@ -70,6 +75,8 @@ export function DriveConfigDialog({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedScript, setCopiedScript] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isCheckingSheet, setIsCheckingSheet] = useState(false);
+  const [localSheetUrl, setLocalSheetUrl] = useState<string | null>(sheetUrl);
   const [verifyFeedback, setVerifyFeedback] = useState<{
     ok: boolean;
     message: string;
@@ -104,9 +111,14 @@ export function DriveConfigDialog({
       const json = (await res.json().catch(() => null)) as {
         ok?: boolean;
         message?: string;
+        sheetUrl?: string;
         error?: string;
       } | null;
       if (res.ok && json?.ok) {
+        if (json.sheetUrl) {
+          setLocalSheetUrl(json.sheetUrl);
+          onSheetUrlDiscovered?.(json.sheetUrl);
+        }
         setVerifyFeedback({
           ok: true,
           message:
@@ -128,6 +140,53 @@ export function DriveConfigDialog({
       });
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  const handleEnsureSheet = async () => {
+    setIsCheckingSheet(true);
+    setVerifyFeedback(null);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/drive/explore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "init_sheet",
+          rootFolderId: resolvedFolderId,
+          appsScriptUrl: urlDraft.trim() || DEFAULT_APPS_SCRIPT_URL,
+        }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        sheetUrl?: string;
+        existed?: boolean;
+        error?: string;
+      } | null;
+      if (res.ok && json?.ok && json.sheetUrl) {
+        setLocalSheetUrl(json.sheetUrl);
+        onSheetUrlDiscovered?.(json.sheetUrl);
+        setVerifyFeedback({
+          ok: true,
+          message: json.existed
+            ? 'Google Sheets "Rekap_Scan_SU" ditemukan di folder Drive dan siap dibuka.'
+            : 'Google Sheets "Rekap_Scan_SU" berhasil dibuat di Folder Induk Drive!',
+        });
+      } else {
+        setVerifyFeedback({
+          ok: false,
+          message:
+            json?.error ||
+            'Spreadsheet "Rekap_Scan_SU" dibuat otomatis saat upload PDF pertama ke Drive.',
+        });
+      }
+    } catch {
+      setVerifyFeedback({
+        ok: false,
+        message: "Gagal menghubungi server untuk menyiapkan Google Sheets.",
+      });
+    } finally {
+      setIsCheckingSheet(false);
     }
   };
 
@@ -389,6 +448,28 @@ export function DriveConfigDialog({
                 ? "Menguji Koneksi Drive…"
                 : "Tes Koneksi & Cek Akses Folder"}
             </button>
+
+            <button
+              type="button"
+              disabled={isCheckingSheet}
+              onClick={() => void handleEnsureSheet()}
+              className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 border-[#A7F3D0] bg-[#ECFDF5] px-3.5 py-1.5 text-xs font-semibold text-[#065F46] hover:bg-[#D1FAE5] disabled:opacity-55"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />
+              {isCheckingSheet ? "Memeriksa Sheets…" : "Siapkan / Cek Google Sheets"}
+            </button>
+
+            {localSheetUrl || sheetUrl ? (
+              <a
+                href={localSheetUrl || sheetUrl || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3 py-1.5 text-xs font-semibold text-[#065F46] hover:bg-[#F9FAFB]"
+              >
+                Buka Rekap_Scan_SU
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
+            ) : null}
           </div>
 
           {verifyFeedback ? (
@@ -453,6 +534,12 @@ export function DriveConfigDialog({
                 </strong>{" "}
                 — jangan pilih <em>Only myself</em> atau{" "}
                 <em>Anyone with Google account</em> agar server bisa mengaksesnya.
+              </li>
+              <li>
+                File rekap Google Sheets bernama{" "}
+                <code className="font-mono font-bold text-[#111114]">Rekap_Scan_SU</code>{" "}
+                disimpan langsung di Folder Induk Drive Anda (dibuat otomatis saat upload pertama atau melalui tombol Siapkan Google Sheets). Bila muncul error izin{" "}
+                <code>SpreadsheetApp</code>, buka editor Apps Script lalu klik <strong>Run</strong> sekali untuk menyetujui izin Google Sheets.
               </li>
             </ol>
           </div>

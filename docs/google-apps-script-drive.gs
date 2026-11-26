@@ -97,44 +97,62 @@ function nextRevisionFilename(folder, filename) {
   return filename.replace(/(\.pdf)$/i, "_" + Date.now() + "$1");
 }
 
+function ensureRekapSheet(rootFolder) {
+  if (typeof SpreadsheetApp === "undefined") {
+    return { ok: false, error: "SpreadsheetApp tidak tersedia." };
+  }
+  var sheetFile = null;
+  var existing = rootFolder.getFilesByName(SHEET_NAME);
+  if (existing.hasNext()) {
+    sheetFile = existing.next();
+  }
+  var ss;
+  var created = false;
+  if (sheetFile) {
+    ss = SpreadsheetApp.openById(sheetFile.getId());
+  } else {
+    ss = SpreadsheetApp.create(SHEET_NAME);
+    var createdFile = DriveApp.getFileById(ss.getId());
+    createdFile.moveTo(rootFolder);
+    created = true;
+  }
+  var sheet = ss.getSheets()[0];
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow([
+      "No",
+      "Waktu Upload",
+      "Nama File PDF",
+      "Nomor SU",
+      "Tahun SU",
+      "Kode Hak",
+      "Nomor Hak",
+      "NIB",
+      "Luas Tanah",
+      "Kecamatan",
+      "Kelurahan",
+      "Halaman",
+      "Link PDF Drive",
+      "Folder Drive",
+      "Operator",
+    ]);
+  }
+  return {
+    ok: true,
+    ss: ss,
+    sheet: sheet,
+    sheetUrl: ss.getUrl(),
+    sheetName: SHEET_NAME,
+    created: created,
+  };
+}
+
 function appendScanRowToSheet(rootFolder, rowObj) {
   try {
-    if (typeof SpreadsheetApp === "undefined") {
-      return { logged: false };
+    var ensured = ensureRekapSheet(rootFolder);
+    if (!ensured.ok || !ensured.sheet) {
+      return { logged: false, error: ensured.error };
     }
-    var sheetFile = null;
-    var existing = rootFolder.getFilesByName(SHEET_NAME);
-    if (existing.hasNext()) {
-      sheetFile = existing.next();
-    }
-    var ss;
-    if (sheetFile) {
-      ss = SpreadsheetApp.openById(sheetFile.getId());
-    } else {
-      ss = SpreadsheetApp.create(SHEET_NAME);
-      var createdFile = DriveApp.getFileById(ss.getId());
-      createdFile.moveTo(rootFolder);
-    }
-    var sheet = ss.getSheets()[0];
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow([
-        "No",
-        "Waktu Upload",
-        "Nama File PDF",
-        "Nomor SU",
-        "Tahun SU",
-        "Kode Hak",
-        "Nomor Hak",
-        "NIB",
-        "Luas Tanah",
-        "Kecamatan",
-        "Kelurahan",
-        "Halaman",
-        "Link PDF Drive",
-        "Folder Drive",
-        "Operator",
-      ]);
-    }
+    var sheet = ensured.sheet;
     var rowNum = Math.max(1, sheet.getLastRow());
     sheet.appendRow([
       rowNum,
@@ -153,7 +171,7 @@ function appendScanRowToSheet(rootFolder, rowObj) {
       rowObj.folderName || "",
       rowObj.operatorName || "Operator",
     ]);
-    return { logged: true, sheetUrl: ss.getUrl() };
+    return { logged: true, sheetUrl: ensured.sheetUrl };
   } catch (err) {
     return {
       logged: false,
@@ -176,6 +194,11 @@ function doPost(e) {
 
     if (body.action === "verify") {
       var verifyFolder = DriveApp.getFolderById(rootFolderId);
+      var foundSheetUrl = undefined;
+      var existingSheet = verifyFolder.getFilesByName(SHEET_NAME);
+      if (existingSheet.hasNext()) {
+        foundSheetUrl = existingSheet.next().getUrl();
+      }
       return jsonResponse({
         ok: true,
         verified: true,
@@ -188,6 +211,26 @@ function doPost(e) {
         folderId: verifyFolder.getId(),
         folderName: verifyFolder.getName(),
         folderUrl: verifyFolder.getUrl(),
+        sheetUrl: foundSheetUrl,
+      });
+    }
+
+    if (body.action === "init_sheet") {
+      var initRoot = DriveApp.getFolderById(rootFolderId);
+      var sheetRes = ensureRekapSheet(initRoot);
+      if (!sheetRes.ok) {
+        return jsonResponse({
+          ok: false,
+          error: sheetRes.error || "Gagal menyiapkan Google Sheets.",
+        });
+      }
+      return jsonResponse({
+        ok: true,
+        supported: true,
+        sheetUrl: sheetRes.sheetUrl,
+        sheetName: sheetRes.sheetName,
+        existed: !sheetRes.created,
+        folderUrl: initRoot.getUrl(),
       });
     }
 
@@ -441,6 +484,7 @@ function doPost(e) {
       overwritten: overwritten,
       sheetLogged: Boolean(sheetInfo.logged),
       sheetUrl: sheetInfo.sheetUrl || undefined,
+      sheetError: sheetInfo.error || undefined,
       provider: "apps-script",
       fileId: file.getId(),
       fileName: file.getName(),

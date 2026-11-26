@@ -12,6 +12,7 @@ import {
   Download,
   ExternalLink,
   FileSearch,
+  FileSpreadsheet,
   FolderOpen,
   RefreshCw,
   RotateCcw,
@@ -98,6 +99,9 @@ interface NamingExportPanelProps {
   onToggleSearchablePdf?: (next: boolean) => void;
   syncToSheet?: boolean;
   onToggleSyncToSheet?: (next: boolean) => void;
+  driveSheetUrl?: string | null;
+  isEnsuringSheet?: boolean;
+  onEnsureSheet?: () => void;
   learnedWilayahCodes?: readonly LearnedWilayahCodeMapping[];
   appsScriptUrl?: string;
   pendingOfflineCount?: number;
@@ -192,6 +196,9 @@ export function NamingExportPanel({
   onToggleSearchablePdf,
   syncToSheet = true,
   onToggleSyncToSheet,
+  driveSheetUrl,
+  isEnsuringSheet = false,
+  onEnsureSheet,
   learnedWilayahCodes,
   appsScriptUrl,
   pendingOfflineCount = 0,
@@ -1546,6 +1553,35 @@ export function NamingExportPanel({
               </p>
             </div>
 
+            {driveReady ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-[11px]">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-[#4B5563]">
+                  <FileSpreadsheet className="h-3.5 w-3.5 text-[#065F46]" aria-hidden="true" />
+                  Sheets: <code className="font-mono font-bold text-[#111114]">Rekap_Scan_SU</code>
+                </span>
+                {lastDriveResult?.sheetUrl || driveSheetUrl ? (
+                  <a
+                    href={lastDriveResult?.sheetUrl || driveSheetUrl || undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-[#A7F3D0] bg-[#ECFDF5] px-2 py-0.5 font-bold text-[#065F46] hover:bg-[#D1FAE5]"
+                  >
+                    Buka Google Sheets
+                    <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
+                  </a>
+                ) : onEnsureSheet ? (
+                  <button
+                    type="button"
+                    disabled={isEnsuringSheet}
+                    onClick={onEnsureSheet}
+                    className="inline-flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 font-bold text-[#111114] hover:bg-[#F3F4F6] disabled:opacity-50"
+                  >
+                    {isEnsuringSheet ? "Mengecek…" : "Siapkan / Cek Sheets"}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
             {lastDriveError ? (
               <div
                 role="alert"
@@ -1582,6 +1618,12 @@ export function NamingExportPanel({
                   <p className="text-[11px] font-semibold text-[#047857]">
                     Log otomatis dicatat ke Google Sheets Rekap_Scan_SU.
                   </p>
+                ) : syncToSheet && !lastDriveResult.skipped ? (
+                  <p className="rounded border border-[#FDE68A] bg-[#FFFBEB] px-2 py-1 text-[11px] font-semibold text-[#92400E]">
+                    Log Google Sheets belum tercatat
+                    {lastDriveResult.sheetError ? ` (${lastDriveResult.sheetError})` : ""}.{" "}
+                    Pastikan izin Google Sheets disetujui di editor Apps Script lalu unggah ulang.
+                  </p>
                 ) : null}
                 {normalizedKelurahan &&
                 lastDriveResult.nestedSupported === false ? (
@@ -1608,6 +1650,18 @@ export function NamingExportPanel({
                     Lihat File PDF
                     <ExternalLink className="h-3 w-3" aria-hidden="true" />
                   </a>
+                  {lastDriveResult.sheetUrl || driveSheetUrl ? (
+                    <a
+                      href={lastDriveResult.sheetUrl || driveSheetUrl || undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-[#A7F3D0] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#065F46] hover:bg-[#ECFDF5]"
+                    >
+                      <FileSpreadsheet className="h-3 w-3" aria-hidden="true" />
+                      Buka Google Sheets
+                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    </a>
+                  ) : null}
                 </div>
               </div>
             ) : null}
