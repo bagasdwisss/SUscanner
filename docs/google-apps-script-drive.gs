@@ -1,5 +1,12 @@
 /**
- * Google Apps Script (doPost Web App) untuk integrasi langsung SU-Scanner ke Google Drive.
+ * Google Apps Script (doPost Web App) untuk integrasi penuh SU-Scanner ke Google Drive & Google Sheets.
+ *
+ * Fitur yang didukung:
+ * - Upload PDF ke subfolder bertingkat otomatis: Drive Induk / [Kecamatan] / [Kelurahan]
+ * - Kebijakan konflik nama file (revision _rev2, overwrite/timpa lama, atau skip)
+ * - Cek duplikasi real-time di Google Drive (action: "exists")
+ * - Penjelajah Drive terpadu: daftar folder/file, rename, pindah folder (explore, rename, move)
+ * - Log otomatis ke Google Sheets "Rekap_Scan_SU" di Folder Induk
  *
  * Cara pasang / update Web App:
  * 1. Buka https://script.google.com/home menggunakan akun Google pemilik folder Drive tujuan.
@@ -7,12 +14,11 @@
  * 3. Klik "Deploy" -> "New deployment" (atau "Manage deployments" -> Edit -> New version):
  *    - Execute as: Me (email Anda)
  *    - Who has access / Yang memiliki akses: Anyone / Siapa saja (WAJIB, bukan "Anyone with Google account")
- * 4. URL /exec sudah terpasang permanen di aplikasi SU-Scanner.
  */
 
 var DEFAULT_ROOT_FOLDER_ID = "1D5fIBh9sa8cD1QBTL1J3NoRw6NWDudub";
-// Opsional: samakan dengan GOOGLE_DRIVE_APPS_SCRIPT_SECRET di .env.local jika dipakai.
 var OPTIONAL_SHARED_SECRET = "";
+var SHEET_NAME = "Rekap_Scan_SU";
 
 function jsonResponse(payload) {
   return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(
@@ -39,18 +45,121 @@ function normalizeKelurahanTitle(name) {
     .trim();
 }
 
-function findOrCreateSubfolder(parentFolder, targetName, normalizeFn) {
+function findSubfolder(parentFolder, targetName, normalizeFn) {
   var cleanTarget = normalizeFn(targetName);
   var targetNormalized = cleanTarget.toLowerCase();
   var folders = parentFolder.getFolders();
   while (folders.hasNext()) {
     var existing = folders.next();
     if (normalizeFn(existing.getName()).toLowerCase() === targetNormalized) {
-      return { folder: existing, created: false };
+      return existing;
     }
   }
-  var createdFolder = parentFolder.createFolder(cleanTarget);
-  return { folder: createdFolder, created: true };
+  return null;
+}
+
+function findOrCreateSubfolder(parentFolder, targetName, normalizeFn) {
+  var existing = findSubfolder(parentFolder, targetName, normalizeFn);
+  if (existing) {
+    return { folder: existing, created: false };
+  }
+  var cleanTarget = normalizeFn(targetName);
+  return { folder: parentFolder.createFolder(cleanTarget), created: true };
+}
+
+function findMatchingFilesInFolder(folder, filename) {
+  var matches = [];
+  var targetLower = String(filename || "").trim().toLowerCase();
+  var files = folder.getFiles();
+  while (files.hasNext()) {
+    var f = files.next();
+    if (f.getName().toLowerCase() === targetLower) {
+      matches.push(f);
+    }
+  }
+  return matches;
+}
+
+function nextRevisionFilename(folder, filename) {
+  var existingNames = {};
+  var files = folder.getFiles();
+  while (files.hasNext()) {
+    existingNames[files.next().getName().toLowerCase()] = true;
+  }
+  if (!existingNames[filename.toLowerCase()]) return filename;
+  var rev = 2;
+  while (rev < 500) {
+    var cand = filename.replace(/(\.pdf)$/i, "_rev" + rev + "$1");
+    if (cand === filename) cand = filename + "_rev" + rev;
+    if (!existingNames[cand.toLowerCase()]) return cand;
+    rev++;
+  }
+  return filename.replace(/(\.pdf)$/i, "_" + Date.now() + "$1");
+}
+
+function appendScanRowToSheet(rootFolder, rowObj) {
+  try {
+    if (typeof SpreadsheetApp === "undefined") {
+      return { logged: false };
+    }
+    var sheetFile = null;
+    var existing = rootFolder.getFilesByName(SHEET_NAME);
+    if (existing.hasNext()) {
+      sheetFile = existing.next();
+    }
+    var ss;
+    if (sheetFile) {
+      ss = SpreadsheetApp.openById(sheetFile.getId());
+    } else {
+      ss = SpreadsheetApp.create(SHEET_NAME);
+      var createdFile = DriveApp.getFileById(ss.getId());
+      createdFile.moveTo(rootFolder);
+    }
+    var sheet = ss.getSheets()[0];
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow([
+        "No",
+        "Waktu Upload",
+        "Nama File PDF",
+        "Nomor SU",
+        "Tahun SU",
+        "Kode Hak",
+        "Nomor Hak",
+        "NIB",
+        "Luas Tanah",
+        "Kecamatan",
+        "Kelurahan",
+        "Halaman",
+        "Link PDF Drive",
+        "Folder Drive",
+        "Operator",
+      ]);
+    }
+    var rowNum = Math.max(1, sheet.getLastRow());
+    sheet.appendRow([
+      rowNum,
+      new Date().toLocaleString("id-ID"),
+      rowObj.fileName || "",
+      rowObj.nomorSu || "",
+      rowObj.tahunSu || "",
+      rowObj.kodeHak || "",
+      rowObj.nomorHak || "",
+      rowObj.nib || "",
+      rowObj.luasTanah || "",
+      rowObj.kecamatan || "",
+      rowObj.kelurahan || "",
+      rowObj.pageCount || 1,
+      rowObj.fileUrl || "",
+      rowObj.folderName || "",
+      rowObj.operatorName || "Operator",
+    ]);
+    return { logged: true, sheetUrl: ss.getUrl() };
+  } catch (err) {
+    return {
+      logged: false,
+      error: err && err.message ? err.message : String(err),
+    };
+  }
 }
 
 function doPost(e) {
@@ -58,13 +167,9 @@ function doPost(e) {
     if (!e || !e.postData || !e.postData.contents) {
       return jsonResponse({ ok: false, error: "Payload kosong." });
     }
-
     var body = JSON.parse(e.postData.contents);
     if (OPTIONAL_SHARED_SECRET && body.secret !== OPTIONAL_SHARED_SECRET) {
-      return jsonResponse({
-        ok: false,
-        error: "Secret autentikasi Apps Script tidak cocok.",
-      });
+      return jsonResponse({ ok: false, error: "Secret tidak cocok." });
     }
 
     var rootFolderId = String(body.rootFolderId || DEFAULT_ROOT_FOLDER_ID).trim();
@@ -75,10 +180,159 @@ function doPost(e) {
         ok: true,
         verified: true,
         nestedSupported: true,
+        explorerSupported: true,
+        dedupSupported: true,
+        conflictSupported: true,
+        sheetSupported: true,
         service: "SU-Scanner Drive Uploader",
         folderId: verifyFolder.getId(),
         folderName: verifyFolder.getName(),
         folderUrl: verifyFolder.getUrl(),
+      });
+    }
+
+    if (body.action === "exists") {
+      var kecCheck = normalizeKecamatanTitle(body.kecamatan);
+      var kelCheck = normalizeKelurahanTitle(body.kelurahan);
+      var fname = String(body.filename || "").trim();
+      var rootCheck = DriveApp.getFolderById(rootFolderId);
+      var kecFolder = kecCheck
+        ? findSubfolder(rootCheck, kecCheck, normalizeKecamatanTitle)
+        : null;
+      var targetCheck = kecFolder
+        ? kelCheck
+          ? findSubfolder(kecFolder, kelCheck, normalizeKelurahanTitle)
+          : kecFolder
+        : null;
+      if (!targetCheck || !fname) {
+        return jsonResponse({
+          ok: true,
+          supported: true,
+          exists: false,
+          count: 0,
+          matches: [],
+        });
+      }
+      var found = findMatchingFilesInFolder(targetCheck, fname).map(
+        function (f) {
+          return {
+            id: f.getId(),
+            name: f.getName(),
+            url: f.getUrl(),
+            sizeBytes: f.getSize(),
+            updatedAt: f.getLastUpdated().toISOString(),
+          };
+        },
+      );
+      return jsonResponse({
+        ok: true,
+        supported: true,
+        exists: found.length > 0,
+        count: found.length,
+        matches: found,
+        folderName: targetCheck.getName(),
+        folderUrl: targetCheck.getUrl(),
+      });
+    }
+
+    if (body.action === "explore") {
+      var folderToOpen = DriveApp.getFolderById(
+        String(body.folderId || rootFolderId).trim(),
+      );
+      var query = String(body.query || "").trim().toLowerCase();
+      var items = [];
+      var subfolders = folderToOpen.getFolders();
+      while (subfolders.hasNext() && items.length < 180) {
+        var sf = subfolders.next();
+        if (!query || sf.getName().toLowerCase().indexOf(query) !== -1) {
+          items.push({
+            id: sf.getId(),
+            name: sf.getName(),
+            kind: "folder",
+            mimeType: "application/vnd.google-apps.folder",
+            url: sf.getUrl(),
+            updatedAt: sf.getLastUpdated().toISOString(),
+          });
+        }
+      }
+      var files = folderToOpen.getFiles();
+      while (files.hasNext() && items.length < 180) {
+        var fl = files.next();
+        if (!query || fl.getName().toLowerCase().indexOf(query) !== -1) {
+          items.push({
+            id: fl.getId(),
+            name: fl.getName(),
+            kind: "file",
+            mimeType: fl.getMimeType(),
+            url: fl.getUrl(),
+            sizeBytes: fl.getSize(),
+            updatedAt: fl.getLastUpdated().toISOString(),
+          });
+        }
+      }
+      return jsonResponse({
+        ok: true,
+        supported: true,
+        folderId: folderToOpen.getId(),
+        folderName: folderToOpen.getName(),
+        folderUrl: folderToOpen.getUrl(),
+        items: items,
+      });
+    }
+
+    if (body.action === "rename") {
+      var fileToRename = DriveApp.getFileById(String(body.fileId || "").trim());
+      var nextName = String(body.newFilename || "")
+        .replace(/[<>:"/\\|?*]/g, "_")
+        .trim();
+      if (!nextName) {
+        return jsonResponse({ ok: false, error: "Nama file baru wajib diisi." });
+      }
+      fileToRename.setName(nextName);
+      return jsonResponse({
+        ok: true,
+        supported: true,
+        fileId: fileToRename.getId(),
+        fileName: fileToRename.getName(),
+        fileUrl: fileToRename.getUrl(),
+      });
+    }
+
+    if (body.action === "move") {
+      var fileToMove = DriveApp.getFileById(String(body.fileId || "").trim());
+      var moveRoot = DriveApp.getFolderById(rootFolderId);
+      var dstKec = normalizeKecamatanTitle(body.targetKecamatan);
+      var dstKel = normalizeKelurahanTitle(body.targetKelurahan);
+      if (!dstKec) {
+        return jsonResponse({
+          ok: false,
+          error: "Kecamatan tujuan wajib diisi.",
+        });
+      }
+      var dstKecRes = findOrCreateSubfolder(
+        moveRoot,
+        dstKec,
+        normalizeKecamatanTitle,
+      );
+      var dstKelRes = dstKel
+        ? findOrCreateSubfolder(
+            dstKecRes.folder,
+            dstKel,
+            normalizeKelurahanTitle,
+          )
+        : null;
+      var dstFolder = dstKelRes ? dstKelRes.folder : dstKecRes.folder;
+      fileToMove.moveTo(dstFolder);
+      return jsonResponse({
+        ok: true,
+        supported: true,
+        fileId: fileToMove.getId(),
+        fileName: fileToMove.getName(),
+        folderId: dstFolder.getId(),
+        folderName: dstKelRes
+          ? dstKecRes.folder.getName() + " / " + dstKelRes.folder.getName()
+          : dstKecRes.folder.getName(),
+        folderUrl: dstFolder.getUrl(),
       });
     }
 
@@ -88,6 +342,7 @@ function doPost(e) {
       .replace(/[<>:"/\\|?*]/g, "_")
       .trim();
     var pdfBase64 = String(body.pdfBase64 || "");
+    var conflictPolicy = String(body.conflictPolicy || "revision");
 
     if (!kecamatan) {
       return jsonResponse({
@@ -116,21 +371,80 @@ function doPost(e) {
         )
       : null;
     var targetFolder = kelResult ? kelResult.folder : kecResult.folder;
-
-    var bytes = Utilities.base64Decode(pdfBase64);
-    var blob = Utilities.newBlob(bytes, "application/pdf", filename);
-    var uploadedFile = targetFolder.createFile(blob);
-
     var kecName = kecResult.folder.getName();
     var kelName = kelResult ? kelResult.folder.getName() : undefined;
+
+    var existingMatches = findMatchingFilesInFolder(targetFolder, filename);
+    if (existingMatches.length > 0 && conflictPolicy === "skip") {
+      var kept = existingMatches[0];
+      return jsonResponse({
+        ok: true,
+        nestedSupported: true,
+        skipped: true,
+        provider: "apps-script",
+        fileId: kept.getId(),
+        fileName: kept.getName(),
+        fileUrl: kept.getUrl(),
+        folderId: targetFolder.getId(),
+        folderName: kelName ? kecName + " / " + kelName : kecName,
+        folderUrl: targetFolder.getUrl(),
+        folderCreated: false,
+        kecamatanName: kecName,
+        kecamatanCreated: kecResult.created,
+        kelurahanName: kelName,
+        kelurahanCreated: kelResult ? kelResult.created : false,
+      });
+    }
+
+    var finalFilename = filename;
+    var overwritten = false;
+    if (existingMatches.length > 0) {
+      if (conflictPolicy === "overwrite") {
+        for (var idx = 0; idx < existingMatches.length; idx++) {
+          existingMatches[idx].setTrashed(true);
+        }
+        overwritten = true;
+      } else {
+        finalFilename = nextRevisionFilename(targetFolder, filename);
+      }
+    }
+
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(pdfBase64),
+      "application/pdf",
+      finalFilename,
+    );
+    var file = targetFolder.createFile(blob);
+
+    var sheetInfo = { logged: false };
+    if (body.sheetMeta && body.sheetMeta.logToSheet !== false) {
+      sheetInfo = appendScanRowToSheet(rootFolder, {
+        fileName: file.getName(),
+        fileUrl: file.getUrl(),
+        folderName: kelName ? kecName + " / " + kelName : kecName,
+        kecamatan: kecName,
+        kelurahan: kelName || "",
+        nomorSu: body.sheetMeta.nomorSu || "",
+        tahunSu: body.sheetMeta.tahunSu || "",
+        kodeHak: body.sheetMeta.kodeHak || "",
+        nomorHak: body.sheetMeta.nomorHak || "",
+        nib: body.sheetMeta.nib || "",
+        luasTanah: body.sheetMeta.luasTanah || "",
+        pageCount: body.sheetMeta.pageCount || 1,
+        operatorName: body.sheetMeta.operatorName || "Operator",
+      });
+    }
 
     return jsonResponse({
       ok: true,
       nestedSupported: true,
+      overwritten: overwritten,
+      sheetLogged: Boolean(sheetInfo.logged),
+      sheetUrl: sheetInfo.sheetUrl || undefined,
       provider: "apps-script",
-      fileId: uploadedFile.getId(),
-      fileName: uploadedFile.getName(),
-      fileUrl: uploadedFile.getUrl(),
+      fileId: file.getId(),
+      fileName: file.getName(),
+      fileUrl: file.getUrl(),
       folderId: targetFolder.getId(),
       folderName: kelName ? kecName + " / " + kelName : kecName,
       folderUrl: targetFolder.getUrl(),
@@ -152,6 +466,10 @@ function doGet() {
   return jsonResponse({
     ok: true,
     nestedSupported: true,
+    explorerSupported: true,
+    dedupSupported: true,
+    conflictSupported: true,
+    sheetSupported: true,
     service: "SU-Scanner Drive Uploader",
     defaultRootFolderId: DEFAULT_ROOT_FOLDER_ID,
   });

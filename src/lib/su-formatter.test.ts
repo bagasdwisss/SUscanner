@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { unzipSync, strFromU8 } from "fflate";
 import {
   applyExtractionToForm,
   buildStandardFilename,
@@ -25,7 +26,19 @@ import {
   createInitialAiUsageStats,
   recordAiUsageEvent,
 } from "./ai-usage.ts";
-import type { AiExtractionResult } from "./su-types.ts";
+import {
+  matchWilayahKecamatan,
+  matchWilayahKelurahan,
+  validateHakRegionCrossCheck,
+} from "./wilayah-dict.ts";
+import { analyzeRgbaImageQuality } from "./image-quality.ts";
+import { hashKioskPin } from "./kiosk-lock.ts";
+import {
+  buildReportCsvBlob,
+  buildReportXlsxBlob,
+  buildStructuredBackupZipBlob,
+} from "./backup-export.ts";
+import type { AiExtractionResult, SessionHistoryItem } from "./su-types.ts";
 
 describe("SU-Scanner formatter & domain rules", () => {
   it("formats PRD Section 10.5 reference output to SU.00006.2007.M.02246.pdf", () => {
@@ -590,5 +603,175 @@ describe("SU-Scanner formatter & domain rules", () => {
     const resetInfo = computeNextAiQuotaReset(day1);
     assert.ok(resetInfo.wibTimeLabel.includes("WIB"));
     assert.ok(resetInfo.remainingMs > 0);
+  });
+
+  it("matches official Kota Medan Kecamatan/Kelurahan dictionary typos & cross-validates 8-digit Nomor Hak codes", () => {
+    assert.equal(matchWilayahKecamatan("Medn Helvetia").matched, "Medan Helvetia");
+    assert.equal(matchWilayahKecamatan("medan timnr").matched, "Medan Timur");
+    assert.equal(
+      matchWilayahKelurahan("Helvetia Timnr", "Medan Helvetia").matched,
+      "Helvetia Timur",
+    );
+    assert.equal(
+      matchWilayahKelurahan("Pulo Brayan Darat I", "Medan Timur").matched,
+      "Pulo Brayan Darat I",
+    );
+
+    const okCross = validateHakRegionCrossCheck({
+      rawNomorHak: "02.01.05.04.1.02246",
+      kecamatan: "Medan Helvetia",
+      kelurahan: "Helvetia Timur",
+    });
+    assert.equal(okCross.hasPrefix8, true);
+    assert.equal(okCross.prefix8, "02.01.05.04");
+    assert.equal(okCross.status, "match");
+
+    const wrongCity = validateHakRegionCrossCheck({
+      rawNomorHak: "09.99.01.02.1.00010",
+      kecamatan: "Medan Baru",
+      kelurahan: "Babura",
+    });
+    assert.equal(wrongCity.status, "mismatch");
+
+    const learnedMismatch = validateHakRegionCrossCheck({
+      rawNomorHak: "02.01.05.04.1.02246",
+      kecamatan: "Medan Johor",
+      kelurahan: "Pangkalan Masyhur",
+      learnedCodes: [
+        {
+          prefix8: "02.01.05.04",
+          kecPrefix6: "02.01.05",
+          kecamatan: "Medan Helvetia",
+          kelurahan: "Helvetia Timur",
+          confirmedCount: 3,
+        },
+      ],
+    });
+    assert.equal(learnedMismatch.status, "mismatch");
+    assert.equal(learnedMismatch.suggestedKecamatan, "Medan Helvetia");
+  });
+
+  it("detects sharp documents vs motion blur and lamp glare", () => {
+    const makeRgba = (
+      w: number,
+      h: number,
+      fn: (x: number, y: number) => [number, number, number],
+    ): Uint8ClampedArray => {
+      const out = new Uint8ClampedArray(w * h * 4);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const [r, g, b] = fn(x, y);
+          const idx = (y * w + x) * 4;
+          out[idx] = r;
+          out[idx + 1] = g;
+          out[idx + 2] = b;
+          out[idx + 3] = 255;
+        }
+      }
+      return out;
+    };
+
+    const sharp = makeRgba(100, 100, (x, y) => {
+      const isLine = y >= 25 && y <= 75 && x % 4 === 0 && y % 3 === 0;
+      return isLine ? [20, 20, 20] : [235, 232, 226];
+    });
+    const sharpRes = analyzeRgbaImageQuality(sharp, 100, 100);
+    assert.equal(sharpRes.status, "good");
+    assert.ok(sharpRes.sharpnessScore > 25);
+
+    const blurry = makeRgba(100, 100, (x, y) => {
+      const band = Math.round(210 + 4 * Math.sin(x * 0.1) + 4 * Math.cos(y * 0.1));
+      return [band, band, band];
+    });
+    const blurRes = analyzeRgbaImageQuality(blurry, 100, 100);
+    assert.ok(blurRes.sharpnessScore < sharpRes.sharpnessScore);
+
+    const glare = makeRgba(100, 100, (x, y) => {
+      if (x >= 20 && x <= 75 && y >= 20 && y <= 75) {
+        return [255, 255, 255];
+      }
+      return x % 3 === 0 && y % 3 === 0 ? [25, 25, 25] : [235, 235, 235];
+    });
+    const glareRes = analyzeRgbaImageQuality(glare, 100, 100);
+    assert.ok(glareRes.glarePercent >= 12);
+    assert.ok(
+      glareRes.status === "warn_glare" || glareRes.status === "warn_both",
+    );
+  });
+
+  it("extracts luas tanah from OCR text and hashes kiosk admin PIN deterministically", async () => {
+    const parsed = parseSuratUkurOcrText(
+      "SURAT UKUR\nNomor: 00006/Helvetia Timur/2007\nLuas tanah: 145 m2\nKecamatan: Medan Helvetia\nKelurahan: Helvetia Timur",
+      88,
+    );
+    assert.ok(parsed.luas_tanah?.includes("145"));
+
+    const h1 = await hashKioskPin("2468", "kantah-medan");
+    const h2 = await hashKioskPin("2468", "kantah-medan");
+    const hDiff = await hashKioskPin("9999", "kantah-medan");
+    assert.equal(h1, h2);
+    assert.notEqual(h1, hDiff);
+    assert.ok(h1.length >= 16);
+  });
+
+  it("builds valid CSV, OOXML XLSX, and hierarchical Kecamatan/Kelurahan ZIP backup packages", async () => {
+    const dummyPdf = new TextEncoder().encode("%PDF-1.4\n%%EOF").buffer;
+    const sampleItems: SessionHistoryItem[] = [
+      {
+        id: "item-1",
+        filename: "SU.00006.2007.M.02246.pdf",
+        createdAt: 1700000000000,
+        pageCount: 2,
+        sizeBytes: dummyPdf.byteLength,
+        nomorSu: "00006",
+        tahunSu: "2007",
+        kodeHak: "M",
+        nomorHak: "02246",
+        nib: "02.01.05.04.03043",
+        luasTanah: "145 m2",
+        kecamatan: "Medan Helvetia",
+        kelurahan: "Helvetia Timur",
+        operatorName: "Operator Meja 1",
+        pdfBytes: dummyPdf,
+      },
+      {
+        id: "item-2",
+        filename: "SU.00006.2007.M.02246.pdf",
+        createdAt: 1700000005000,
+        pageCount: 1,
+        sizeBytes: dummyPdf.byteLength,
+        nomorSu: "00006",
+        tahunSu: "2007",
+        kodeHak: "M",
+        nomorHak: "02246",
+        kecamatan: "Medan Helvetia",
+        kelurahan: "Helvetia Timur",
+        pdfBytes: dummyPdf,
+      },
+    ];
+
+    const csvText = await buildReportCsvBlob(sampleItems).text();
+    assert.ok(csvText.includes("SU.00006.2007.M.02246.pdf"));
+    assert.ok(csvText.includes("Medan Helvetia"));
+
+    const xlsxBytes = new Uint8Array(await buildReportXlsxBlob(sampleItems).arrayBuffer());
+    const xlsxFiles = unzipSync(xlsxBytes);
+    assert.ok("xl/workbook.xml" in xlsxFiles);
+    assert.ok("xl/worksheets/sheet1.xml" in xlsxFiles);
+    const sheetXml = strFromU8(xlsxFiles["xl/worksheets/sheet1.xml"]);
+    assert.ok(sheetXml.includes("SU.00006.2007.M.02246.pdf"));
+    assert.ok(sheetXml.includes("Helvetia Timur"));
+
+    const { blob: zipBlob, includedPdfCount } =
+      await buildStructuredBackupZipBlob(sampleItems);
+    assert.equal(includedPdfCount, 2);
+    const zipEntries = unzipSync(new Uint8Array(await zipBlob.arrayBuffer()));
+    assert.ok(
+      "Medan Helvetia/Helvetia Timur/SU.00006.2007.M.02246.pdf" in zipEntries,
+    );
+    assert.ok(
+      "Medan Helvetia/Helvetia Timur/SU.00006.2007.M.02246_rev2.pdf" in zipEntries,
+    );
+    assert.ok("rekap-scan.csv" in zipEntries);
   });
 });

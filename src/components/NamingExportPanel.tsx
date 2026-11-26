@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -11,11 +11,16 @@ import {
   Cpu,
   Download,
   ExternalLink,
+  FileSearch,
   FolderOpen,
   RefreshCw,
   RotateCcw,
+  SearchCheck,
   Settings,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
+  WifiOff,
   XCircle,
 } from "lucide-react";
 import {
@@ -30,10 +35,20 @@ import {
   sanitizeHakSegment,
   validateStandardFields,
 } from "@/lib/su-formatter";
+import {
+  getKecamatanOptions,
+  getKelurahanOptions,
+  matchWilayahKecamatan,
+  matchWilayahKelurahan,
+  validateHakRegionCrossCheck,
+  type LearnedWilayahCodeMapping,
+} from "@/lib/wilayah-dict";
 import type {
   AiEngineSource,
   AiStatus,
   ConfidenceLevel,
+  DriveConflictPolicy,
+  DriveDuplicateCheckResult,
   DriveUploadResult,
   FieldConfidenceMeta,
   NamingMode,
@@ -77,6 +92,22 @@ interface NamingExportPanelProps {
   lastDriveError: string | null;
   isDuplicateFilename: boolean;
   extractionVersion: number;
+  conflictPolicy?: DriveConflictPolicy;
+  onChangeConflictPolicy?: (policy: DriveConflictPolicy) => void;
+  searchablePdf?: boolean;
+  onToggleSearchablePdf?: (next: boolean) => void;
+  syncToSheet?: boolean;
+  onToggleSyncToSheet?: (next: boolean) => void;
+  learnedWilayahCodes?: readonly LearnedWilayahCodeMapping[];
+  appsScriptUrl?: string;
+  pendingOfflineCount?: number;
+  onSyncOfflineNow?: () => void;
+  onFieldCorrected?: (
+    field: "kecamatan" | "kelurahan" | "kodeHak",
+    fromValue: string,
+    toValue: string,
+    evidence?: string | null,
+  ) => void;
   onReExtractAi: () => void;
   onRunLocalOcr: () => void;
   onSwapPages: () => void;
@@ -155,6 +186,17 @@ export function NamingExportPanel({
   lastDriveError,
   isDuplicateFilename,
   extractionVersion,
+  conflictPolicy = "revision",
+  onChangeConflictPolicy,
+  searchablePdf = true,
+  onToggleSearchablePdf,
+  syncToSheet = true,
+  onToggleSyncToSheet,
+  learnedWilayahCodes,
+  appsScriptUrl,
+  pendingOfflineCount = 0,
+  onSyncOfflineNow,
+  onFieldCorrected,
   onReExtractAi,
   onRunLocalOcr,
   onSwapPages,
@@ -228,12 +270,25 @@ export function NamingExportPanel({
   const nomorHakErrorId = useId();
   const kecamatanId = useId();
   const kecamatanHintId = useId();
+  const kecDatalistId = useId();
   const kelurahanId = useId();
   const kelurahanHintId = useId();
+  const kelDatalistId = useId();
+  const nibId = useId();
+  const luasId = useId();
   const customFileId = useId();
   const customFileHintId = useId();
   const customFileErrorId = useId();
   const qualityId = useId();
+  const conflictPolicyId = useId();
+
+  const [cloudDupState, setCloudDupState] = useState<{
+    key: string;
+    loading: boolean;
+    result: DriveDuplicateCheckResult | null;
+    error: string | null;
+  }>({ key: "", loading: false, result: null, error: null });
+  const [manualCheckTick, setManualCheckTick] = useState(0);
 
   const currentYear = new Date().getFullYear();
   const validation = validateStandardFields(fields, currentYear);
@@ -246,6 +301,108 @@ export function NamingExportPanel({
   const pageCount = (hasPage1 ? 1 : 0) + (hasPage2 ? 1 : 0);
   const normalizedKecamatan = normalizeKecamatanName(fields.kecamatan);
   const normalizedKelurahan = normalizeKelurahanName(fields.kelurahan);
+
+  const kecOptions = useMemo(() => getKecamatanOptions(), []);
+  const kelOptions = useMemo(
+    () => getKelurahanOptions(normalizedKecamatan || fields.kecamatan),
+    [normalizedKecamatan, fields.kecamatan],
+  );
+
+  const hakCrossCheck = useMemo(
+    () =>
+      validateHakRegionCrossCheck({
+        rawNomorHak: rawEvidence.teksNomorHak,
+        kecamatan: normalizedKecamatan || fields.kecamatan,
+        kelurahan: normalizedKelurahan || fields.kelurahan,
+        learnedCodes: learnedWilayahCodes,
+      }),
+    [
+      rawEvidence.teksNomorHak,
+      normalizedKecamatan,
+      fields.kecamatan,
+      normalizedKelurahan,
+      fields.kelurahan,
+      learnedWilayahCodes,
+    ],
+  );
+
+  const cloudCheckKey = `${driveFolderId}|${normalizedKecamatan}|${normalizedKelurahan}|${finalFilename}|${manualCheckTick}`;
+
+  useEffect(() => {
+    if (!driveReady || !normalizedKecamatan || !finalFilename || pageCount === 0) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setCloudDupState({
+        key: cloudCheckKey,
+        loading: true,
+        result: null,
+        error: null,
+      });
+      try {
+        const res = await fetch("/api/drive/check-duplicate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            filename: finalFilename,
+            kecamatan: normalizedKecamatan,
+            kelurahan: normalizedKelurahan,
+            rootFolderId: driveFolderId,
+            appsScriptUrl,
+          }),
+        });
+        const data = (await res.json().catch(() => null)) as
+          | (DriveDuplicateCheckResult & { error?: string })
+          | null;
+        if (!controller.signal.aborted) {
+          if (res.ok && data) {
+            setCloudDupState({
+              key: cloudCheckKey,
+              loading: false,
+              result: data,
+              error: null,
+            });
+          } else {
+            setCloudDupState({
+              key: cloudCheckKey,
+              loading: false,
+              result: null,
+              error: data?.error || `HTTP ${res.status}`,
+            });
+          }
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          setCloudDupState({
+            key: cloudCheckKey,
+            loading: false,
+            result: null,
+            error: err instanceof Error ? err.message : "Gagal memeriksa Drive",
+          });
+        }
+      }
+    }, 850);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    driveReady,
+    normalizedKecamatan,
+    normalizedKelurahan,
+    finalFilename,
+    pageCount,
+    driveFolderId,
+    appsScriptUrl,
+    cloudCheckKey,
+  ]);
+
+  const activeCloudCheck =
+    cloudDupState.key === cloudCheckKey ? cloudDupState : null;
 
   const showFieldError = (key: keyof typeof validation.errors) =>
     Boolean((touched[key] || submitAttempted) && validation.errors[key]);
@@ -935,6 +1092,7 @@ export function NamingExportPanel({
               id={kecamatanId}
               name="kecamatan"
               type="text"
+              list={kecDatalistId}
               autoCorrect="off"
               spellCheck={false}
               maxLength={80}
@@ -948,16 +1106,33 @@ export function NamingExportPanel({
               }
               onBlur={() => {
                 markTouched("kecamatan");
-                if (fields.kecamatan.trim()) {
+                const raw = fields.kecamatan.trim();
+                if (raw) {
+                  const matched =
+                    matchWilayahKecamatan(raw).matched ||
+                    normalizeKecamatanName(raw);
+                  if (matched && matched !== raw) {
+                    onFieldCorrected?.(
+                      "kecamatan",
+                      raw,
+                      matched,
+                      rawEvidence.teksLokasi,
+                    );
+                  }
                   onChangeFields({
                     ...fields,
-                    kecamatan: normalizeKecamatanName(fields.kecamatan),
+                    kecamatan: matched,
                   });
                 }
               }}
               placeholder="Misal: Medan Helvetia"
               className="su-control w-full rounded-xl px-3.5 py-2 text-sm font-bold"
             />
+            <datalist id={kecDatalistId}>
+              {kecOptions.map((opt) => (
+                <option key={opt} value={opt} />
+              ))}
+            </datalist>
           </div>
 
           {/* 7. Kelurahan / Desa (Nested Subfolder Drive inside Kecamatan) */}
@@ -980,13 +1155,14 @@ export function NamingExportPanel({
               id={kelurahanHintId}
               className="text-[11px] font-medium text-[#4B5563]"
             >
-              Otomatis dibuat di dalam folder Kecamatan (opsional untuk SU lama 1960-an)
+              Otomatis dibuat di dalam folder Kecamatan (mendukung koreksi ejaan kamus Medan/Deli Serdang)
             </span>
             <input
               ref={kelurahanRef}
               id={kelurahanId}
               name="kelurahan"
               type="text"
+              list={kelDatalistId}
               autoCorrect="off"
               spellCheck={false}
               maxLength={80}
@@ -1000,16 +1176,102 @@ export function NamingExportPanel({
               }
               onBlur={() => {
                 markTouched("kelurahan");
-                if (fields.kelurahan.trim()) {
+                const raw = fields.kelurahan.trim();
+                if (raw) {
+                  const matched =
+                    matchWilayahKelurahan(
+                      raw,
+                      normalizedKecamatan || fields.kecamatan,
+                    ).matched || normalizeKelurahanName(raw);
+                  if (matched && matched !== raw) {
+                    onFieldCorrected?.(
+                      "kelurahan",
+                      raw,
+                      matched,
+                      rawEvidence.teksLokasi,
+                    );
+                  }
                   onChangeFields({
                     ...fields,
-                    kelurahan: normalizeKelurahanName(fields.kelurahan),
+                    kelurahan: matched,
                   });
                 }
               }}
               placeholder="Misal: Helvetia Timur"
               className="su-control w-full rounded-xl px-3.5 py-2 text-sm font-bold"
             />
+            <datalist id={kelDatalistId}>
+              {kelOptions.map((opt) => (
+                <option key={opt} value={opt} />
+              ))}
+            </datalist>
+
+            {/* Cross-Check 8-Digit Nomor Hak vs Kecamatan/Kelurahan */}
+            {hakCrossCheck.prefix8 ? (
+              <div
+                className={`mt-1.5 flex items-start gap-2 rounded-xl border px-3 py-2 text-[11px] font-semibold ${
+                  hakCrossCheck.status === "mismatch"
+                    ? "border-[#FECDD3] bg-[#FFF1F2] text-[#9F1239]"
+                    : hakCrossCheck.status === "match"
+                      ? "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]"
+                      : "border-[#E5E7EB] bg-[#F9FAFB] text-[#4B5563]"
+                }`}
+              >
+                {hakCrossCheck.status === "mismatch" ? (
+                  <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                ) : (
+                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <span className="font-mono font-bold">
+                    Kode Wilayah {hakCrossCheck.prefix8}:
+                  </span>{" "}
+                  {hakCrossCheck.message}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Optional Metadata for Google Sheets & Excel Rekap (NIB & Luas Tanah) */}
+            <div className="mt-2 grid grid-cols-1 gap-2 border-t border-dashed border-[#E5E7EB] pt-2.5 sm:grid-cols-2">
+              <div className="flex flex-col gap-1">
+                <label htmlFor={nibId} className="nb-micro text-[10px] text-[#4B5563]">
+                  NIB (Opsional Rekap)
+                </label>
+                <input
+                  id={nibId}
+                  type="text"
+                  maxLength={32}
+                  value={fields.nib || ""}
+                  onChange={(e) =>
+                    onChangeFields({
+                      ...fields,
+                      nib: e.target.value,
+                    })
+                  }
+                  placeholder="00412 / 12.01..."
+                  className="su-control rounded-lg px-2.5 py-1.5 font-mono text-xs font-semibold"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor={luasId} className="nb-micro text-[10px] text-[#4B5563]">
+                  Luas Tanah (m²)
+                </label>
+                <input
+                  id={luasId}
+                  type="text"
+                  maxLength={24}
+                  value={fields.luasTanah || ""}
+                  onChange={(e) =>
+                    onChangeFields({
+                      ...fields,
+                      luasTanah: e.target.value,
+                    })
+                  }
+                  placeholder="Misal: 145 m2"
+                  className="su-control rounded-lg px-2.5 py-1.5 font-mono text-xs font-semibold"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1040,6 +1302,62 @@ export function NamingExportPanel({
           <p className="mt-2.5 break-all rounded-xl border border-[#DDD6FE] bg-white px-3 py-2.5 font-mono text-sm font-bold text-[#111114]">
             {finalFilename}
           </p>
+
+          {/* Real-time Cloud Deduplication Lookup Result */}
+          {driveReady && normalizedKecamatan && pageCount > 0 ? (
+            <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-[11px]">
+              {activeCloudCheck?.loading ? (
+                <span className="inline-flex items-center gap-1.5 font-semibold text-[#4B5563]">
+                  <SearchCheck className="h-3.5 w-3.5 animate-pulse text-[#5E17EB]" aria-hidden="true" />
+                  Mengecek duplikat langsung di Google Drive…
+                </span>
+              ) : activeCloudCheck?.result?.supported &&
+                activeCloudCheck.result.exists ? (
+                <div className="flex flex-1 flex-wrap items-center justify-between gap-2 text-[#9F1239]">
+                  <span className="inline-flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    Sudah ada di Drive ({activeCloudCheck.result.matches.length} berkas)
+                  </span>
+                  {activeCloudCheck.result.matches[0]?.url ? (
+                    <a
+                      href={activeCloudCheck.result.matches[0].url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-bold text-[#5E17EB] underline"
+                    >
+                      Lihat Berkas Lama
+                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    </a>
+                  ) : null}
+                </div>
+              ) : activeCloudCheck?.result?.supported ? (
+                <span className="inline-flex items-center gap-1.5 font-semibold text-[#065F46]">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  Aman · Belum ada file bernama sama di Drive
+                </span>
+              ) : activeCloudCheck?.result && !activeCloudCheck.result.supported ? (
+                <span className="font-medium text-[#4B5563]">
+                  {activeCloudCheck.result.message || "Update Apps Script untuk cek Cloud Drive."}
+                </span>
+              ) : activeCloudCheck?.error ? (
+                <span className="font-medium text-[#92400E]">
+                  Cek Cloud Drive dilewati: {activeCloudCheck.error}
+                </span>
+              ) : (
+                <span className="font-medium text-[#4B5563]">
+                  Siap cek duplikat langsung ke Cloud Drive
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setManualCheckTick((t) => t + 1)}
+                className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[10px] font-bold text-[#111114] hover:bg-[#F3F4F6]"
+              >
+                <RefreshCw className="h-2.5 w-2.5" aria-hidden="true" />
+                Cek Ulang
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {/* Card 4: PDF Quality, Local Export & Google Drive Subfolder */}
@@ -1069,18 +1387,94 @@ export function NamingExportPanel({
             </select>
           </div>
 
-          <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]">
-            <input
-              type="checkbox"
-              checked={autoUploadOnExport}
-              onChange={(e) => onToggleAutoUpload(e.target.checked)}
-              className="h-4 w-4 shrink-0"
-            />
-            <span>
-              Sekaligus upload ke Google Drive saat{" "}
-              <strong>Simpan &amp; Download</strong>
-            </span>
-          </label>
+          <div className="space-y-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] p-2.5">
+            <label className="inline-flex min-h-7 w-full cursor-pointer items-center gap-2 text-xs font-semibold text-[#111114]">
+              <input
+                type="checkbox"
+                checked={autoUploadOnExport}
+                onChange={(e) => onToggleAutoUpload(e.target.checked)}
+                className="h-4 w-4 shrink-0"
+              />
+              <span>
+                Sekaligus upload ke Google Drive saat{" "}
+                <strong>Simpan &amp; Download</strong>
+              </span>
+            </label>
+
+            {onToggleSearchablePdf ? (
+              <label className="inline-flex min-h-7 w-full cursor-pointer items-center gap-2 text-xs font-semibold text-[#111114]">
+                <input
+                  type="checkbox"
+                  checked={searchablePdf}
+                  onChange={(e) => onToggleSearchablePdf(e.target.checked)}
+                  className="h-4 w-4 shrink-0"
+                />
+                <FileSearch className="h-3.5 w-3.5 shrink-0 text-[#5E17EB]" aria-hidden="true" />
+                <span>
+                  PDF Searchable (tanam teks OCR Ctrl+F di balik gambar)
+                </span>
+              </label>
+            ) : null}
+
+            {onToggleSyncToSheet ? (
+              <label className="inline-flex min-h-7 w-full cursor-pointer items-center gap-2 text-xs font-semibold text-[#111114]">
+                <input
+                  type="checkbox"
+                  checked={syncToSheet}
+                  onChange={(e) => onToggleSyncToSheet(e.target.checked)}
+                  className="h-4 w-4 shrink-0"
+                />
+                <span>
+                  Catat otomatis ke <strong>Google Sheets Rekap</strong> setelah upload
+                </span>
+              </label>
+            ) : null}
+
+            {onChangeConflictPolicy ? (
+              <div className="flex flex-col gap-1 border-t border-[#E5E7EB] pt-2">
+                <label
+                  htmlFor={conflictPolicyId}
+                  className="nb-micro text-[10px] text-[#4B5563]"
+                >
+                  Kebijakan Konflik File di Drive
+                </label>
+                <select
+                  id={conflictPolicyId}
+                  value={conflictPolicy}
+                  onChange={(e) =>
+                    onChangeConflictPolicy(e.target.value as DriveConflictPolicy)
+                  }
+                  className="su-control w-full rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                >
+                  <option value="revision">
+                    Simpan sebagai _rev2 / _rev3 bila file sudah ada
+                  </option>
+                  <option value="overwrite">
+                    Timpa (Overwrite) file lama di folder Drive
+                  </option>
+                  <option value="skip">
+                    Lewati (Skip) upload bila nama sama sudah ada
+                  </option>
+                </select>
+              </div>
+            ) : null}
+          </div>
+
+          {pendingOfflineCount > 0 && onSyncOfflineNow ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 font-bold text-[#92400E]">
+                <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {pendingOfflineCount} berkas di Antrean Offline
+              </span>
+              <button
+                type="button"
+                onClick={onSyncOfflineNow}
+                className="nb-btn-sm bg-white px-2.5 py-1 text-[11px] font-bold text-[#111114]"
+              >
+                Kirim Ulang Sekarang
+              </button>
+            </div>
+          ) : null}
 
           <button
             type="submit"
@@ -1174,12 +1568,21 @@ export function NamingExportPanel({
             {lastDriveResult ? (
               <div className="space-y-1.5 rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] p-2.5 text-xs">
                 <p className="font-bold text-[#065F46]">
-                  {lastDriveResult.kelurahanName
-                    ? `Tersimpan ke subfolder "${lastDriveResult.kecamatanName || normalizedKecamatan} / ${lastDriveResult.kelurahanName}" (${lastDriveResult.kelurahanCreated ? "folder Kelurahan baru dibuat" : "memakai folder Kelurahan yang sudah ada"}).`
-                    : lastDriveResult.folderCreated
-                      ? `Subfolder baru "${lastDriveResult.folderName}" dibuat & berkas dimasukkan.`
-                      : `Subfolder "${lastDriveResult.folderName}" sudah ada — berkas dimasukkan ke folder tersebut.`}
+                  {lastDriveResult.skipped
+                    ? `Dilewati (${lastDriveResult.fileName} sudah ada di Drive).`
+                    : lastDriveResult.overwritten
+                      ? `Berhasil menimpa berkas lama "${lastDriveResult.fileName}" di subfolder "${lastDriveResult.kelurahanName ? `${lastDriveResult.kecamatanName || normalizedKecamatan} / ${lastDriveResult.kelurahanName}` : lastDriveResult.folderName}".`
+                      : lastDriveResult.kelurahanName
+                        ? `Tersimpan (${lastDriveResult.fileName}) ke subfolder "${lastDriveResult.kecamatanName || normalizedKecamatan} / ${lastDriveResult.kelurahanName}" (${lastDriveResult.kelurahanCreated ? "folder Kelurahan baru dibuat" : "memakai folder Kelurahan yang sudah ada"}).`
+                        : lastDriveResult.folderCreated
+                          ? `Subfolder baru "${lastDriveResult.folderName}" dibuat & berkas (${lastDriveResult.fileName}) dimasukkan.`
+                          : `Subfolder "${lastDriveResult.folderName}" sudah ada — berkas (${lastDriveResult.fileName}) dimasukkan.`}
                 </p>
+                {lastDriveResult.sheetLogged ? (
+                  <p className="text-[11px] font-semibold text-[#047857]">
+                    Log otomatis dicatat ke Google Sheets Rekap_Scan_SU.
+                  </p>
+                ) : null}
                 {normalizedKelurahan &&
                 lastDriveResult.nestedSupported === false ? (
                   <p className="rounded border border-[#FDE68A] bg-[#FFFBEB] px-2 py-1 text-[11px] font-semibold text-[#92400E]">

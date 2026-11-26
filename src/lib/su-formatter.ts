@@ -5,7 +5,11 @@ import type {
   StandardHakCode,
   SuFieldConfidences,
   SuNamingFields,
-} from "./su-types";
+} from "./su-types.ts";
+import {
+  matchWilayahKecamatan,
+  matchWilayahKelurahan,
+} from "./wilayah-dict.ts";
 
 export interface HakOption {
   code: StandardHakCode;
@@ -487,13 +491,48 @@ export function applyExtractionToForm(
     /(?:kelurahan|kel\.?|desa|ds\.?|kampung|kp\.?)\s*[:.\-]?\s*([^\n,;\/|]+)/i,
   )?.[1];
 
-  const kecamatanNormalized =
+  const kecamatanRawNormalized =
     normalizeKecamatanName(extraction.kecamatan_raw) ||
     normalizeKecamatanName(kecFromLokasi);
-  const kelurahanNormalized =
+  const kecMatch = kecamatanRawNormalized
+    ? matchWilayahKecamatan(kecamatanRawNormalized)
+    : null;
+  const kecamatanNormalized =
+    kecMatch?.matched && kecMatch.similarity >= 0.8
+      ? kecMatch.matched
+      : kecamatanRawNormalized;
+  if (
+    kecMatch?.matched &&
+    kecMatch.corrected &&
+    kecMatch.similarity >= 0.8 &&
+    kecMatch.similarity < 0.99
+  ) {
+    warnings.push(
+      `Koreksi kamus wilayah: Kecamatan "${kecamatanRawNormalized}" disamakan ke "${kecMatch.matched}".`,
+    );
+  }
+
+  const kelurahanRawNormalized =
     normalizeKelurahanName(extraction.kelurahan_raw) ||
     normalizeKelurahanName(kelFromLokasi) ||
     normalizeKelurahanName(suMiddleIsKelurahan);
+  const kelMatch = kelurahanRawNormalized
+    ? matchWilayahKelurahan(kelurahanRawNormalized, kecamatanNormalized)
+    : null;
+  const kelurahanNormalized =
+    kelMatch?.matched && kelMatch.similarity >= 0.8
+      ? kelMatch.matched
+      : kelurahanRawNormalized;
+  if (
+    kelMatch?.matched &&
+    kelMatch.corrected &&
+    kelMatch.similarity >= 0.8 &&
+    kelMatch.similarity < 0.99
+  ) {
+    warnings.push(
+      `Koreksi kamus wilayah: Kelurahan "${kelurahanRawNormalized}" disamakan ke "${kelMatch.matched}".`,
+    );
+  }
 
   const makeMeta = (
     score: number,
@@ -532,6 +571,8 @@ export function applyExtractionToForm(
       customHak: "",
       kecamatan: kecamatanNormalized,
       kelurahan: kelurahanNormalized,
+      nib: extraction.nib_terdeteksi || "",
+      luasTanah: extraction.luas_tanah || "",
     },
     confidences: {
       nomorSu: makeMeta(extraction.confidence.nomor_su, Boolean(nomorSuFormatted)),
@@ -571,6 +612,8 @@ export function createEmptyFields(): SuNamingFields {
     customHak: "",
     kecamatan: "",
     kelurahan: "",
+    nib: "",
+    luasTanah: "",
   };
 }
 

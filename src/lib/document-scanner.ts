@@ -1,12 +1,78 @@
-import type { QuadCorners, ScanFilter } from "./su-types";
+import type { EdgeMidpoints, NormalizedPoint, QuadCorners, ScanFilter } from "./su-types";
 import {
   cloneCorners,
   detectPaperCornersFromRgba,
   FULL_FRAME_CORNERS,
   orderCornersClockwise,
 } from "./auto-crop";
+import {
+  analyzeRgbaImageQuality,
+  type ImageQualityReport,
+} from "./image-quality";
 
 export { cloneCorners, FULL_FRAME_CORNERS, orderCornersClockwise };
+
+export function computeDefaultEdgeMidpoints(corners: QuadCorners): EdgeMidpoints {
+  const mid = (a: NormalizedPoint, b: NormalizedPoint): NormalizedPoint => ({
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+  });
+  return [
+    mid(corners[0], corners[1]),
+    mid(corners[1], corners[2]),
+    mid(corners[2], corners[3]),
+    mid(corners[3], corners[0]),
+  ];
+}
+
+export function rotateEdgeMidpoints(
+  midpoints: EdgeMidpoints,
+  deltaDeg: 90 | -90,
+): EdgeMidpoints {
+  const rotPt = (p: NormalizedPoint): NormalizedPoint =>
+    deltaDeg === 90
+      ? { x: clamp(1 - p.y, 0, 1), y: clamp(p.x, 0, 1) }
+      : { x: clamp(p.y, 0, 1), y: clamp(1 - p.x, 0, 1) };
+
+  const rotated = midpoints.map(rotPt);
+  return deltaDeg === 90
+    ? [rotated[3], rotated[0], rotated[1], rotated[2]]
+    : [rotated[1], rotated[2], rotated[3], rotated[0]];
+}
+
+function hasCurvedMidpoints(
+  corners: QuadCorners,
+  midpoints?: EdgeMidpoints,
+): midpoints is EdgeMidpoints {
+  if (!midpoints) return false;
+  const flat = computeDefaultEdgeMidpoints(corners);
+  for (let i = 0; i < 4; i++) {
+    if (
+      Math.hypot(midpoints[i].x - flat[i].x, midpoints[i].y - flat[i].y) >= 0.004
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Evaluates a quadratic Lagrange curve through (pStart, pMid at t=0.5, pEnd).
+ */
+function evalQuadEdge(
+  pStart: { x: number; y: number },
+  pMid: { x: number; y: number },
+  pEnd: { x: number; y: number },
+  t: number,
+): { x: number; y: number } {
+  const w0 = (1 - t) * (1 - 2 * t);
+  const w1 = 4 * t * (1 - t);
+  const w2 = t * (2 * t - 1);
+  return {
+    x: pStart.x * w0 + pMid.x * w1 + pEnd.x * w2,
+    y: pStart.y * w0 + pMid.y * w1 + pEnd.y * w2,
+  };
+}
 
 function clamp(val: number, min: number, max: number): number {
   return val < min ? min : val > max ? max : val;
@@ -417,7 +483,12 @@ function applyDocumentFilterInPlace(
   const { data, width: w, height: h } = imageData;
   const totalPixels = w * h;
 
-  if (filter === "magic" || filter === "grayscale" || filter === "bw") {
+  if (
+    filter === "magic" ||
+    filter === "grayscale" ||
+    filter === "bw" ||
+    filter === "stamp-clean"
+  ) {
     const { bgR, bgG, bgB, dw, dh } = computeLocalPaperBackground(data, w, h);
 
     for (let y = 0; y < h; y++) {
@@ -495,6 +566,21 @@ function applyDocumentFilterInPlace(
           data[p] = lum;
           data[p + 1] = lum;
           data[p + 2] = lum;
+        } else if (filter === "stamp-clean") {
+          const lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+          const chroma = Math.max(nr, ng, nb) - Math.min(nr, ng, nb);
+          // Attenuate bright red/blue/purple rubber stamps while keeping dark typed ink dark
+          if (chroma > 28 && lum > 82) {
+            const cleaned = Math.min(255, lum + chroma * 0.72 + 24);
+            data[p] = cleaned;
+            data[p + 1] = cleaned;
+            data[p + 2] = cleaned;
+          } else {
+            const crisp = lum > 236 ? 255 : clamp((lum - 145) * 1.28 + 145, 0, 255);
+            data[p] = crisp;
+            data[p + 1] = crisp;
+            data[p + 2] = crisp;
+          }
         } else {
           // B&W Crisp: soft anti-aliased high-contrast threshold against flattened paper
           const lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
@@ -557,6 +643,7 @@ export async function processDocumentPage(params: {
   rawUrl: string;
   rotation: 0 | 90 | 180 | 270;
   corners: QuadCorners;
+  edgeMidpoints?: EdgeMidpoints;
   filter: ScanFilter;
   brightness: number;
   contrast: number;
@@ -566,11 +653,13 @@ export async function processDocumentPage(params: {
   dataUrl: string;
   width: number;
   height: number;
+  qualityReport: ImageQualityReport;
 }> {
   const {
     rawUrl,
     rotation,
     corners,
+    edgeMidpoints,
     filter,
     brightness,
     contrast,
@@ -585,8 +674,9 @@ export async function processDocumentPage(params: {
   if (!srcCtx) throw new Error("Konteks kanvas tidak tersedia.");
 
   let outCanvas: HTMLCanvasElement;
+  const useCurvedSpine = hasCurvedMidpoints(corners, edgeMidpoints);
 
-  if (isIdentityFullFrame(corners)) {
+  if (isIdentityFullFrame(corners) && !useCurvedSpine) {
     const scale = Math.min(1, maxOutputSide / Math.max(srcW, srcH));
     const dstW = Math.max(1, Math.round(srcW * scale));
     const dstH = Math.max(1, Math.round(srcH * scale));
@@ -649,14 +739,75 @@ export async function processDocumentPage(params: {
 
     const dstImage = outCtx.createImageData(dstW, dstH);
     const dstData = dstImage.data;
-    const h = solveInverseHomography(dstW, dstH, pxCorners);
+    const h = useCurvedSpine ? null : solveInverseHomography(dstW, dstH, pxCorners);
+    const pxMids = useCurvedSpine
+      ? [
+          { x: edgeMidpoints[0].x * (srcW - 1), y: edgeMidpoints[0].y * (srcH - 1) },
+          { x: edgeMidpoints[1].x * (srcW - 1), y: edgeMidpoints[1].y * (srcH - 1) },
+          { x: edgeMidpoints[2].x * (srcW - 1), y: edgeMidpoints[2].y * (srcH - 1) },
+          { x: edgeMidpoints[3].x * (srcW - 1), y: edgeMidpoints[3].y * (srcH - 1) },
+        ]
+      : null;
+
+    // Precompute top/bottom curve points across u for fast Coons Patch page-curl dewarping
+    const topCurve = pxMids ? new Float32Array(dstW * 2) : null;
+    const botCurve = pxMids ? new Float32Array(dstW * 2) : null;
+    if (pxMids && topCurve && botCurve) {
+      for (let u = 0; u < dstW; u++) {
+        const un = dstW > 1 ? u / (dstW - 1) : 0;
+        const tp = evalQuadEdge(pxCorners[0], pxMids[0], pxCorners[1], un);
+        const bp = evalQuadEdge(pxCorners[3], pxMids[2], pxCorners[2], un);
+        topCurve[u * 2] = tp.x;
+        topCurve[u * 2 + 1] = tp.y;
+        botCurve[u * 2] = bp.x;
+        botCurve[u * 2 + 1] = bp.y;
+      }
+    }
 
     for (let v = 0; v < dstH; v++) {
       const rowOffset = v * dstW;
+      const vn = dstH > 1 ? v / (dstH - 1) : 0;
+      const lp = pxMids ? evalQuadEdge(pxCorners[0], pxMids[3], pxCorners[3], vn) : null;
+      const rp = pxMids ? evalQuadEdge(pxCorners[1], pxMids[1], pxCorners[2], vn) : null;
+
       for (let u = 0; u < dstW; u++) {
-        const denom = h[6] * u + h[7] * v + h[8];
-        const sx = (h[0] * u + h[1] * v + h[2]) / denom;
-        const sy = (h[3] * u + h[4] * v + h[5]) / denom;
+        let sx: number;
+        let sy: number;
+
+        if (h) {
+          const denom = h[6] * u + h[7] * v + h[8];
+          sx = (h[0] * u + h[1] * v + h[2]) / denom;
+          sy = (h[3] * u + h[4] * v + h[5]) / denom;
+        } else if (topCurve && botCurve && lp && rp) {
+          const un = dstW > 1 ? u / (dstW - 1) : 0;
+          const invU = 1 - un;
+          const invV = 1 - vn;
+          const bilX =
+            invU * invV * pxCorners[0].x +
+            un * invV * pxCorners[1].x +
+            invU * vn * pxCorners[3].x +
+            un * vn * pxCorners[2].x;
+          const bilY =
+            invU * invV * pxCorners[0].y +
+            un * invV * pxCorners[1].y +
+            invU * vn * pxCorners[3].y +
+            un * vn * pxCorners[2].y;
+          sx =
+            invV * topCurve[u * 2] +
+            vn * botCurve[u * 2] +
+            invU * lp.x +
+            un * rp.x -
+            bilX;
+          sy =
+            invV * topCurve[u * 2 + 1] +
+            vn * botCurve[u * 2 + 1] +
+            invU * lp.y +
+            un * rp.y -
+            bilY;
+        } else {
+          sx = u;
+          sy = v;
+        }
 
         const dIdx = (rowOffset + u) * 4;
 
@@ -709,13 +860,25 @@ export async function processDocumentPage(params: {
     outCtx.putImageData(dstImage, 0, 0);
   }
 
-  // Apply filter + brightness/contrast in-place
-  if (filter !== "original" || brightness !== 0 || contrast !== 0) {
-    const outCtx = outCanvas.getContext("2d", { willReadFrequently: true });
-    if (outCtx) {
-      const imgData = outCtx.getImageData(
-        0,
-        0,
+  // Apply filter + brightness/contrast in-place and measure document sharpness/glare
+  const outCtx = outCanvas.getContext("2d", { willReadFrequently: true });
+  let qualityReport: ImageQualityReport = {
+    status: "good",
+    sharpnessScore: 100,
+    glarePercent: 0,
+    warnings: [],
+  };
+  if (outCtx) {
+    const imgData = outCtx.getImageData(0, 0, outCanvas.width, outCanvas.height);
+    if (filter === "original" && brightness === 0 && contrast === 0) {
+      qualityReport = analyzeRgbaImageQuality(
+        imgData.data,
+        outCanvas.width,
+        outCanvas.height,
+      );
+    } else {
+      qualityReport = analyzeRgbaImageQuality(
+        imgData.data,
         outCanvas.width,
         outCanvas.height,
       );
@@ -728,6 +891,7 @@ export async function processDocumentPage(params: {
     dataUrl: outCanvas.toDataURL("image/jpeg", jpegQuality),
     width: outCanvas.width,
     height: outCanvas.height,
+    qualityReport,
   };
 }
 

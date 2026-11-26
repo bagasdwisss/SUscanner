@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Compact, token-efficient system instruction for Indonesian ATR/BPN Surat Ukur (SU)
- * structured extraction (including 1960s 1-sheet SUs & Kecamatan/Kelurahan detection).
+ * structured extraction (including 1960s 1-sheet SUs, Kecamatan/Kelurahan, NIB, and Luas Tanah).
  */
 export const SU_SYSTEM_INSTRUCTION = `Ekstrak data "SURAT UKUR" / "GAMBAR SITUASI" ATR/BPN (warkah modern 2 hal maupun lama 1960-an 1 lembar) ke JSON presisi:
 1. raw_evidence: salin persis teks asli di kertas (teks_nomor_su, teks_nomor_hak, teks_lokasi). nib_terdeteksi: angka NIB 13 digit bila tercantum.
@@ -12,7 +12,8 @@ export const SU_SYSTEM_INSTRUCTION = `Ekstrak data "SURAT UKUR" / "GAMBAR SITUAS
 5. nomor_hak_raw: 5 digit nomor hak (digit ke-10..14 pada pola 14 digit BPN, atau angka pada HM.145 / H.M. 145). DILARANG mengisi NIB 13 digit.
 6. kecamatan_raw: nama pada baris Kecamatan/Ketjamatan saja (jangan Kota/Kabupaten).
 7. kelurahan_raw: nama pada baris Kelurahan/Desa/Kampung atau segmen tengah Nomor SU modern (06/Helvetia Timur/2007 -> "Helvetia Timur"). null bila tidak ada.
-8. catatan_peringatan: isi sangat singkat hanya jika teks penting buram/terpotong, else null. Jangan menebak bila tidak terbaca.`;
+8. luas_tanah: luas bidang tanah beserta satuan (mis. "245 m2") jika terbaca jelas, else null.
+9. catatan_peringatan: isi sangat singkat hanya jika teks penting buram/terpotong, else null. Jangan menebak bila tidak terbaca.`;
 
 export const SU_USER_PROMPT = "Ekstrak data Surat Ukur ke JSON.";
 
@@ -29,6 +30,7 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
       required: ["teks_nomor_su", "teks_nomor_hak", "teks_lokasi"],
     },
     nib_terdeteksi: { type: ["string", "null"] },
+    luas_tanah: { type: ["string", "null"] },
     is_halaman_data_su: { type: "boolean" },
     nomor_su_raw: { type: ["string", "null"] },
     tahun_su: { type: ["string", "null"] },
@@ -84,6 +86,7 @@ export const suExtractionZodSchema = z.object({
   kecamatan_raw: z.string().nullable().default(null),
   kelurahan_raw: z.string().nullable().default(null),
   nib_terdeteksi: z.string().nullable().default(null),
+  luas_tanah: z.string().nullable().optional().default(null),
   raw_evidence: z.object({
     teks_nomor_su: z.string().nullable(),
     teks_nomor_hak: z.string().nullable(),

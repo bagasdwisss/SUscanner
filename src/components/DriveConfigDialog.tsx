@@ -7,6 +7,7 @@ import {
   Copy,
   ExternalLink,
   FolderOpen,
+  Lock,
   RotateCcw,
 } from "lucide-react";
 import { AppDialog } from "./AppDialog";
@@ -20,7 +21,7 @@ import {
   DEFAULT_DRIVE_ROOT_FOLDER_ID,
   extractDriveFolderId,
 } from "@/lib/su-formatter";
-import type { DriveStatusResponse } from "@/lib/su-types";
+import type { DriveConflictPolicy, DriveStatusResponse } from "@/lib/su-types";
 
 interface DriveConfigDialogProps {
   open: boolean;
@@ -29,10 +30,16 @@ interface DriveConfigDialogProps {
   appsScriptUrl: string;
   rootFolderInput: string;
   autoUploadOnExport: boolean;
+  conflictPolicy?: DriveConflictPolicy;
+  syncToSheet?: boolean;
+  isAdminUnlocked?: boolean;
+  onRequirePinUnlock?: () => void;
   onSaveConfig: (next: {
     appsScriptUrl: string;
     rootFolderId: string;
     autoUploadOnExport: boolean;
+    conflictPolicy: DriveConflictPolicy;
+    syncToSheet: boolean;
   }) => void;
   onClearAppsScript: () => void;
 }
@@ -44,6 +51,10 @@ export function DriveConfigDialog({
   appsScriptUrl,
   rootFolderInput,
   autoUploadOnExport,
+  conflictPolicy = "revision",
+  syncToSheet = true,
+  isAdminUnlocked = true,
+  onRequirePinUnlock,
   onSaveConfig,
   onClearAppsScript,
 }: DriveConfigDialogProps) {
@@ -54,6 +65,8 @@ export function DriveConfigDialog({
     rootFolderInput || DEFAULT_DRIVE_ROOT_FOLDER_ID,
   );
   const [autoDraft, setAutoDraft] = useState(autoUploadOnExport);
+  const [policyDraft, setPolicyDraft] = useState<DriveConflictPolicy>(conflictPolicy);
+  const [sheetDraft, setSheetDraft] = useState(syncToSheet);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedScript, setCopiedScript] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -130,6 +143,10 @@ export function DriveConfigDialog({
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdminUnlocked) {
+      onRequirePinUnlock?.();
+      return;
+    }
     const cleanedFolder = extractDriveFolderId(folderDraft);
     if (!cleanedFolder) {
       setErrorMsg(
@@ -151,6 +168,8 @@ export function DriveConfigDialog({
       appsScriptUrl: trimmedUrl,
       rootFolderId: cleanedFolder,
       autoUploadOnExport: autoDraft,
+      conflictPolicy: policyDraft,
+      syncToSheet: sheetDraft,
     });
     onClose();
   };
@@ -175,14 +194,32 @@ export function DriveConfigDialog({
           <button
             type="submit"
             form="drive-config-form"
-            className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center px-5 py-2 text-xs font-semibold"
+            className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center gap-1.5 px-5 py-2 text-xs font-semibold"
           >
+            {!isAdminUnlocked ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             Simpan Pengaturan Drive
           </button>
         </>
       }
     >
       <form id="drive-config-form" onSubmit={handleSave} className="space-y-4 text-sm">
+        {!isAdminUnlocked ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-3.5 py-2.5 text-xs">
+            <span className="inline-flex items-center gap-1.5 font-bold text-[#92400E]">
+              <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Mode Kiosk Aktif: Pengaturan Drive dikunci PIN Admin.
+            </span>
+            {onRequirePinUnlock ? (
+              <button
+                type="button"
+                onClick={onRequirePinUnlock}
+                className="nb-btn-sm bg-white px-3 py-1 text-[11px] font-bold text-[#111114]"
+              >
+                Buka Kunci Admin
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {/* Connection Status Banner */}
         <div
           className={`nb-card-sm flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${
@@ -273,6 +310,34 @@ export function DriveConfigDialog({
               <strong>Simpan &amp; Download PDF</strong>
             </span>
           </label>
+
+          <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]">
+            <input
+              type="checkbox"
+              checked={sheetDraft}
+              onChange={(e) => setSheetDraft(e.target.checked)}
+              className="h-4 w-4"
+            />
+            <span>
+              Catat baris rekap otomatis ke Google Sheets (<code>Rekap_Scan_SU</code>)
+            </span>
+          </label>
+
+          <div className="flex flex-col gap-1 pt-1">
+            <span className="nb-micro text-[10px] text-[#4B5563]">
+              Aturan Konflik Nama File Bawaan di Drive
+            </span>
+            <select
+              aria-label="Aturan konflik nama file di Drive"
+              value={policyDraft}
+              onChange={(e) => setPolicyDraft(e.target.value as DriveConflictPolicy)}
+              className="su-control w-full rounded-xl px-3 py-2 text-xs font-semibold"
+            >
+              <option value="revision">Simpan sebagai _rev2 / _rev3 (Aman dari timpa)</option>
+              <option value="overwrite">Timpa file lama dengan isi PDF baru</option>
+              <option value="skip">Lewati upload jika nama file sudah ada</option>
+            </select>
+          </div>
         </div>
 
         {/* Apps Script Setup */}
@@ -284,6 +349,10 @@ export function DriveConfigDialog({
             <button
               type="button"
               onClick={() => {
+                if (!isAdminUnlocked) {
+                  onRequirePinUnlock?.();
+                  return;
+                }
                 setUrlDraft(DEFAULT_APPS_SCRIPT_URL);
                 onClearAppsScript();
               }}

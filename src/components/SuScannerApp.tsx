@@ -5,13 +5,18 @@ import {
   Activity,
   BookOpen,
   History,
+  Layers,
+  Lock,
   Menu,
   Plus,
   CheckCircle2,
   AlertCircle,
   Keyboard,
   FolderOpen,
+  FolderSearch,
+  ShieldCheck,
   Upload,
+  WifiOff,
   X,
 } from "lucide-react";
 import { UploadScreen } from "./UploadScreen";
@@ -22,6 +27,9 @@ import { CameraCaptureModal } from "./CameraCaptureModal";
 import { GuideDialog, HistoryDialog } from "./InfoModals";
 import { DriveConfigDialog } from "./DriveConfigDialog";
 import { AiUsageSidebar } from "./AiUsageSidebar";
+import { BatchQueueModal } from "./BatchQueueModal";
+import { DriveExplorerModal } from "./DriveExplorerModal";
+import { KioskPinDialog } from "./KioskPinDialog";
 import {
   computeNextAiQuotaReset,
   createInitialAiUsageStats,
@@ -35,7 +43,9 @@ import {
   buildDriveFolderUrl,
   DEFAULT_APPS_SCRIPT_URL,
   DRIVE_AUTO_UPLOAD_STORAGE_KEY,
+  DRIVE_CONFLICT_POLICY_KEY,
   DRIVE_ROOT_STORAGE_KEY,
+  DRIVE_SYNC_SHEET_KEY,
   validateAppsScriptWebhookUrl,
 } from "@/lib/drive-config";
 import {
@@ -48,6 +58,7 @@ import {
   processDocumentPage,
   renderRotatedCanvas,
   rotateCorners,
+  rotateEdgeMidpoints,
 } from "@/lib/document-scanner";
 import {
   applyExtractionToForm,
@@ -64,20 +75,49 @@ import {
   sanitizeDigits,
 } from "@/lib/su-formatter";
 import { generateSuPdf, triggerPdfDownload } from "@/lib/pdf-generator";
-import { runLocalTesseractOcr } from "@/lib/local-ocr";
+import { splitMultiPagePdfToImageFiles } from "@/lib/pdf-splitter";
+import {
+  extractSearchableOcrWords,
+  runLocalTesseractOcr,
+} from "@/lib/local-ocr";
 import {
   clearSessionHistory,
   formatBytes,
   loadSessionHistory,
   saveSessionHistoryItem,
 } from "@/lib/session-history";
+import {
+  enqueueOfflineJob,
+  loadOfflineQueue,
+  removeOfflineJob,
+  updateOfflineJobAttempt,
+} from "@/lib/offline-queue";
+import {
+  applyCorrectionMemoryToFields,
+  clearAllCorrectionMemory,
+  deleteCorrectionRule,
+  learnWilayahCodeFromConfirmedScan,
+  loadCorrectionMemory,
+  type CorrectionMemoryState,
+} from "@/lib/correction-memory";
+import {
+  appendKioskAudit,
+  createInitialKioskState,
+  isAdminSessionUnlocked,
+  loadKioskState,
+  type KioskLockState,
+} from "@/lib/kiosk-lock";
 import type {
   AiEngineSource,
   AiExtractionResult,
   AiStatus,
+  DriveConflictPolicy,
   DriveStatusResponse,
   DriveUploadResult,
+  EdgeMidpoints,
   NamingMode,
+  OcrWordBox,
+  OfflineUploadJob,
   PageSlot,
   PdfQualityPreset,
   QuadCorners,
@@ -151,11 +191,34 @@ export function SuScannerApp() {
     DEFAULT_DRIVE_ROOT_FOLDER_ID,
   );
   const [autoUploadOnExport, setAutoUploadOnExport] = useState(false);
+  const [conflictPolicy, setConflictPolicy] =
+    useState<DriveConflictPolicy>("revision");
+  const [syncToSheet, setSyncToSheet] = useState(true);
+  const [searchablePdf, setSearchablePdf] = useState(true);
   const [isUploadingDrive, setIsUploadingDrive] = useState(false);
   const [lastDriveResult, setLastDriveResult] =
     useState<DriveUploadResult | null>(null);
   const [lastDriveError, setLastDriveError] = useState<string | null>(null);
   const [driveConfigOpen, setDriveConfigOpen] = useState(false);
+
+  // Batch Queue, PDF Splitter, Drive Explorer, Offline Sync, Correction Memory & Kiosk Lock
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [pendingBatchFiles, setPendingBatchFiles] = useState<File[] | null>(
+    null,
+  );
+  const [explorerOpen, setExplorerOpen] = useState(false);
+  const [kioskDialogOpen, setKioskDialogOpen] = useState(false);
+  const [offlineJobs, setOfflineJobs] = useState<OfflineUploadJob[]>([]);
+  const [isSyncingOffline, setIsSyncingOffline] = useState(false);
+  const [correctionMemory, setCorrectionMemory] =
+    useState<CorrectionMemoryState>({
+      rules: [],
+      wilayahCodes: [],
+    });
+  const [kioskState, setKioskState] = useState<KioskLockState>(() =>
+    createInitialKioskState(),
+  );
+  const [adminUnlocked, setAdminUnlocked] = useState(true);
 
   // Export & Modals (default to highest image quality for download & Drive upload)
   const [pdfQuality, setPdfQuality] = useState<PdfQualityPreset>("high");
@@ -174,9 +237,13 @@ export function SuScannerApp() {
   const aiAbortRef = useRef<AbortController | null>(null);
   const aiTargetIdRef = useRef<string | null>(null);
   const headerUploadInputRef = useRef<HTMLInputElement>(null);
+  const offlineSyncLockRef = useRef(false);
+
+  const isAdminUnlocked = !kioskState.pinEnabled || adminUnlocked;
 
   useEffect(() => {
     loadSessionHistory().then(setSessionHistory);
+    loadOfflineQueue().then(setOfflineJobs);
 
     fetch("/api/drive/status")
       .then((res) => (res.ok ? (res.json() as Promise<DriveStatusResponse>) : null))
@@ -196,6 +263,10 @@ export function SuScannerApp() {
     Promise.resolve().then(() => {
       setClientNowMs(Date.now());
       setAiUsageStats(loadAiUsageStats());
+      setCorrectionMemory(loadCorrectionMemory());
+      const ks = loadKioskState();
+      setKioskState(ks);
+      setAdminUnlocked(isAdminSessionUnlocked(ks));
       try {
         const storedUrl = localStorage.getItem(APPS_SCRIPT_STORAGE_KEY) || "";
         const storedRoot = extractDriveFolderId(
@@ -203,6 +274,10 @@ export function SuScannerApp() {
         );
         const storedAuto =
           localStorage.getItem(DRIVE_AUTO_UPLOAD_STORAGE_KEY) === "true";
+        const storedPolicy = localStorage.getItem(
+          DRIVE_CONFLICT_POLICY_KEY,
+        ) as DriveConflictPolicy | null;
+        const storedSheet = localStorage.getItem(DRIVE_SYNC_SHEET_KEY);
 
         if (storedUrl && validateAppsScriptWebhookUrl(storedUrl)) {
           setAppsScriptUrl(storedUrl);
@@ -214,6 +289,16 @@ export function SuScannerApp() {
         }
         if (storedAuto) {
           setAutoUploadOnExport(true);
+        }
+        if (
+          storedPolicy === "revision" ||
+          storedPolicy === "overwrite" ||
+          storedPolicy === "skip"
+        ) {
+          setConflictPolicy(storedPolicy);
+        }
+        if (storedSheet === "false") {
+          setSyncToSheet(false);
         }
       } catch {
         // Ignore storage unavailable errors
@@ -246,6 +331,7 @@ export function SuScannerApp() {
             rawUrl?: string;
             rotation?: 0 | 90 | 180 | 270;
             corners?: QuadCorners;
+            edgeMidpoints?: EdgeMidpoints;
             processedDataUrl: string;
           },
       targetPageId?: string,
@@ -285,6 +371,7 @@ export function SuScannerApp() {
             rawUrl: sourceTarget.rawUrl,
             rotation: sourceTarget.rotation ?? 0,
             corners: sourceTarget.corners,
+            edgeMidpoints: sourceTarget.edgeMidpoints,
             filter: "original",
             brightness: 0,
             contrast: 0,
@@ -312,12 +399,29 @@ export function SuScannerApp() {
           return updated;
         });
 
-        const { processed, meanConfidence } = outcome;
-        setFields(processed.fields);
+        const { processed, meanConfidence, ocrWords } = outcome;
+        const memAdjusted = applyCorrectionMemoryToFields(
+          processed.fields,
+          { teksLokasi: processed.rawEvidence.teksLokasi },
+        );
+        if (ocrWords && ocrWords.length > 0 && resolvedId) {
+          setPage1((curr) =>
+            curr && curr.id === resolvedId ? { ...curr, ocrWords } : curr,
+          );
+          setPage2((curr) =>
+            curr && curr.id === resolvedId ? { ...curr, ocrWords } : curr,
+          );
+        }
+
+        setFields(memAdjusted.fields);
         setConfidences(processed.confidences);
         setIsWrongPageSlot(processed.isWrongPageSlot);
         setRawEvidence(processed.rawEvidence);
-        setWarnings(processed.warnings);
+        setWarnings(
+          memAdjusted.appliedNotes.length > 0
+            ? [...processed.warnings, ...memAdjusted.appliedNotes]
+            : processed.warnings,
+        );
         setExtractionVersion((v) => v + 1);
         setAiStatus("success");
         setAiSource("local-ocr");
@@ -347,6 +451,7 @@ export function SuScannerApp() {
             rawUrl?: string;
             rotation?: 0 | 90 | 180 | 270;
             corners?: QuadCorners;
+            edgeMidpoints?: EdgeMidpoints;
             processedDataUrl: string;
           },
       targetPageId?: string,
@@ -434,12 +539,20 @@ export function SuScannerApp() {
 
         const extraction = data.extraction as AiExtractionResult;
         const processed = applyExtractionToForm(extraction);
+        const memAdjusted = applyCorrectionMemoryToFields(
+          processed.fields,
+          { teksLokasi: processed.rawEvidence.teksLokasi },
+        );
 
-        setFields(processed.fields);
+        setFields(memAdjusted.fields);
         setConfidences(processed.confidences);
         setIsWrongPageSlot(processed.isWrongPageSlot);
         setRawEvidence(processed.rawEvidence);
-        setWarnings(processed.warnings);
+        setWarnings(
+          memAdjusted.appliedNotes.length > 0
+            ? [...processed.warnings, ...memAdjusted.appliedNotes]
+            : processed.warnings,
+        );
         setExtractionVersion((v) => v + 1);
         setAiStatus("success");
         setAiSource("gemini");
@@ -491,6 +604,7 @@ export function SuScannerApp() {
         processedDataUrl: processed.dataUrl,
         processedWidth: processed.width,
         processedHeight: processed.height,
+        qualityReport: processed.qualityReport,
         isProcessing: false,
         errorMessage: null,
       };
@@ -510,6 +624,7 @@ export function SuScannerApp() {
           rawUrl: updated.rawUrl,
           rotation: updated.rotation,
           corners: updated.corners,
+          edgeMidpoints: updated.edgeMidpoints,
           filter: updated.filter,
           brightness: updated.brightness,
           contrast: updated.contrast,
@@ -522,6 +637,7 @@ export function SuScannerApp() {
             processedDataUrl: result.dataUrl,
             processedWidth: result.width,
             processedHeight: result.height,
+            qualityReport: result.qualityReport,
             isProcessing: false,
             errorMessage: null,
           };
@@ -533,6 +649,7 @@ export function SuScannerApp() {
             rawUrl: updated.rawUrl,
             rotation: updated.rotation,
             corners: updated.corners,
+            edgeMidpoints: updated.edgeMidpoints,
             processedDataUrl: result.dataUrl,
           });
         }
@@ -553,10 +670,47 @@ export function SuScannerApp() {
 
   const handleUploadSingleFile = useCallback(
     async (slot: PageSlot, file: File) => {
+      const isPdf =
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf");
       setIsDecoding(true);
       try {
+        let targetFile = file;
+        if (isPdf) {
+          const splitPages = await splitMultiPagePdfToImageFiles(file, {
+            maxPages: 120,
+          });
+          if (splitPages.length > 2) {
+            setPendingBatchFiles([file]);
+            setBatchModalOpen(true);
+            showToast(
+              "success",
+              `PDF "${file.name}" (${splitPages.length} halaman) dibuka ke Pemecah PDF & Antrean Batch.`,
+            );
+            return;
+          }
+          if (splitPages.length === 2 && !page1 && !page2) {
+            const [s1, s2] = await Promise.all([
+              buildInitialPageState(splitPages[0].file),
+              buildInitialPageState(splitPages[1].file),
+            ]);
+            setPage1(s1);
+            setPage2(s2);
+            setActiveTab("page1");
+            void runVisionExtraction(s1);
+            showToast(
+              "success",
+              `PDF 2 halaman "${file.name}" otomatis masuk ke Halaman 1 & Halaman 2.`,
+            );
+            return;
+          }
+          if (splitPages[0]) {
+            targetFile = splitPages[0].file;
+          }
+        }
+
         const oldUrl = slot === "page1" ? page1?.rawUrl : page2?.rawUrl;
-        const newState = await buildInitialPageState(file);
+        const newState = await buildInitialPageState(targetFile);
         if (oldUrl) URL.revokeObjectURL(oldUrl);
 
         if (slot === "page1") {
@@ -581,7 +735,7 @@ export function SuScannerApp() {
           "error",
           err instanceof Error
             ? err.message
-            : "Gagal membaca gambar. Pastikan format JPG, PNG, WEBP, atau HEIC valid.",
+            : "Gagal membaca berkas. Pastikan format JPG, PNG, WEBP, HEIC, atau PDF valid.",
         );
       } finally {
         setIsDecoding(false);
@@ -592,6 +746,24 @@ export function SuScannerApp() {
 
   const handleUploadSlotFiles = useCallback(
     async (slot: PageSlot, files: File[]) => {
+      const hasMultiOrPdf =
+        files.length >= 3 ||
+        (files.length >= 2 &&
+          files.some(
+            (f) =>
+              f.type === "application/pdf" ||
+              f.name.toLowerCase().endsWith(".pdf"),
+          ));
+      if (hasMultiOrPdf) {
+        setPendingBatchFiles(files);
+        setBatchModalOpen(true);
+        showToast(
+          "success",
+          `${files.length} berkas diarahkan ke Antrean Batch & Pemecah PDF.`,
+        );
+        return;
+      }
+
       if (files.length >= 2) {
         setIsDecoding(true);
         try {
@@ -662,10 +834,14 @@ export function SuScannerApp() {
         | 270);
       const nextCorners = rotateCorners(target.corners, delta);
       const nextAuto = rotateCorners(target.autoDetectedCorners, delta);
+      const nextMids = target.edgeMidpoints
+        ? rotateEdgeMidpoints(target.edgeMidpoints, delta)
+        : undefined;
       void reprocessSlot(activeTab, {
         ...target,
         rotation: nextRot,
         corners: nextCorners,
+        edgeMidpoints: nextMids,
         autoDetectedCorners: nextAuto,
       });
     },
@@ -673,11 +849,12 @@ export function SuScannerApp() {
   );
 
   const handleApplyCrop = useCallback(
-    (corners: QuadCorners) => {
+    (corners: QuadCorners, edgeMidpoints?: EdgeMidpoints) => {
       const target = activeTab === "page1" ? page1 : page2;
       if (!target) return;
       const isFull =
-        JSON.stringify(corners) === JSON.stringify(FULL_FRAME_CORNERS);
+        JSON.stringify(corners) === JSON.stringify(FULL_FRAME_CORNERS) &&
+        !edgeMidpoints;
       const shouldReExtract =
         activeTab === "page1" &&
         !isFull &&
@@ -687,6 +864,7 @@ export function SuScannerApp() {
         {
           ...target,
           corners,
+          edgeMidpoints,
           hasAutoContour: !isFull,
         },
         shouldReExtract,
@@ -793,6 +971,15 @@ export function SuScannerApp() {
       filename: string,
       kecamatanInput: string,
       kelurahanInput?: string,
+      extraMeta?: {
+        nomorSu?: string;
+        tahunSu?: string;
+        kodeHak?: string;
+        nomorHak?: string;
+        nib?: string;
+        luasTanah?: string;
+        pageCount?: number;
+      },
     ): Promise<DriveUploadResult | null> => {
       const kecamatanClean = normalizeKecamatanName(kecamatanInput);
       const kelurahanClean = normalizeKelurahanName(kelurahanInput);
@@ -801,6 +988,53 @@ export function SuScannerApp() {
           "Isi nama Kecamatan terlebih dahulu agar subfolder Drive dapat dibuat.";
         setLastDriveError(msg);
         showToast("error", msg);
+        return null;
+      }
+
+      const sheetMeta = syncToSheet
+        ? {
+            nomorSu: extraMeta?.nomorSu,
+            tahunSu: extraMeta?.tahunSu,
+            kodeHak: extraMeta?.kodeHak,
+            nomorHak: extraMeta?.nomorHak,
+            nib: extraMeta?.nib,
+            luasTanah: extraMeta?.luasTanah,
+            operator: kioskState.operatorName || "Operator Kantah",
+          }
+        : undefined;
+
+      const queueForOffline = async (reasonMsg: string) => {
+        const job: OfflineUploadJob = {
+          id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          createdAt: Date.now(),
+          filename,
+          kecamatan: kecamatanClean,
+          kelurahan: kelurahanClean || undefined,
+          rootFolderId: driveRootFolderId,
+          conflictPolicy,
+          operatorName: kioskState.operatorName || "Operator Kantah",
+          nomorSu: extraMeta?.nomorSu || "",
+          tahunSu: extraMeta?.tahunSu || "",
+          kodeHak: extraMeta?.kodeHak || "",
+          nomorHak: extraMeta?.nomorHak || "",
+          nib: extraMeta?.nib,
+          luasTanah: extraMeta?.luasTanah,
+          pageCount: extraMeta?.pageCount ?? 1,
+          sizeBytes: pdfBytes.byteLength,
+          pdfBytes: new Uint8Array(pdfBytes).buffer,
+          attempts: 1,
+          lastError: reasonMsg,
+        };
+        const nextQueue = await enqueueOfflineJob(job);
+        setOfflineJobs(nextQueue);
+        showToast(
+          "error",
+          `${reasonMsg} Disimpan ke Antrean Offline (${nextQueue.length} berkas) & otomatis dikirim saat online.`,
+        );
+      };
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await queueForOffline("Koneksi internet terputus (Offline).");
         return null;
       }
 
@@ -818,6 +1052,8 @@ export function SuScannerApp() {
             rootFolderId: driveRootFolderId,
             pdfBase64,
             appsScriptUrl: appsScriptUrl.trim() || null,
+            conflictPolicy,
+            sheetMeta,
           }),
         });
 
@@ -849,13 +1085,39 @@ export function SuScannerApp() {
               ? `Server Drive merespons galat (HTTP ${res.status}). Periksa koneksi atau Tes Koneksi di menu Google Drive.`
               : "Gagal mengunggah berkas PDF ke Google Drive.");
           setLastDriveError(msg);
-          showToast("error", msg);
+          if (res.status >= 500) {
+            await queueForOffline(msg);
+          } else {
+            showToast("error", msg);
+          }
           return null;
         }
 
         setLastDriveResult(payload);
         setLastDriveError(null);
-        if (kelurahanClean && payload.nestedSupported === false) {
+
+        if (rawEvidence.teksNomorHak) {
+          const updatedMem = learnWilayahCodeFromConfirmedScan({
+            rawNomorHak: rawEvidence.teksNomorHak,
+            kecamatan: payload.kecamatanName || kecamatanClean,
+            kelurahan: payload.kelurahanName || kelurahanClean,
+          });
+          setCorrectionMemory(updatedMem);
+        }
+        setKioskState((curr) =>
+          appendKioskAudit(
+            curr,
+            "upload-drive",
+            `${payload.fileName} -> /${payload.kecamatanName || kecamatanClean}${payload.kelurahanName ? `/${payload.kelurahanName}` : ""}${payload.overwritten ? " (timpa)" : payload.skipped ? " (skip)" : ""}`,
+          ),
+        );
+
+        if (payload.skipped) {
+          showToast(
+            "success",
+            `${payload.fileName} dilewati karena sudah ada di folder Drive.`,
+          );
+        } else if (kelurahanClean && payload.nestedSupported === false) {
           showToast(
             "success",
             `PDF tersimpan di /${payload.folderName}/. Perbarui deploy Apps Script Anda agar subfolder Kelurahan "${kelurahanClean}" dibuat otomatis.`,
@@ -863,24 +1125,123 @@ export function SuScannerApp() {
         } else {
           showToast(
             "success",
-            payload.folderCreated
-              ? `Subfolder "${payload.folderName}" dibuat & ${payload.fileName} disimpan ke Drive!`
-              : `Subfolder "${payload.folderName}" sudah ada — ${payload.fileName} dimasukkan ke folder tersebut.`,
+            payload.overwritten
+              ? `File lama "${payload.fileName}" ditimpa dengan revisi terbaru!`
+              : payload.folderCreated
+                ? `Subfolder "${payload.folderName}" dibuat & ${payload.fileName} disimpan ke Drive!`
+                : `Subfolder "${payload.folderName}" sudah ada — ${payload.fileName} dimasukkan ke folder tersebut.`,
           );
         }
         return payload;
       } catch {
-        const msg =
-          "Koneksi ke endpoint unggah Google Drive terganggu. Coba ulangi beberapa detik lagi.";
-        setLastDriveError(msg);
-        showToast("error", msg);
+        await queueForOffline("Koneksi ke endpoint unggah Google Drive terputus.");
         return null;
       } finally {
         setIsUploadingDrive(false);
       }
     },
-    [appsScriptUrl, driveRootFolderId, showToast],
+    [
+      appsScriptUrl,
+      conflictPolicy,
+      driveRootFolderId,
+      kioskState.operatorName,
+      rawEvidence.teksNomorHak,
+      showToast,
+      syncToSheet,
+    ],
   );
+
+  const flushOfflineQueue = useCallback(
+    async (silent = false) => {
+      if (offlineSyncLockRef.current) return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        if (!silent) {
+          showToast("error", "Perangkat masih offline. Tidak bisa mengirim antrean.");
+        }
+        return;
+      }
+
+      const queue = await loadOfflineQueue();
+      if (queue.length === 0) return;
+
+      offlineSyncLockRef.current = true;
+      setIsSyncingOffline(true);
+      let sentCount = 0;
+
+      try {
+        for (const job of queue) {
+          try {
+            const pdfBase64 = uint8ArrayToBase64(new Uint8Array(job.pdfBytes));
+            const res = await fetch("/api/drive/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                filename: job.filename,
+                kecamatan: job.kecamatan,
+                kelurahan: job.kelurahan || null,
+                rootFolderId: job.rootFolderId || driveRootFolderId,
+                pdfBase64,
+                appsScriptUrl: appsScriptUrl.trim() || null,
+                conflictPolicy: job.conflictPolicy,
+                sheetMeta: syncToSheet
+                  ? {
+                      nomorSu: job.nomorSu,
+                      tahunSu: job.tahunSu,
+                      kodeHak: job.kodeHak,
+                      nomorHak: job.nomorHak,
+                      nib: job.nib,
+                      luasTanah: job.luasTanah,
+                      operator: job.operatorName || kioskState.operatorName || "Operator Kantah",
+                    }
+                  : undefined,
+              }),
+            });
+            const data = (await res.json().catch(() => null)) as
+              | DriveUploadResult
+              | { ok?: false; error?: string }
+              | null;
+            if (res.ok && data && "ok" in data && data.ok) {
+              sentCount++;
+              const nextQ = await removeOfflineJob(job.id);
+              setOfflineJobs(nextQ);
+            } else {
+              const nextQ = await updateOfflineJobAttempt(
+                job.id,
+                (data && "error" in data && data.error) || `HTTP ${res.status}`,
+              );
+              setOfflineJobs(nextQ);
+            }
+          } catch (err) {
+            const nextQ = await updateOfflineJobAttempt(
+              job.id,
+              err instanceof Error ? err.message : "Network error",
+            );
+            setOfflineJobs(nextQ);
+          }
+        }
+        if (sentCount > 0) {
+          showToast(
+            "success",
+            `${sentCount} berkas dari Antrean Offline berhasil disinkronkan ke Google Drive!`,
+          );
+        } else if (!silent) {
+          showToast("error", "Gagal menyinkronkan antrean offline saat ini.");
+        }
+      } finally {
+        offlineSyncLockRef.current = false;
+        setIsSyncingOffline(false);
+      }
+    },
+    [appsScriptUrl, driveRootFolderId, kioskState.operatorName, showToast, syncToSheet],
+  );
+
+  useEffect(() => {
+    const onOnline = () => {
+      void flushOfflineQueue(true);
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [flushOfflineQueue]);
 
   const handleToggleAutoUpload = useCallback((nextVal: boolean) => {
     setAutoUploadOnExport(nextVal);
@@ -891,18 +1252,39 @@ export function SuScannerApp() {
     }
   }, []);
 
-  const collectOrderedPages = useCallback(() => {
-    return [page1, page2]
-      .filter((p): p is ScannedPageState => Boolean(p?.processedDataUrl))
-      .map((p) => ({
-        dataUrl: p.processedDataUrl,
-        width: p.processedWidth,
-        height: p.processedHeight,
-      }));
-  }, [page1, page2]);
+  const preparePagesForPdfExport = useCallback(async () => {
+    const rawPages: Array<{ slot: PageSlot; page: ScannedPageState }> = [];
+    if (page1?.processedDataUrl) rawPages.push({ slot: "page1", page: page1 });
+    if (page2?.processedDataUrl) rawPages.push({ slot: "page2", page: page2 });
+
+    return Promise.all(
+      rawPages.map(async ({ slot, page }) => {
+        let ocrWords: OcrWordBox[] | undefined = page.ocrWords;
+        if (searchablePdf && (!ocrWords || ocrWords.length === 0)) {
+          try {
+            ocrWords = await extractSearchableOcrWords(page.processedDataUrl);
+            if (ocrWords.length > 0) {
+              const setter = slot === "page1" ? setPage1 : setPage2;
+              setter((curr) =>
+                curr && curr.id === page.id ? { ...curr, ocrWords } : curr,
+              );
+            }
+          } catch {
+            ocrWords = undefined;
+          }
+        }
+        return {
+          dataUrl: page.processedDataUrl,
+          width: page.processedWidth,
+          height: page.processedHeight,
+          ocrWords: searchablePdf ? ocrWords : undefined,
+        };
+      }),
+    );
+  }, [page1, page2, searchablePdf]);
 
   const handleExportPdf = useCallback(async () => {
-    const pages = collectOrderedPages();
+    const pages = await preparePagesForPdfExport();
     if (pages.length === 0) {
       showToast("error", "Unggah minimal 1 halaman Surat Ukur terlebih dahulu.");
       return;
@@ -910,28 +1292,58 @@ export function SuScannerApp() {
 
     setIsGeneratingPdf(true);
     try {
-      const result = await generateSuPdf(pages, pdfQuality);
+      const pdfMeta = {
+        title: currentFilename.replace(/\.pdf$/i, ""),
+        author: kioskState.operatorName || "Operator SU-Scanner",
+        subject: `Surat Ukur ${padFiveDigits(fields.nomorSu)}/${sanitizeDigits(fields.tahunSu)} - ${normalizeKecamatanName(fields.kecamatan) || "Kantah"}`,
+        keywords: [
+          fields.nib ? `NIB:${fields.nib}` : "",
+          fields.luasTanah ? `Luas:${fields.luasTanah}` : "",
+          normalizeKecamatanName(fields.kecamatan),
+          normalizeKelurahanName(fields.kelurahan),
+        ].filter(Boolean),
+      };
+      const result = await generateSuPdf(pages, pdfQuality, undefined, pdfMeta);
       triggerPdfDownload(result.blob, currentFilename);
 
       const kecamatanClean = normalizeKecamatanName(fields.kecamatan);
       const kelurahanClean = normalizeKelurahanName(fields.kelurahan);
+      if (kecamatanClean && rawEvidence.teksNomorHak) {
+        setCorrectionMemory(
+          learnWilayahCodeFromConfirmedScan({
+            rawNomorHak: rawEvidence.teksNomorHak,
+            kecamatan: kecamatanClean,
+            kelurahan: kelurahanClean,
+          }),
+        );
+      }
+
       let uploaded: DriveUploadResult | null = null;
       if (autoUploadOnExport && driveReady && kecamatanClean) {
         const uploadBytes =
           result.bytes.byteLength > 2_850_000
-            ? (await generateSuPdf(pages, pdfQuality, 2_850_000)).bytes
+            ? (await generateSuPdf(pages, pdfQuality, 2_850_000, pdfMeta)).bytes
             : result.bytes;
         uploaded = await performDriveUpload(
           uploadBytes,
           currentFilename,
           kecamatanClean,
           kelurahanClean,
+          {
+            nomorSu: padFiveDigits(fields.nomorSu),
+            tahunSu: sanitizeDigits(fields.tahunSu),
+            kodeHak: getEffectiveKodeHak(fields),
+            nomorHak: padFiveDigits(fields.nomorHak),
+            nib: fields.nib,
+            luasTanah: fields.luasTanah,
+            pageCount: result.pageCount,
+          },
         );
       }
 
       const historyItem: SessionHistoryItem = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        filename: currentFilename,
+        filename: uploaded?.fileName || currentFilename,
         createdAt: Date.now(),
         pageCount: result.pageCount,
         sizeBytes: result.sizeBytes,
@@ -941,6 +1353,9 @@ export function SuScannerApp() {
         nomorHak: padFiveDigits(fields.nomorHak),
         kecamatan: uploaded?.kecamatanName || kecamatanClean || undefined,
         kelurahan: uploaded?.kelurahanName || kelurahanClean || undefined,
+        nib: fields.nib || undefined,
+        luasTanah: fields.luasTanah || undefined,
+        operatorName: kioskState.operatorName || undefined,
         driveFileUrl: uploaded?.fileUrl,
         driveFolderUrl: uploaded?.folderUrl,
         pdfBytes: new Uint8Array(result.bytes).buffer,
@@ -954,10 +1369,10 @@ export function SuScannerApp() {
           autoUploadOnExport && driveReady && !kecamatanClean
             ? `PDF diunduh (${formatBytes(result.sizeBytes)}). Isi Kecamatan untuk upload otomatis ke Drive.`
             : autoUploadOnExport
-              ? `PDF diunduh (${formatBytes(result.sizeBytes)}), namun gagal diunggah ke Drive.`
-              : `PDF diunduh ke perangkat (${formatBytes(
+              ? `PDF diunduh (${formatBytes(result.sizeBytes)}), upload gagal/masuk Antrean Offline.`
+              : `PDF ${result.searchableWordCount > 0 ? `Searchable (${result.searchableWordCount} kata) ` : ""}diunduh (${formatBytes(
                   result.sizeBytes,
-                )}). Klik 'Upload Langsung ke Drive' di bawah untuk menyimpannya ke Drive.`,
+                )}).`,
         );
       }
     } catch (err) {
@@ -970,12 +1385,14 @@ export function SuScannerApp() {
     }
   }, [
     autoUploadOnExport,
-    collectOrderedPages,
     currentFilename,
     driveReady,
     fields,
+    kioskState.operatorName,
     pdfQuality,
     performDriveUpload,
+    preparePagesForPdfExport,
+    rawEvidence.teksNomorHak,
     showToast,
   ]);
 
@@ -989,7 +1406,7 @@ export function SuScannerApp() {
       return;
     }
 
-    const pages = collectOrderedPages();
+    const pages = await preparePagesForPdfExport();
     if (pages.length === 0) {
       showToast("error", "Unggah minimal 1 halaman Surat Ukur terlebih dahulu.");
       return;
@@ -1008,17 +1425,31 @@ export function SuScannerApp() {
     setIsGeneratingPdf(true);
     setLastDriveError(null);
     try {
-      const result = await generateSuPdf(pages, pdfQuality, 2_850_000);
+      const pdfMeta = {
+        title: currentFilename.replace(/\.pdf$/i, ""),
+        author: kioskState.operatorName || "Operator SU-Scanner",
+        subject: `Surat Ukur ${padFiveDigits(fields.nomorSu)}/${sanitizeDigits(fields.tahunSu)} - ${kecamatanClean}`,
+      };
+      const result = await generateSuPdf(pages, pdfQuality, 2_850_000, pdfMeta);
       const uploaded = await performDriveUpload(
         result.bytes,
         currentFilename,
         kecamatanClean,
         kelurahanClean,
+        {
+          nomorSu: padFiveDigits(fields.nomorSu),
+          tahunSu: sanitizeDigits(fields.tahunSu),
+          kodeHak: getEffectiveKodeHak(fields),
+          nomorHak: padFiveDigits(fields.nomorHak),
+          nib: fields.nib,
+          luasTanah: fields.luasTanah,
+          pageCount: result.pageCount,
+        },
       );
       if (uploaded) {
         const historyItem: SessionHistoryItem = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          filename: currentFilename,
+          filename: uploaded.fileName || currentFilename,
           createdAt: Date.now(),
           pageCount: result.pageCount,
           sizeBytes: result.sizeBytes,
@@ -1028,6 +1459,9 @@ export function SuScannerApp() {
           nomorHak: padFiveDigits(fields.nomorHak),
           kecamatan: uploaded.kecamatanName || kecamatanClean,
           kelurahan: uploaded.kelurahanName || kelurahanClean || undefined,
+          nib: fields.nib || undefined,
+          luasTanah: fields.luasTanah || undefined,
+          operatorName: kioskState.operatorName || undefined,
           driveFileUrl: uploaded.fileUrl,
           driveFolderUrl: uploaded.folderUrl,
           pdfBytes: new Uint8Array(result.bytes).buffer,
@@ -1044,12 +1478,13 @@ export function SuScannerApp() {
       setIsGeneratingPdf(false);
     }
   }, [
-    collectOrderedPages,
     currentFilename,
     driveReady,
     fields,
+    kioskState.operatorName,
     pdfQuality,
     performDriveUpload,
+    preparePagesForPdfExport,
     showToast,
   ]);
 
@@ -1065,6 +1500,9 @@ export function SuScannerApp() {
         cropModalOpen ||
         driveConfigOpen ||
         aiUsageOpen ||
+        batchModalOpen ||
+        explorerOpen ||
+        kioskDialogOpen ||
         cameraSlot !== null
       )
         return;
@@ -1116,14 +1554,17 @@ export function SuScannerApp() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     aiUsageOpen,
+    batchModalOpen,
     cameraSlot,
     cropModalOpen,
     driveConfigOpen,
+    explorerOpen,
     guideOpen,
     handleResetWorkspace,
     handleRotateActive,
     handleSwapPages,
     historyOpen,
+    kioskDialogOpen,
     page1,
     page2,
   ]);
@@ -1153,7 +1594,7 @@ export function SuScannerApp() {
       <input
         ref={headerUploadInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
         multiple
         disabled={isDecoding}
         tabIndex={-1}
@@ -1198,12 +1639,21 @@ export function SuScannerApp() {
           {/* Column 2 (Center): Centered Floating Pill Navbar (Desktop) */}
           <nav
             aria-label="Utilitas Aplikasi"
-            className="hidden items-center gap-1.5 rounded-full border border-[#E5E7EB]/80 bg-[#F6F7F9] px-2.5 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] lg:flex lg:justify-self-center"
+            className="hidden items-center gap-1 rounded-full border border-[#E5E7EB]/80 bg-[#F6F7F9] px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] lg:flex lg:justify-self-center"
           >
             <button
               type="button"
+              onClick={() => setBatchModalOpen(true)}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+            >
+              <Layers className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+              <span>Batch / PDF</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setHistoryOpen(true)}
-              className="inline-flex min-h-9 items-center gap-2 rounded-full px-3.5 py-1.5 text-[14px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
             >
               <History className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
               <span>Riwayat</span>
@@ -1214,17 +1664,17 @@ export function SuScannerApp() {
 
             <button
               type="button"
-              onClick={() => setGuideOpen(true)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              onClick={() => setExplorerOpen(true)}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
             >
-              <BookOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
-              <span>Panduan</span>
+              <FolderSearch className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+              <span>Jelajah</span>
             </button>
 
             <button
               type="button"
               onClick={() => setDriveConfigOpen(true)}
-              className="inline-flex min-h-9 items-center gap-2 rounded-full px-3.5 py-1.5 text-[14px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
             >
               <FolderOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
               <span>Google Drive</span>
@@ -1241,8 +1691,17 @@ export function SuScannerApp() {
 
             <button
               type="button"
+              onClick={() => setGuideOpen(true)}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+            >
+              <BookOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+              <span>Panduan</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setAiUsageOpen(true)}
-              className="inline-flex min-h-9 items-center gap-2 rounded-full px-3.5 py-1.5 text-[14px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
             >
               <Activity className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
               <span>Usage AI</span>
@@ -1252,8 +1711,41 @@ export function SuScannerApp() {
             </button>
           </nav>
 
-          {/* Column 3 (Right): Compact Live Quota Telemetry + Solid Black Header CTA + Mobile Menu Toggle */}
-          <div className="flex items-center gap-2 sm:gap-2.5 lg:justify-self-end">
+          {/* Column 3 (Right): Compact Live Quota Telemetry + Kiosk/Offline Pills + Solid Black CTA */}
+          <div className="flex items-center gap-1.5 sm:gap-2 lg:justify-self-end">
+            {offlineJobs.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => void flushOfflineQueue(false)}
+                disabled={isSyncingOffline}
+                title="Kirim ulang berkas yang tersimpan saat offline ke Google Drive"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-[#FDE68A] bg-[#FFFBEB] px-2.5 py-1 text-xs font-bold text-[#92400E] hover:bg-[#FEF3C7]"
+              >
+                <WifiOff className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{offlineJobs.length}</span>
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => setKioskDialogOpen(true)}
+              title={`Operator: ${kioskState.operatorName} (${kioskState.pinEnabled ? (isAdminUnlocked ? "Admin Terbuka" : "Kiosk Terkunci") : "Kiosk Nonaktif"})`}
+              className={`hidden items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition-colors xl:inline-flex ${
+                kioskState.pinEnabled && !isAdminUnlocked
+                  ? "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]"
+                  : "border-[#E5E7EB] bg-[#F6F7F9] text-[#111114] hover:bg-white"
+              }`}
+            >
+              {kioskState.pinEnabled && !isAdminUnlocked ? (
+                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <ShieldCheck className="h-3.5 w-3.5 text-[#5E17EB]" aria-hidden="true" />
+              )}
+              <span className="max-w-[96px] truncate">
+                {kioskState.operatorName}
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={() => setAiUsageOpen(true)}
@@ -1390,6 +1882,42 @@ export function SuScannerApp() {
                   {aiUsageStats.usedTodayRequests}/{aiUsageStats.dailyQuotaLimit}
                 </span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setBatchModalOpen(true);
+                }}
+                className="nb-btn-sm inline-flex min-h-11 items-center gap-1.5 bg-[#F5F3FF] px-3 py-2 text-xs font-semibold text-[#4C0FD1]"
+              >
+                <Layers className="h-4 w-4" aria-hidden="true" />
+                Batch / PDF
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setExplorerOpen(true);
+                }}
+                className="nb-btn-sm inline-flex min-h-11 items-center gap-1.5 bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]"
+              >
+                <FolderSearch className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+                Jelajah Drive
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setKioskDialogOpen(true);
+                }}
+                className="nb-btn-sm inline-flex min-h-11 items-center gap-1.5 bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]"
+              >
+                <Lock className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+                Kiosk / Operator
+              </button>
             </nav>
 
             {/* Mobile Live Quota Bar */}
@@ -1442,6 +1970,7 @@ export function SuScannerApp() {
             onSelectSlotFiles={handleUploadSlotFiles}
             onSelectBatchFiles={(files) => handleUploadSlotFiles("page1", files)}
             onOpenCamera={(slot) => setCameraSlot(slot)}
+            onOpenBatchModal={() => setBatchModalOpen(true)}
             isDecoding={isDecoding}
           />
         ) : (
@@ -1495,6 +2024,37 @@ export function SuScannerApp() {
                 lastDriveError={lastDriveError}
                 isDuplicateFilename={isDuplicateFilename}
                 extractionVersion={extractionVersion}
+                conflictPolicy={conflictPolicy}
+                onChangeConflictPolicy={(policy) => {
+                  setConflictPolicy(policy);
+                  try {
+                    localStorage.setItem(DRIVE_CONFLICT_POLICY_KEY, policy);
+                  } catch {
+                    // Ignore
+                  }
+                }}
+                searchablePdf={searchablePdf}
+                onToggleSearchablePdf={setSearchablePdf}
+                syncToSheet={syncToSheet}
+                onToggleSyncToSheet={(next) => {
+                  setSyncToSheet(next);
+                  try {
+                    localStorage.setItem(DRIVE_SYNC_SHEET_KEY, String(next));
+                  } catch {
+                    // Ignore
+                  }
+                }}
+                learnedWilayahCodes={correctionMemory.wilayahCodes}
+                appsScriptUrl={appsScriptUrl}
+                pendingOfflineCount={offlineJobs.length}
+                onSyncOfflineNow={() => void flushOfflineQueue(false)}
+                onFieldCorrected={(field, fromVal, toVal) => {
+                  import("@/lib/correction-memory").then((mod) => {
+                    setCorrectionMemory(
+                      mod.recordFieldCorrection(field, fromVal, toVal),
+                    );
+                  });
+                }}
                 onReExtractAi={() => {
                   const target = page1 ?? page2;
                   if (target?.processedDataUrl) {
@@ -1593,6 +2153,7 @@ export function SuScannerApp() {
           rawUrl={activePage.rawUrl}
           rotation={activePage.rotation}
           initialCorners={activePage.corners}
+          initialMidpoints={activePage.edgeMidpoints}
           onApply={handleApplyCrop}
         />
       ) : null}
@@ -1604,9 +2165,31 @@ export function SuScannerApp() {
         onClearHistory={() => {
           void clearSessionHistory().then(() => {
             setSessionHistory([]);
+            setKioskState((curr) =>
+              appendKioskAudit(curr, "clear-history", "Riwayat sesi dikosongkan"),
+            );
             showToast("success", "Riwayat sesi telah dikosongkan.");
           });
         }}
+        offlineJobs={offlineJobs}
+        isSyncingOffline={isSyncingOffline}
+        onRetryOfflineQueue={() => void flushOfflineQueue(false)}
+        onRemoveOfflineJob={(id) => {
+          void removeOfflineJob(id).then(setOfflineJobs);
+        }}
+        correctionRules={correctionMemory.rules}
+        wilayahCodes={correctionMemory.wilayahCodes}
+        onDeleteCorrectionRule={(id) => {
+          setCorrectionMemory(deleteCorrectionRule(id));
+        }}
+        onClearCorrectionMemory={() => {
+          setCorrectionMemory(clearAllCorrectionMemory());
+          showToast("success", "Memori koreksi lokal dibersihkan.");
+        }}
+        auditLogs={kioskState.auditLogs}
+        isAdminUnlocked={isAdminUnlocked}
+        onRequirePinUnlock={() => setKioskDialogOpen(true)}
+        onNotify={showToast}
       />
 
       <CameraCaptureModal
@@ -1633,10 +2216,19 @@ export function SuScannerApp() {
         appsScriptUrl={appsScriptUrl}
         rootFolderInput={driveRootFolderId}
         autoUploadOnExport={autoUploadOnExport}
+        conflictPolicy={conflictPolicy}
+        syncToSheet={syncToSheet}
+        isAdminUnlocked={isAdminUnlocked}
+        onRequirePinUnlock={() => {
+          setDriveConfigOpen(false);
+          setKioskDialogOpen(true);
+        }}
         onSaveConfig={({
           appsScriptUrl: nextUrl,
           rootFolderId: nextRoot,
           autoUploadOnExport: nextAuto,
+          conflictPolicy: nextPolicy,
+          syncToSheet: nextSheet,
         }) => {
           if (!nextUrl || nextUrl === DEFAULT_APPS_SCRIPT_URL) {
             setAppsScriptUrl(DEFAULT_APPS_SCRIPT_URL);
@@ -1655,15 +2247,26 @@ export function SuScannerApp() {
           }
           setDriveRootFolderId(nextRoot);
           setAutoUploadOnExport(nextAuto);
+          setConflictPolicy(nextPolicy);
+          setSyncToSheet(nextSheet);
           try {
             localStorage.setItem(DRIVE_ROOT_STORAGE_KEY, nextRoot);
             localStorage.setItem(
               DRIVE_AUTO_UPLOAD_STORAGE_KEY,
               String(nextAuto),
             );
+            localStorage.setItem(DRIVE_CONFLICT_POLICY_KEY, nextPolicy);
+            localStorage.setItem(DRIVE_SYNC_SHEET_KEY, String(nextSheet));
           } catch {
             // Ignore storage restrictions
           }
+          setKioskState((curr) =>
+            appendKioskAudit(
+              curr,
+              "drive-config",
+              `Root ${nextRoot} · Policy ${nextPolicy} · Sheets ${nextSheet}`,
+            ),
+          );
           showToast("success", "Pengaturan Google Drive disimpan.");
         }}
         onClearAppsScript={() => {
@@ -1685,12 +2288,20 @@ export function SuScannerApp() {
         open={aiUsageOpen}
         onClose={() => setAiUsageOpen(false)}
         stats={aiUsageStats}
+        isAdminUnlocked={isAdminUnlocked}
+        onRequirePinUnlock={() => {
+          setAiUsageOpen(false);
+          setKioskDialogOpen(true);
+        }}
         onUpdateDailyLimit={(newLimit) => {
           setAiUsageStats((prev) => {
             const next = { ...prev, dailyQuotaLimit: newLimit };
             saveAiUsageStats(next);
             return next;
           });
+          setKioskState((curr) =>
+            appendKioskAudit(curr, "quota-limit", `Batas kuota -> ${newLimit}`),
+          );
           showToast(
             "success",
             `Batas kuota harian AI diperbarui menjadi ${newLimit} request.`,
@@ -1705,6 +2316,60 @@ export function SuScannerApp() {
           setAiUsageStats(fresh);
           showToast("success", "Catatan pemakaian AI lokal telah direset.");
         }}
+      />
+
+      <BatchQueueModal
+        open={batchModalOpen}
+        onClose={() => setBatchModalOpen(false)}
+        initialFiles={pendingBatchFiles}
+        onConsumedInitialFiles={() => setPendingBatchFiles(null)}
+        pdfQuality={pdfQuality}
+        conflictPolicy={conflictPolicy}
+        appsScriptUrl={appsScriptUrl}
+        rootFolderId={driveRootFolderId}
+        operatorName={kioskState.operatorName || "Operator Meja 1"}
+        syncToSheet={syncToSheet}
+        onExportedItem={async (item) => {
+          const updated = await saveSessionHistoryItem(item);
+          setSessionHistory(updated);
+        }}
+        onEnqueueOffline={async (job) => {
+          const updated = await enqueueOfflineJob(job);
+          setOfflineJobs(updated);
+        }}
+        onNotify={showToast}
+        onRecordAiUsage={(evt) => {
+          setAiUsageStats((prev) => {
+            const next = recordAiUsageEvent(prev, evt);
+            saveAiUsageStats(next);
+            return next;
+          });
+        }}
+      />
+
+      <DriveExplorerModal
+        open={explorerOpen}
+        onClose={() => setExplorerOpen(false)}
+        rootFolderId={driveRootFolderId}
+        appsScriptUrl={appsScriptUrl}
+        onNotify={showToast}
+        onOpenDriveConfig={() => {
+          setExplorerOpen(false);
+          setDriveConfigOpen(true);
+        }}
+      />
+
+      <KioskPinDialog
+        key={kioskDialogOpen ? "kiosk-open" : "kiosk-closed"}
+        open={kioskDialogOpen}
+        onClose={() => setKioskDialogOpen(false)}
+        state={kioskState}
+        unlocked={isAdminUnlocked}
+        onUpdateState={(next, unlockedNext) => {
+          setKioskState(next);
+          setAdminUnlocked(unlockedNext);
+        }}
+        onNotify={showToast}
       />
     </div>
   );

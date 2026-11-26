@@ -13,12 +13,13 @@ import {
 import type { PageSlot } from "@/lib/su-types";
 
 const ACCEPT_IMAGES =
-  "image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif";
+  "image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.pdf";
 
 interface UploadScreenProps {
   onSelectSlotFiles: (slot: PageSlot, files: File[]) => void;
   onSelectBatchFiles: (files: File[]) => void;
   onOpenCamera: (slot: PageSlot) => void;
+  onOpenBatchModal: () => void;
   isDecoding: boolean;
 }
 
@@ -111,7 +112,7 @@ function DropzoneCard({
             Tarik &amp; lepas gambar di sini
           </p>
           <p className="mt-0.5 text-xs font-medium text-[#4B5563]">
-            Mendukung JPG, PNG, WEBP, HEIC
+            Mendukung JPG, PNG, WEBP, HEIC &amp; PDF Multi-Halaman
           </p>
 
           <div className="mt-4 flex w-full flex-wrap items-center justify-center gap-2.5 sm:w-auto">
@@ -310,6 +311,7 @@ export function UploadScreen({
   onSelectSlotFiles,
   onSelectBatchFiles,
   onOpenCamera,
+  onOpenBatchModal,
   isDecoding,
 }: UploadScreenProps) {
   const multiInputRef = useRef<HTMLInputElement>(null);
@@ -375,7 +377,7 @@ export function UploadScreen({
           Drive.
         </p>
 
-        {/* Non-redundant Dual Hero CTAs: Upload Files (Primary) vs Open Camera (Secondary) */}
+        {/* Non-redundant Dual Hero CTAs + Batch Queue / PDF Splitter Entry */}
         <div className="wollo-enter-2 mt-6 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row">
           <button
             type="button"
@@ -384,17 +386,27 @@ export function UploadScreen({
             className="nb-btn wollo-cta-primary inline-flex min-h-12 w-full items-center justify-center gap-2 px-6 py-3 text-sm font-semibold disabled:opacity-60 sm:w-auto"
           >
             <Images className="h-4 w-4" aria-hidden="true" />
-            Pilih Berkas Surat Ukur
+            Pilih Berkas / PDF SU
           </button>
 
           <button
             type="button"
             disabled={isDecoding}
             onClick={() => onOpenCamera("page1")}
-            className="nb-btn inline-flex min-h-12 w-full items-center justify-center gap-2 bg-white px-6 py-3 text-sm font-semibold text-[#374151] hover:border-[#D1D5DB] hover:bg-[#F9FAFB] disabled:opacity-60 sm:w-auto"
+            className="nb-btn inline-flex min-h-12 w-full items-center justify-center gap-2 bg-white px-5 py-3 text-sm font-semibold text-[#374151] hover:border-[#D1D5DB] hover:bg-[#F9FAFB] disabled:opacity-60 sm:w-auto"
           >
             <Camera className="h-4 w-4" aria-hidden="true" />
             Foto dengan Kamera
+          </button>
+
+          <button
+            type="button"
+            disabled={isDecoding}
+            onClick={onOpenBatchModal}
+            className="nb-btn inline-flex min-h-12 w-full items-center justify-center gap-2 border-[#DDD6FE] bg-[#F5F3FF] px-5 py-3 text-sm font-semibold text-[#4C0FD1] hover:bg-[#EDE9FE] disabled:opacity-60 sm:w-auto"
+          >
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            Antrean Batch / Pecah PDF
           </button>
         </div>
 

@@ -13,8 +13,23 @@ const uploadBodySchema = z.object({
   kelurahan: z.string().trim().max(120).optional().nullable(),
   rootFolderId: z.string().trim().max(250).optional().nullable(),
   pdfBase64: z.string().min(32),
+  conflictPolicy: z.enum(["revision", "overwrite", "skip"]).optional(),
   appsScriptUrl: z.string().trim().max(500).optional().nullable(),
   clientAccessToken: z.string().trim().max(2500).optional().nullable(),
+  sheetMeta: z
+    .object({
+      logToSheet: z.boolean().optional(),
+      nomorSu: z.string().max(40).optional(),
+      tahunSu: z.string().max(10).optional(),
+      kodeHak: z.string().max(20).optional(),
+      nomorHak: z.string().max(40).optional(),
+      nib: z.string().max(40).optional(),
+      luasTanah: z.string().max(40).optional(),
+      pageCount: z.number().int().min(1).max(50).optional(),
+      operatorName: z.string().max(80).optional(),
+    })
+    .optional()
+    .nullable(),
 });
 
 const MAX_PDF_BASE64_CHARS = 14_000_000;
@@ -61,6 +76,8 @@ export async function POST(request: NextRequest) {
       kelurahan: body.kelurahan,
       rootFolderId: body.rootFolderId,
       pdfBase64: body.pdfBase64,
+      conflictPolicy: body.conflictPolicy,
+      sheetMeta: body.sheetMeta ?? undefined,
       appsScriptUrl: body.appsScriptUrl,
       clientAccessToken: body.clientAccessToken,
     });

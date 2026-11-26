@@ -4,15 +4,26 @@ import {
   mergeMultiPassOcrResults,
   parseSuratUkurOcrText,
 } from "./local-ocr-parser";
+import type { OcrWordBox } from "./su-types";
 
 export interface LocalOcrOutcome {
   processed: PostProcessedExtraction;
   rawText: string;
   meanConfidence: number;
+  ocrWords: OcrWordBox[];
 }
 
 function clamp(val: number, min: number, max: number): number {
   return val < min ? min : val > max ? max : val;
+}
+
+interface EnhancedCanvasMeta {
+  dataUrl: string;
+  workW: number;
+  workH: number;
+  pad: number;
+  y0Frac: number;
+  y1Frac: number;
 }
 
 /**
@@ -22,15 +33,16 @@ function clamp(val: number, min: number, max: number): number {
 function buildEnhancedOcrCanvas(
   sourceImg: HTMLImageElement,
   cropFraction?: { y0: number; y1: number },
-): string {
+): EnhancedCanvasMeta {
   const srcW = sourceImg.naturalWidth;
   const srcH = sourceImg.naturalHeight;
-  const sy = cropFraction ? Math.round(srcH * cropFraction.y0) : 0;
+  const y0Frac = cropFraction?.y0 ?? 0;
+  const y1Frac = cropFraction?.y1 ?? 1;
+  const sy = cropFraction ? Math.round(srcH * y0Frac) : 0;
   const sh = cropFraction
-    ? Math.max(64, Math.round(srcH * (cropFraction.y1 - cropFraction.y0)))
+    ? Math.max(64, Math.round(srcH * (y1Frac - y0Frac)))
     : srcH;
 
-  // Upscale small images so dot-matrix / typewriter fonts have crisp stroke height
   const longSide = Math.max(srcW, sh);
   const scale =
     longSide < 1800
@@ -45,7 +57,9 @@ function buildEnhancedOcrCanvas(
   workCanvas.width = workW;
   workCanvas.height = workH;
   const workCtx = workCanvas.getContext("2d", { willReadFrequently: true });
-  if (!workCtx) return "";
+  if (!workCtx) {
+    return { dataUrl: "", workW, workH, pad: 0, y0Frac, y1Frac };
+  }
 
   workCtx.imageSmoothingEnabled = true;
   workCtx.imageSmoothingQuality = "high";
@@ -53,7 +67,6 @@ function buildEnhancedOcrCanvas(
   workCtx.fillRect(0, 0, workW, workH);
   workCtx.drawImage(sourceImg, 0, sy, srcW, sh, 0, 0, workW, workH);
 
-  // Coarse 16x16 illumination flattening + gentle ink sharpening
   const imgData = workCtx.getImageData(0, 0, workW, workH);
   const { data } = imgData;
   const block = 16;
@@ -108,23 +121,78 @@ function buildEnhancedOcrCanvas(
   }
   workCtx.putImageData(imgData, 0, 0);
 
-  // Add 28px white quiet-zone padding around canvas
   const pad = 28;
   const outCanvas = document.createElement("canvas");
   outCanvas.width = workW + pad * 2;
   outCanvas.height = workH + pad * 2;
   const outCtx = outCanvas.getContext("2d");
-  if (!outCtx) return workCanvas.toDataURL("image/png");
+  if (!outCtx) {
+    return {
+      dataUrl: workCanvas.toDataURL("image/png"),
+      workW,
+      workH,
+      pad: 0,
+      y0Frac,
+      y1Frac,
+    };
+  }
   outCtx.fillStyle = "#ffffff";
   outCtx.fillRect(0, 0, outCanvas.width, outCanvas.height);
   outCtx.drawImage(workCanvas, pad, pad);
-  return outCanvas.toDataURL("image/png");
+
+  return {
+    dataUrl: outCanvas.toDataURL("image/png"),
+    workW,
+    workH,
+    pad,
+    y0Frac,
+    y1Frac,
+  };
+}
+
+function extractNormalizedWordsFromBlocks(
+  blocks: Array<{
+    paragraphs?: Array<{
+      lines?: Array<{
+        words?: Array<{
+          text: string;
+          confidence: number;
+          bbox: { x0: number; y0: number; x1: number; y1: number };
+        }>;
+      }>;
+    }>;
+  }> | null,
+  meta: EnhancedCanvasMeta,
+): OcrWordBox[] {
+  if (!blocks || meta.workW <= 0 || meta.workH <= 0) return [];
+  const words: OcrWordBox[] = [];
+  const spanY = meta.y1Frac - meta.y0Frac;
+
+  for (const blk of blocks) {
+    for (const para of blk.paragraphs ?? []) {
+      for (const line of para.lines ?? []) {
+        for (const w of line.words ?? []) {
+          const text = (w.text || "").trim();
+          if (!text || w.confidence < 20) continue;
+          const x0 = clamp((w.bbox.x0 - meta.pad) / meta.workW, 0, 1);
+          const x1 = clamp((w.bbox.x1 - meta.pad) / meta.workW, 0, 1);
+          const localY0 = clamp((w.bbox.y0 - meta.pad) / meta.workH, 0, 1);
+          const localY1 = clamp((w.bbox.y1 - meta.pad) / meta.workH, 0, 1);
+          const y0 = clamp(meta.y0Frac + localY0 * spanY, 0, 1);
+          const y1 = clamp(meta.y0Frac + localY1 * spanY, 0, 1);
+          if (x1 > x0 && y1 > y0) {
+            words.push({ text, x0, y0, x1, y1 });
+          }
+        }
+      }
+    }
+  }
+  return words;
 }
 
 /**
- * Runs deep 2-stage client-side OCR via `tesseract.js`:
- * Pass 1 scans the clean padded top identity header region (immune to bottom map clutter);
- * Pass 2 only runs on the full padded sheet if any field is still missing.
+ * Runs deep 2-stage client-side OCR via `tesseract.js` and captures word coordinates
+ * so Searchable PDF export is ready immediately.
  */
 export async function runLocalTesseractOcr(
   imageDataUrl: string,
@@ -134,8 +202,8 @@ export async function runLocalTesseractOcr(
   onProgress?.(5);
 
   const img = await loadImageElement(imageDataUrl);
-  const headerCropUrl = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.62 });
-  const fullPaddedUrl = buildEnhancedOcrCanvas(img);
+  const headerMeta = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.62 });
+  const fullMeta = buildEnhancedOcrCanvas(img);
 
   const worker = await createWorker("ind", 1, {
     logger: (msg) => {
@@ -154,7 +222,11 @@ export async function runLocalTesseractOcr(
       user_defined_dpi: "300",
     });
 
-    const headerRes = await worker.recognize(headerCropUrl || imageDataUrl);
+    const headerRes = await worker.recognize(
+      headerMeta.dataUrl || imageDataUrl,
+      undefined,
+      { text: true, blocks: true },
+    );
     const headerConf =
       typeof headerRes.data.confidence === "number"
         ? headerRes.data.confidence
@@ -162,6 +234,10 @@ export async function runLocalTesseractOcr(
     const headerParsed = parseSuratUkurOcrText(
       headerRes.data.text || "",
       headerConf,
+    );
+    let ocrWords = extractNormalizedWordsFromBlocks(
+      headerRes.data.blocks,
+      headerMeta,
     );
 
     const headerComplete = Boolean(
@@ -181,8 +257,9 @@ export async function runLocalTesseractOcr(
     if (!headerComplete) {
       onProgress?.(65);
       const fullRes = await worker.recognize(
-        fullPaddedUrl || imageDataUrl,
+        fullMeta.dataUrl || imageDataUrl,
         { rotateAuto: true },
+        { text: true, blocks: true },
       );
       const fullConf =
         typeof fullRes.data.confidence === "number"
@@ -193,6 +270,13 @@ export async function runLocalTesseractOcr(
         meanConfidence: fullConf,
       };
       combinedRawText = `${combinedRawText}\n---FULL---\n${fullRes.data.text || ""}`;
+      const fullWords = extractNormalizedWordsFromBlocks(
+        fullRes.data.blocks,
+        fullMeta,
+      );
+      if (fullWords.length > 0) {
+        ocrWords = fullWords;
+      }
     }
 
     onProgress?.(100);
@@ -201,7 +285,46 @@ export async function runLocalTesseractOcr(
       fullPass,
     );
     const processed = applyExtractionToForm(extraction);
-    return { processed, rawText: combinedRawText, meanConfidence };
+    return { processed, rawText: combinedRawText, meanConfidence, ocrWords };
+  } finally {
+    await worker.terminate();
+  }
+}
+
+/**
+ * Generates normalized OCR word bounding boxes on-demand for any scanned page
+ * (e.g., when fields were read by Gemini Vision) so PDFs remain Ctrl+F searchable.
+ */
+export async function extractSearchableOcrWords(
+  imageDataUrl: string,
+  onProgress?: (percent: number) => void,
+): Promise<OcrWordBox[]> {
+  const { createWorker, PSM } = await import("tesseract.js");
+  onProgress?.(10);
+  const img = await loadImageElement(imageDataUrl);
+  const fullMeta = buildEnhancedOcrCanvas(img);
+
+  const worker = await createWorker("ind", 1, {
+    logger: (msg) => {
+      if (msg.status === "recognizing text" && typeof msg.progress === "number") {
+        onProgress?.(Math.min(95, Math.max(20, Math.round(20 + msg.progress * 75))));
+      }
+    },
+  });
+
+  try {
+    await worker.setParameters({
+      tessedit_pageseg_mode: PSM.AUTO,
+      preserve_interword_spaces: "1",
+      user_defined_dpi: "300",
+    });
+    const res = await worker.recognize(
+      fullMeta.dataUrl || imageDataUrl,
+      undefined,
+      { text: true, blocks: true },
+    );
+    onProgress?.(100);
+    return extractNormalizedWordsFromBlocks(res.data.blocks, fullMeta);
   } finally {
     await worker.terminate();
   }

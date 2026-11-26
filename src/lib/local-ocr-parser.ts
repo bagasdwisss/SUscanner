@@ -376,6 +376,20 @@ function extractHakAndNib(rawText: string): {
   };
 }
 
+function extractLuasTanahFromText(rawText: string): string | null {
+  const m = rawText.match(
+    /\b(?:luas(?:\s+tanah|\s+bidang)?|l\s*=)\s*[:.=]?\s*(\d[\d.,]{0,9})\s*(?:m\s*2|m²|meter\s+persegi)\b/i,
+  );
+  if (m && m[1]) {
+    return `${m[1].replace(/\s+/g, "")} m2`;
+  }
+  const compact = rawText.match(/\b(\d{1,5}(?:[.,]\d{1,3})?)\s*(?:m²|m2)\b/i);
+  if (compact && compact[1]) {
+    return `${compact[1]} m2`;
+  }
+  return null;
+}
+
 /**
  * Deterministic scored ATR/BPN Surat Ukur text parser used by the built-in
  * offline OCR engine (`tesseract.js`).
@@ -392,6 +406,7 @@ export function parseSuratUkurOcrText(
   const hak = extractHakAndNib(rawText);
   const kec = extractKecamatanFromText(rawText);
   const kelurahan = extractKelurahanFromText(rawText, su.kelurahanFromSu);
+  const luasTanah = extractLuasTanahFromText(rawText);
 
   const hasSuHeader = /\b(?:SURAT\s+UK[UV]R|SURA[TF]\s+UKUR|GAMBAR\s+SITUASI)\b/i.test(
     rawText,
@@ -422,6 +437,7 @@ export function parseSuratUkurOcrText(
     kecamatan_raw: kec.kecamatan,
     kelurahan_raw: kelurahan,
     nib_terdeteksi: hak.nib,
+    luas_tanah: luasTanah,
     raw_evidence: {
       teks_nomor_su: su.evidence,
       teks_nomor_hak: hak.evidence,
@@ -473,6 +489,7 @@ export function mergeMultiPassOcrResults(
     kecamatan_raw: pick(h.kecamatan_raw, f.kecamatan_raw),
     kelurahan_raw: pick(h.kelurahan_raw, f.kelurahan_raw),
     nib_terdeteksi: pick(h.nib_terdeteksi, f.nib_terdeteksi),
+    luas_tanah: pick(h.luas_tanah ?? null, f.luas_tanah ?? null),
     raw_evidence: {
       teks_nomor_su: pick(h.raw_evidence.teks_nomor_su, f.raw_evidence.teks_nomor_su),
       teks_nomor_hak: pick(h.raw_evidence.teks_nomor_hak, f.raw_evidence.teks_nomor_hak),

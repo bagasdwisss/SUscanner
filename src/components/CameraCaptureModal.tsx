@@ -11,6 +11,7 @@ import {
   VideoOff,
 } from "lucide-react";
 import { AppDialog } from "./AppDialog";
+import { analyzeRgbaImageQuality, type ImageQualityReport } from "@/lib/image-quality";
 
 type CameraFrameMode = "portrait" | "landscape" | "full";
 
@@ -40,21 +41,22 @@ function checkTargetEdgesAligned(
   video: HTMLVideoElement,
   vpRect: BoxRect,
   targetRect: BoxRect,
-): boolean {
+): { aligned: boolean; quality: ImageQualityReport | null } {
   if (video.videoWidth === 0 || video.videoHeight === 0 || vpRect.width <= 0 || vpRect.height <= 0) {
-    return false;
+    return { aligned: false, quality: null };
   }
 
-  const probeW = 160;
-  const probeH = Math.max(90, Math.round((video.videoHeight / video.videoWidth) * probeW));
+  const probeW = 200;
+  const probeH = Math.max(110, Math.round((video.videoHeight / video.videoWidth) * probeW));
   const canvas = document.createElement("canvas");
   canvas.width = probeW;
   canvas.height = probeH;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return false;
+  if (!ctx) return { aligned: false, quality: null };
 
   ctx.drawImage(video, 0, 0, probeW, probeH);
   const { data } = ctx.getImageData(0, 0, probeW, probeH);
+  const quality = analyzeRgbaImageQuality(data, probeW, probeH);
 
   const nx0 = clamp((targetRect.left - vpRect.left) / vpRect.width, 0, 1);
   const ny0 = clamp((targetRect.top - vpRect.top) / vpRect.height, 0, 1);
@@ -124,7 +126,7 @@ function checkTargetEdgesAligned(
     alignedSides++;
   }
 
-  return alignedSides >= 3;
+  return { aligned: alignedSides >= 3, quality };
 }
 
 export function CameraCaptureModal({
@@ -146,6 +148,7 @@ export function CameraCaptureModal({
   const [frameMode, setFrameMode] = useState<CameraFrameMode>("portrait");
   const [cropToTarget, setCropToTarget] = useState(true);
   const [edgesLocked, setEdgesLocked] = useState(false);
+  const [liveQuality, setLiveQuality] = useState<ImageQualityReport | null>(null);
   const [status, setStatus] = useState<"starting" | "ready" | "error">(
     "starting",
   );
@@ -373,12 +376,13 @@ export function CameraCaptureModal({
 
       const vp = vpEl.getBoundingClientRect();
       const tb = tbEl.getBoundingClientRect();
-      const aligned = checkTargetEdgesAligned(
+      const probe = checkTargetEdgesAligned(
         video,
         { left: vp.left, top: vp.top, width: vp.width, height: vp.height },
         { left: tb.left, top: tb.top, width: tb.width, height: tb.height },
       );
-      setEdgesLocked(aligned);
+      setEdgesLocked(probe.aligned);
+      setLiveQuality(probe.quality);
     }, 360);
 
     return () => clearInterval(interval);
@@ -694,12 +698,17 @@ export function CameraCaptureModal({
                     {isEdgesLocked ? (
                       <>
                         <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        Tepi Kertas Pas · Siap Ambil Foto
+                        Tepi Kertas Pas
+                        {liveQuality && liveQuality.status !== "good"
+                          ? " · Cek Blur/Silau"
+                          : " · Siap Ambil Foto"}
                       </>
                     ) : (
                       <>
                         <Scan className="h-3.5 w-3.5 shrink-0 text-[#FBD93B]" aria-hidden="true" />
-                        Paskan ke-4 tepi kertas SU ke garis kotak target
+                        {liveQuality?.status === "warn_glare"
+                          ? "Ada silau lampu — miringkan sudut"
+                          : "Paskan ke-4 tepi kertas SU ke garis kotak target"}
                       </>
                     )}
                   </span>

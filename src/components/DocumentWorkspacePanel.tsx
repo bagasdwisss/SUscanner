@@ -17,7 +17,7 @@ import {
 import type { PageSlot, ScanFilter, ScannedPageState } from "@/lib/su-types";
 
 const ACCEPT_IMAGES =
-  "image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif";
+  "image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.pdf";
 
 const FILTER_OPTIONS: ReadonlyArray<{
   id: ScanFilter;
@@ -35,6 +35,11 @@ const FILTER_OPTIONS: ReadonlyArray<{
     id: "bw",
     label: "B&W Crisp",
     hint: "Kontras hitam-putih tajam untuk peta bidang",
+  },
+  {
+    id: "stamp-clean",
+    label: "Redam Cap",
+    hint: "Mengurangi tinta cap/stempel basah di atas teks ketikan",
   },
 ];
 
@@ -430,6 +435,33 @@ export function DocumentWorkspacePanel({
                   Full Frame
                 </span>
               )}
+              {activePage.edgeMidpoints ? (
+                <span className="inline-flex items-center rounded-full border border-[#FBCFE8] bg-[#FDF2F8] px-2.5 py-0.5 text-[11px] font-semibold text-[#9D174D] shadow-xs">
+                  Dewarp Jilid 8-Titik
+                </span>
+              ) : null}
+              {activePage.qualityReport ? (
+                <span
+                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold shadow-xs ${
+                    activePage.qualityReport.status === "good"
+                      ? "border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]"
+                      : "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]"
+                  }`}
+                >
+                  {activePage.qualityReport.status === "good"
+                    ? `Tajam (${activePage.qualityReport.sharpnessScore}/100)`
+                    : activePage.qualityReport.status === "warn_blur"
+                      ? `Buram (${activePage.qualityReport.sharpnessScore}/100)`
+                      : activePage.qualityReport.status === "warn_glare"
+                        ? `Pantulan Cahaya (${activePage.qualityReport.glarePercent}%)`
+                        : "Buram & Pantulan"}
+                </span>
+              ) : null}
+              {activePage.ocrWords && activePage.ocrWords.length > 0 ? (
+                <span className="inline-flex items-center rounded-full border border-[#DDD6FE] bg-[#F5F3FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#4C0FD1] shadow-xs">
+                  Ctrl+F Siap ({activePage.ocrWords.length} kata)
+                </span>
+              ) : null}
             </div>
 
             <div
@@ -490,6 +522,16 @@ export function DocumentWorkspacePanel({
                 />
               ) : null}
             </div>
+
+            {activePage.qualityReport &&
+            activePage.qualityReport.warnings.length > 0 ? (
+              <div
+                role="alert"
+                className="mt-2.5 w-full rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-left text-xs font-semibold text-[#92400E]"
+              >
+                {activePage.qualityReport.warnings.join(" ")}
+              </div>
+            ) : null}
 
             {activePage.isProcessing ? (
               <div

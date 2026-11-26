@@ -1,11 +1,19 @@
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { loadImageElement } from "./document-scanner";
-import type { PdfQualityPreset } from "./su-types";
+import type { OcrWordBox, PdfQualityPreset } from "./su-types";
 
 export interface PdfPageInput {
   dataUrl: string;
   width: number;
   height: number;
+  ocrWords?: OcrWordBox[];
+}
+
+export interface PdfGenerationMetadata {
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string[];
 }
 
 export interface PdfGenerationResult {
@@ -14,6 +22,7 @@ export interface PdfGenerationResult {
   sizeBytes: number;
   pageCount: number;
   qualityUsed: number;
+  searchableWordCount: number;
 }
 
 const PRESET_CONFIG: Record<
@@ -24,6 +33,17 @@ const PRESET_CONFIG: Record<
   standard: { maxSide: 2250, startQuality: 0.91, targetMaxBytes: 2_600_000 },
   compact: { maxSide: 1750, startQuality: 0.88, targetMaxBytes: 1_750_000 },
 };
+
+/**
+ * Strips non-WinAnsi characters so PDF StandardFonts.Helvetica never fails
+ * while preserving readable alphanumeric letters, punctuation, and Indonesian characters.
+ */
+function sanitizeWinAnsiText(raw: string): string {
+  return raw
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 async function reencodeJpegBytes(
   dataUrl: string,
@@ -72,18 +92,30 @@ async function encodePdfDocument(
   pages: PdfPageInput[],
   maxSide: number,
   quality: number,
-): Promise<Uint8Array> {
+  metadata?: PdfGenerationMetadata,
+): Promise<{ bytes: Uint8Array; searchableWordCount: number }> {
   const encodedPages = await Promise.all(
     pages.map((p) => reencodeJpegBytes(p.dataUrl, maxSide, quality)),
   );
 
   const pdfDoc = await PDFDocument.create();
-  pdfDoc.setTitle("Surat Ukur (SU) - Arsip Digital");
+  pdfDoc.setTitle(metadata?.title || "Surat Ukur (SU) - Arsip Digital");
   pdfDoc.setProducer("SU-Scanner");
+  pdfDoc.setCreator("SU-Scanner ATR/BPN");
+  if (metadata?.author) pdfDoc.setAuthor(metadata.author);
+  if (metadata?.subject) pdfDoc.setSubject(metadata.subject);
+  if (metadata?.keywords?.length) pdfDoc.setKeywords(metadata.keywords);
 
-  for (const ep of encodedPages) {
+  const hasWords = pages.some((p) => (p.ocrWords?.length ?? 0) > 0);
+  const hiddenFont = hasWords
+    ? await pdfDoc.embedFont(StandardFonts.Helvetica)
+    : null;
+  let searchableWordCount = 0;
+
+  for (let i = 0; i < encodedPages.length; i++) {
+    const ep = encodedPages[i];
+    const sourceWords = pages[i].ocrWords;
     const embedded = await pdfDoc.embedJpg(ep.bytes);
-    // Normalize longer side to A4 long edge (~841.89 pt) while preserving exact aspect ratio
     const longSidePx = Math.max(ep.width, ep.height);
     const ptScale = 841.89 / Math.max(1, longSidePx);
     const pageWidth = ep.width * ptScale;
@@ -96,19 +128,48 @@ async function encodePdfDocument(
       width: pageWidth,
       height: pageHeight,
     });
+
+    // Embed invisible selectable & Ctrl+F searchable OCR text overlay aligned to coordinates
+    if (hiddenFont && sourceWords && sourceWords.length > 0) {
+      for (const word of sourceWords) {
+        const clean = sanitizeWinAnsiText(word.text);
+        if (!clean) continue;
+        const boxH = Math.max(4, (word.y1 - word.y0) * pageHeight);
+        const fontSize = Math.max(4, Math.min(36, boxH * 0.85));
+        const x = Math.max(0, Math.min(pageWidth - 4, word.x0 * pageWidth));
+        const y = Math.max(2, Math.min(pageHeight - 4, pageHeight - word.y1 * pageHeight));
+        try {
+          page.drawText(clean, {
+            x,
+            y,
+            size: fontSize,
+            font: hiddenFont,
+            color: rgb(0, 0, 0),
+            opacity: 0,
+          });
+          searchableWordCount++;
+        } catch {
+          // Skip unencodable glyphs cleanly
+        }
+      }
+    }
   }
 
-  return pdfDoc.save({ useObjectStreams: true });
+  return {
+    bytes: await pdfDoc.save({ useObjectStreams: true }),
+    searchableWordCount,
+  };
 }
 
 /**
  * Generates a mixed-orientation multi-page PDF matching each page's natural
- * aspect ratio without cropping edges, with adaptive JPEG compression (FR-12..14).
+ * aspect ratio with optional invisible OCR searchable text layer (Ctrl+F ready).
  */
 export async function generateSuPdf(
   pages: PdfPageInput[],
   preset: PdfQualityPreset,
   maxBytesOverride?: number,
+  metadata?: PdfGenerationMetadata,
 ): Promise<PdfGenerationResult> {
   if (pages.length === 0) {
     throw new Error("Minimal 1 halaman diperlukan untuk membuat PDF.");
@@ -129,22 +190,26 @@ export async function generateSuPdf(
 
   let lastBytes: Uint8Array = new Uint8Array();
   let lastQuality = config.startQuality;
+  let lastWordCount = 0;
 
   for (const quality of qualitySteps) {
     const q = Math.max(0.55, Math.min(0.96, quality));
-    const pdfBytes = await encodePdfDocument(pages, config.maxSide, q);
-    lastBytes = pdfBytes;
+    const encoded = await encodePdfDocument(pages, config.maxSide, q, metadata);
+    lastBytes = encoded.bytes;
     lastQuality = q;
+    lastWordCount = encoded.searchableWordCount;
 
-    if (pdfBytes.byteLength <= targetMaxBytes) {
+    if (lastBytes.byteLength <= targetMaxBytes) {
       break;
     }
   }
 
   // Ensure Vercel Serverless 4.5 MB JSON body limit (~3.0 MB binary PDF) is never exceeded
   if (maxBytesOverride && lastBytes.byteLength > maxBytesOverride) {
-    lastBytes = await encodePdfDocument(pages, 1650, 0.76);
+    const fallback = await encodePdfDocument(pages, 1650, 0.76, metadata);
+    lastBytes = fallback.bytes;
     lastQuality = 0.76;
+    lastWordCount = fallback.searchableWordCount;
   }
 
   const normalizedBuffer = new Uint8Array(lastBytes).buffer;
@@ -156,6 +221,7 @@ export async function generateSuPdf(
     sizeBytes: lastBytes.byteLength,
     pageCount: pages.length,
     qualityUsed: lastQuality,
+    searchableWordCount: lastWordCount,
   };
 }
 
@@ -168,7 +234,7 @@ export function triggerPdfDownload(blob: Blob, filename: string): void {
   document.body.appendChild(link);
   link.click();
   setTimeout(() => {
-    link.remove();
     URL.revokeObjectURL(url);
+    link.remove();
   }, 1500);
 }
