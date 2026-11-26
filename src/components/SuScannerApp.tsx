@@ -15,7 +15,6 @@ import {
   FolderOpen,
   FolderSearch,
   ShieldCheck,
-  Upload,
   WifiOff,
   X,
 } from "lucide-react";
@@ -235,15 +234,30 @@ export function SuScannerApp() {
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cameraSlot, setCameraSlot] = useState<PageSlot | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isNavFloating, setIsNavFloating] = useState(false);
   const [toast, setToast] = useState<ToastNotice | null>(null);
   const [liveMessage, setLiveMessage] = useState("");
 
   const aiAbortRef = useRef<AbortController | null>(null);
   const aiTargetIdRef = useRef<string | null>(null);
-  const headerUploadInputRef = useRef<HTMLInputElement>(null);
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const offlineSyncLockRef = useRef(false);
 
   const isAdminUnlocked = !kioskState.pinEnabled || adminUnlocked;
+
+  useEffect(() => {
+    const sentinel = scrollSentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsNavFloating(!entry.isIntersecting);
+      },
+      { threshold: [0] },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     loadSessionHistory().then(setSessionHistory);
@@ -1687,10 +1701,6 @@ export function SuScannerApp() {
   const hasWorkspace = Boolean(page1 || page2);
   const activePage = activeTab === "page1" ? page1 : page2;
   const loadedPagesCount = (page1 ? 1 : 0) + (page2 ? 1 : 0);
-  const aiRemaining = Math.max(
-    0,
-    aiUsageStats.dailyQuotaLimit - aiUsageStats.usedTodayRequests,
-  );
   const aiPct = Math.min(
     100,
     Math.round(
@@ -1704,27 +1714,21 @@ export function SuScannerApp() {
     : null;
 
   return (
-    <div className="flex min-h-dvh flex-col bg-[#FFFFFF] text-[#111114]">
-      {/* Hidden Quick File Input for Header Primary CTA */}
-      <input
-        ref={headerUploadInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
-        multiple
-        disabled={isDecoding}
-        tabIndex={-1}
+    <div className="su-app-shell flex min-h-dvh flex-col bg-[#FFFFFF] text-[#111114]">
+      {/* Invisible 1px scroll sentinel for state-aware floating navbar */}
+      <div
+        ref={scrollSentinelRef}
         aria-hidden="true"
-        onChange={(e) => {
-          const files = e.target.files ? Array.from(e.target.files) : [];
-          if (files.length > 0) void handleUploadSlotFiles("page1", files);
-          e.target.value = "";
-        }}
-        className="hidden"
+        className="pointer-events-none -mb-px h-px w-full"
       />
 
-      {/* Wollo 3-Column Sticky Minimalist SaaS Header */}
-      <header className="sticky top-0 z-30 border-b border-[#E5E7EB]/80 bg-white/95 backdrop-blur-md">
-        <div className="mx-auto flex h-[76px] w-full max-w-[1280px] items-center justify-between gap-3 px-4 sm:px-6 lg:grid lg:h-[88px] lg:grid-cols-[1fr_auto_1fr] lg:px-12">
+      {/* Wollo 3-Column State-Aware Sticky -> Floating Minimalist SaaS Navbar */}
+      <header
+        data-floating={isNavFloating ? "true" : "false"}
+        className="su-sticky-header pointer-events-none sticky top-0 z-30 w-full"
+      >
+        <div className="su-floating-bar pointer-events-auto">
+          <div className="su-floating-bar-inner mx-auto flex w-full max-w-[1280px] items-center justify-between gap-2.5 px-4 sm:px-6 lg:px-8 xl:px-10">
           {/* Column 1 (Left): Brand Wordmark su-scanner with curved smile/scan underline */}
           <div className="flex items-center gap-2.5 lg:justify-self-start">
             <div className="flex items-baseline gap-2">
@@ -1751,10 +1755,10 @@ export function SuScannerApp() {
             </div>
           </div>
 
-          {/* Column 2 (Center): Centered Floating Pill Navbar (Desktop) */}
+          {/* Column 2 (Center): Centered Pill Navbar (Desktop) */}
           <nav
             aria-label="Utilitas Aplikasi"
-            className="hidden items-center gap-1 rounded-full border border-[#E5E7EB]/80 bg-[#F6F7F9] px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] lg:flex lg:justify-self-center"
+            className="hidden items-center gap-0.5 rounded-full border border-[#E5E7EB]/80 bg-[#F6F7F9] px-1.5 py-1 shadow-[0_1px_2px_rgba(0,0,0,0.02)] lg:flex xl:gap-1 xl:px-2 xl:py-1.5"
           >
             <button
               type="button"
@@ -1826,8 +1830,8 @@ export function SuScannerApp() {
             </button>
           </nav>
 
-          {/* Column 3 (Right): Compact Live Quota Telemetry + Kiosk/Offline Pills + Solid Black CTA */}
-          <div className="flex items-center gap-1.5 sm:gap-2 lg:justify-self-end">
+          {/* Column 3 (Right): Kiosk/Offline Pills + Active Workspace CTA */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {offlineJobs.length > 0 ? (
               <button
                 type="button"
@@ -1861,25 +1865,6 @@ export function SuScannerApp() {
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setAiUsageOpen(true)}
-              title={`KUOTA AI HARI INI: Sisa ${aiRemaining} dari ${aiUsageStats.dailyQuotaLimit} · Reset ${aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}`}
-              className="hidden items-center gap-2 rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-1.5 text-left text-xs transition-colors hover:border-[#D1D5DB] hover:bg-white sm:inline-flex"
-            >
-              <span className="h-2 w-2 rounded-full bg-[#5E17EB]" aria-hidden="true" />
-              <span className="font-semibold text-[#111114]">
-                <span className="sr-only">KUOTA AI HARI INI: </span>
-                Sisa {aiRemaining} AI
-              </span>
-              <span className="hidden text-[#9CA3AF] xl:inline" aria-hidden="true">
-                ·
-              </span>
-              <span className="hidden font-mono text-[11px] text-[#4B5563] xl:inline">
-                {aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}
-              </span>
-            </button>
-
             {hasWorkspace ? (
               <>
                 <span className="hidden rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2.5 py-1 font-mono text-xs font-semibold text-[#111114] md:inline-flex lg:hidden xl:inline-flex">
@@ -1894,17 +1879,7 @@ export function SuScannerApp() {
                   <span>Scan Baru</span>
                 </button>
               </>
-            ) : (
-              <button
-                type="button"
-                disabled={isDecoding}
-                onClick={() => headerUploadInputRef.current?.click()}
-                className="nb-btn-sm wollo-cta-dark inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs font-semibold disabled:opacity-60 sm:text-[13px]"
-              >
-                <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>Pilih Berkas</span>
-              </button>
-            )}
+            ) : null}
 
             <button
               type="button"
@@ -1920,11 +1895,18 @@ export function SuScannerApp() {
               )}
             </button>
           </div>
+          </div>
         </div>
 
         {/* Responsive Mobile/Tablet Navigation Drawer */}
         {mobileMenuOpen ? (
-          <div className="border-t border-[#E5E7EB] bg-white px-4 py-3.5 lg:hidden">
+          <div
+            className={`pointer-events-auto lg:hidden ${
+              isNavFloating
+                ? "mx-3 mt-3.5 rounded-2xl border border-[#E5E7EB] bg-white/95 px-4 py-3.5 shadow-xl backdrop-blur-xl sm:mx-5"
+                : "border-t border-[#E5E7EB] bg-white px-4 py-3.5"
+            }`}
+          >
             <nav
               aria-label="Utilitas Aplikasi Mobile"
               className="grid grid-cols-2 gap-2 sm:grid-cols-4"
@@ -2055,22 +2037,6 @@ export function SuScannerApp() {
           </div>
         ) : null}
       </header>
-
-      {/* Subtle SSR Quota Strip so AI usage remains immediately inspectable without sidebar clutter */}
-      <div className="border-b border-[#E5E7EB]/60 bg-[#F6F7F9]/60 px-4 py-1.5 text-[11px] text-[#4B5563] sm:hidden">
-        <button
-          type="button"
-          onClick={() => setAiUsageOpen(true)}
-          className="flex w-full items-center justify-between gap-2 text-left"
-        >
-          <span className="font-semibold text-[#111114]">
-            KUOTA AI HARI INI: Sisa {aiRemaining} / {aiUsageStats.dailyQuotaLimit}
-          </span>
-          <span className="font-mono">
-            Reset {aiResetMeta ? aiResetMeta.wibTimeLabel : "15:00 WIB"}
-          </span>
-        </button>
-      </div>
 
       {/* Main Clean White Canvas (#FFFFFF / #F9FAFB inside workspace) */}
       <main
