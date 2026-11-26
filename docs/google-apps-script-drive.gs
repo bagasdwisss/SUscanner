@@ -108,6 +108,182 @@ function nextRevisionFilename(folder, filename) {
   return filename.replace(/(\.pdf)$/i, "_" + Date.now() + "$1");
 }
 
+var KECAMATAN_COLOR_PALETTE = [
+  "#DBEAFE",
+  "#DCFCE7",
+  "#FEF3C7",
+  "#FCE7F3",
+  "#EDE9FE",
+  "#FFEDD5",
+  "#CCFBF1",
+  "#E0E7FF",
+  "#ECFCCB",
+  "#FAE8FF",
+  "#E0F2FE",
+  "#FFE4E6",
+  "#FEF9C3",
+  "#D1FAE5",
+  "#F3E8FF",
+  "#FED7AA",
+  "#CFFAFE",
+  "#FDE68A",
+  "#E2E8F0",
+  "#DDD6FE",
+  "#BBF7D0",
+  "#BAE6FD",
+];
+
+function sortAndStyleRekapSheet(sheet) {
+  if (!sheet || typeof sheet.getLastRow !== "function") return;
+  var headerCols = 15;
+  var numCols = Math.max(headerCols, sheet.getLastColumn());
+  sheet.setFrozenRows(1);
+  var headerRange = sheet.getRange(1, 1, 1, numCols);
+  headerRange
+    .setBackground("#1E293B")
+    .setFontColor("#FFFFFF")
+    .setFontWeight("bold")
+    .setVerticalAlignment("middle");
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+
+  var numRows = lastRow - 1;
+  var dataRange = sheet.getRange(2, 1, numRows, numCols);
+  var values = dataRange.getValues();
+  var existingBgs = dataRange.getBackgrounds();
+
+  var paletteLookup = {};
+  for (var p = 0; p < KECAMATAN_COLOR_PALETTE.length; p++) {
+    paletteLookup[KECAMATAN_COLOR_PALETTE[p].toUpperCase()] = true;
+  }
+
+  var kecColorMap = {};
+  var usedColors = {};
+  for (var r = 0; r < numRows; r++) {
+    var kecRaw = String(values[r][9] || "")
+      .trim()
+      .toLowerCase();
+    var bgHex = String((existingBgs[r] && existingBgs[r][9]) || existingBgs[r][0] || "")
+      .trim()
+      .toUpperCase();
+    if (
+      kecRaw &&
+      !kecColorMap[kecRaw] &&
+      paletteLookup[bgHex] &&
+      !usedColors[bgHex]
+    ) {
+      kecColorMap[kecRaw] = bgHex;
+      usedColors[bgHex] = true;
+    }
+  }
+
+  var cmpField = function (va, vb) {
+    var sa = String(va || "").trim().toLowerCase();
+    var sb = String(vb || "").trim().toLowerCase();
+    if (!sa && !sb) return 0;
+    if (!sa) return 1;
+    if (!sb) return -1;
+    return sa < sb ? -1 : sa > sb ? 1 : 0;
+  };
+
+  var cmpNumOrText = function (va, vb) {
+    var sa = String(va || "").trim();
+    var sb = String(vb || "").trim();
+    if (/^\d+$/.test(sa) && /^\d+$/.test(sb)) {
+      var na = Number(sa);
+      var nb = Number(sb);
+      if (na !== nb) return na - nb;
+    }
+    return cmpField(sa, sb);
+  };
+
+  values.sort(function (a, b) {
+    return (
+      cmpField(a[9], b[9]) ||
+      cmpField(a[10], b[10]) ||
+      cmpNumOrText(a[4], b[4]) ||
+      cmpNumOrText(a[3], b[3]) ||
+      cmpField(a[2], b[2])
+    );
+  });
+
+  var nextPaletteIdx = 0;
+  for (var i = 0; i < numRows; i++) {
+    values[i][0] = i + 1;
+    var key = String(values[i][9] || "")
+      .trim()
+      .toLowerCase();
+    if (key && !kecColorMap[key]) {
+      var picked = "";
+      for (var k = 0; k < KECAMATAN_COLOR_PALETTE.length; k++) {
+        var cand = KECAMATAN_COLOR_PALETTE[k].toUpperCase();
+        if (!usedColors[cand]) {
+          picked = cand;
+          break;
+        }
+      }
+      if (!picked) {
+        picked =
+          KECAMATAN_COLOR_PALETTE[
+            nextPaletteIdx % KECAMATAN_COLOR_PALETTE.length
+          ].toUpperCase();
+        nextPaletteIdx++;
+      }
+      kecColorMap[key] = picked;
+      usedColors[picked] = true;
+    }
+  }
+
+  var newBgs = [];
+  var fontColors = [];
+  for (var rowIdx = 0; rowIdx < numRows; rowIdx++) {
+    var rowKec = String(values[rowIdx][9] || "")
+      .trim()
+      .toLowerCase();
+    var rowBg = kecColorMap[rowKec] || "#F8FAFC";
+    var bgRow = [];
+    var fgRow = [];
+    for (var colIdx = 0; colIdx < numCols; colIdx++) {
+      bgRow.push(rowBg);
+      fgRow.push("#111827");
+    }
+    newBgs.push(bgRow);
+    fontColors.push(fgRow);
+  }
+
+  dataRange.setValues(values);
+  dataRange.setBackgrounds(newBgs);
+  dataRange.setFontColors(fontColors);
+  dataRange.setBorder(false, false, false, false, false, false);
+
+  for (var bIdx = 0; bIdx < numRows; bIdx++) {
+    var curK = String(values[bIdx][9] || "")
+      .trim()
+      .toLowerCase();
+    var prevK =
+      bIdx > 0
+        ? String(values[bIdx - 1][9] || "")
+            .trim()
+            .toLowerCase()
+        : "";
+    if (bIdx === 0 || curK !== prevK) {
+      sheet
+        .getRange(2 + bIdx, 1, 1, numCols)
+        .setBorder(
+          true,
+          null,
+          null,
+          null,
+          null,
+          null,
+          "#64748B",
+          SpreadsheetApp.BorderStyle.SOLID,
+        );
+    }
+  }
+}
+
 function ensureRekapSheet(rootFolder) {
   if (typeof SpreadsheetApp === "undefined") {
     return { ok: false, error: "SpreadsheetApp tidak tersedia." };
@@ -150,6 +326,7 @@ function ensureRekapSheet(rootFolder) {
       "Operator",
     ]);
   }
+  sortAndStyleRekapSheet(sheet);
   return {
     ok: true,
     ss: ss,
@@ -185,6 +362,7 @@ function appendScanRowToSheet(rootFolder, rowObj) {
       rowObj.folderName || "",
       rowObj.operatorName || "Operator",
     ]);
+    sortAndStyleRekapSheet(sheet);
     return { logged: true, sheetUrl: ensured.sheetUrl };
   } catch (err) {
     return {
