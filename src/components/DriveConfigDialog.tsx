@@ -538,8 +538,9 @@ export function DriveConfigDialog({
               <li>
                 File rekap Google Sheets bernama{" "}
                 <code className="font-mono font-bold text-[#111114]">Rekap_Scan_SU</code>{" "}
-                disimpan langsung di Folder Induk Drive Anda (dibuat otomatis saat upload pertama atau melalui tombol Siapkan Google Sheets). Bila muncul error izin{" "}
-                <code>SpreadsheetApp</code>, buka editor Apps Script lalu klik <strong>Run</strong> sekali untuk menyetujui izin Google Sheets.
+                disimpan langsung di Folder Induk Drive Anda (dibuat otomatis saat upload pertama atau melalui tombol Siapkan Google Sheets). Bila ingin mengotorisasi izin{" "}
+                <code>SpreadsheetApp</code> &amp; langsung membuat sheet secara manual dari editor Apps Script, pilih fungsi{" "}
+                <code>authorizeAndCreateSheet</code> (atau <code>ensureRekapSheet</code>) lalu klik <strong>Run</strong>.
               </li>
             </ol>
           </div>

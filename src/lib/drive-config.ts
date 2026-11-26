@@ -34,6 +34,13 @@ export const GOOGLE_APPS_SCRIPT_TEMPLATE = `var DEFAULT_ROOT_FOLDER_ID = "${DEFA
 var OPTIONAL_SHARED_SECRET = "";
 var SHEET_NAME = "Rekap_Scan_SU";
 
+function authorizeAndCreateSheet() {
+  var rootFolder = DriveApp.getFolderById(DEFAULT_ROOT_FOLDER_ID);
+  var res = ensureRekapSheet(rootFolder);
+  Logger.log(JSON.stringify(res));
+  return res;
+}
+
 function jsonResponse(payload) {
   return ContentService.createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
@@ -110,6 +117,9 @@ function nextRevisionFilename(folder, filename) {
 function ensureRekapSheet(rootFolder) {
   if (typeof SpreadsheetApp === "undefined") {
     return { ok: false, error: "SpreadsheetApp tidak tersedia." };
+  }
+  if (!rootFolder || typeof rootFolder.getFilesByName !== "function") {
+    rootFolder = DriveApp.getFolderById(DEFAULT_ROOT_FOLDER_ID);
   }
   var sheetFile = null;
   var existing = rootFolder.getFilesByName(SHEET_NAME);
