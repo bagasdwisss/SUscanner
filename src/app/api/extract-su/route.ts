@@ -3,6 +3,7 @@ import {
   GoogleGenAI,
   MediaResolution,
   PartMediaResolutionLevel,
+  ThinkingLevel,
   createPartFromBase64,
 } from "@google/genai";
 import { generateText, Output } from "ai";
@@ -16,14 +17,15 @@ import {
 
 export const maxDuration = 60;
 
-const AI_TIMEOUT_MS = 35_000;
-const PER_MODEL_TIMEOUT_MS = 18_000;
+const AI_TIMEOUT_MS = 30_000;
+const PER_MODEL_TIMEOUT_MS = 10_000;
 const MAX_IMAGE_BYTES = 4_200_000;
 const FALLBACK_GEMINI_MODELS = [
   "gemini-3.5-flash",
-  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
   "gemini-3.7-flash",
   "gemini-3.8-flash",
+  "gemini-3.6-flash",
 ] as const;
 
 function getCandidateGeminiModels(): string[] {
@@ -193,6 +195,7 @@ export async function POST(request: NextRequest) {
             systemInstruction: SU_SYSTEM_INSTRUCTION,
             temperature: 0.0,
             mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
             responseMimeType: "application/json",
             responseJsonSchema: SU_GEMINI_RESPONSE_JSON_SCHEMA,
             abortSignal: attemptSignal,

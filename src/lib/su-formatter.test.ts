@@ -15,7 +15,10 @@ import {
   validateStandardFields,
 } from "./su-formatter.ts";
 import { suExtractionZodSchema } from "./su-prompt.ts";
-import { parseSuratUkurOcrText } from "./local-ocr-parser.ts";
+import {
+  mergeMultiPassOcrResults,
+  parseSuratUkurOcrText,
+} from "./local-ocr-parser.ts";
 import { detectPaperCornersFromRgba } from "./auto-crop.ts";
 import {
   computeNextAiQuotaReset,
@@ -400,6 +403,46 @@ describe("SU-Scanner formatter & domain rules", () => {
     const mapOnlyText = "PETA BIDANG TANAH SKALA 1 : 1000";
     const parsedMap = parseSuratUkurOcrText(mapOnlyText, 70);
     assert.equal(parsedMap.is_halaman_data_su, false);
+
+    // Rejects NIP 18-digit, D.I. 302, and dates rather than making wrong guesses; handles garbled OCR separators
+    const noisyWithNipAndDi = `
+      SURAT UKUR
+      D.I. 302 No. 889/2018
+      Nornor: O6 | Helvetia Timur | 2OO7
+      NIB: 02.01.05.04.03043
+      Kota : Medan
+      Kecarnatan : Medan Helvetia
+      NIP. 19750412 199903 1 002
+      H.G.B. No. 105
+    `;
+    const parsedNoisy = parseSuratUkurOcrText(noisyWithNipAndDi, 78);
+    const noisyForm = applyExtractionToForm(parsedNoisy, 2026);
+    assert.equal(
+      buildStandardFilename(noisyForm.fields),
+      "SU.00006.2007.B.00105.pdf",
+    );
+    assert.equal(noisyForm.fields.kecamatan, "Medan Helvetia");
+    assert.equal(noisyForm.fields.kelurahan, "Helvetia Timur");
+
+    // Multi-pass merge: clean header pass wins on SU/Hak while full-sheet pass recovers missing Kecamatan
+    const headerOnly = parseSuratUkurOcrText(
+      `SURAT UKUR\nHak: 02.01.05.04.1.02246-\nNomor: 06/Helvetia Timur/2007`,
+      85,
+    );
+    const fullSheet = parseSuratUkurOcrText(
+      `SURAT UKUR\nKecamatan : Medan Helvetia\nTanggal : 14/2012`,
+      75,
+    );
+    const merged = mergeMultiPassOcrResults(
+      { result: headerOnly, meanConfidence: 85 },
+      { result: fullSheet, meanConfidence: 75 },
+    );
+    const mergedForm = applyExtractionToForm(merged.extraction, 2026);
+    assert.equal(
+      buildStandardFilename(mergedForm.fields),
+      "SU.00006.2007.M.02246.pdf",
+    );
+    assert.equal(mergedForm.fields.kecamatan, "Medan Helvetia");
   });
 
   it("auto-crops paper edges across dark desks, wood desks, light desks, skewed traps, and keeps clean flat scans intact", () => {

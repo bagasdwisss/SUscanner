@@ -1052,14 +1052,14 @@ export function NamingExportPanel({
               }
               className="su-control w-full rounded-xl px-3 py-2 text-sm font-extrabold"
             >
-              <option value="standard">
-                Standar (~800 KB · target &lt; 1.5 MB)
-              </option>
               <option value="high">
-                Tinggi (~1.4 MB · detail angka ekstra tajam)
+                Tinggi Maksimal (Bawaan · 2800px ekstra tajam untuk Unduh &amp; Drive)
+              </option>
+              <option value="standard">
+                Standar (~900 KB · seimbang &amp; cepat)
               </option>
               <option value="compact">
-                Hemat (~400 KB · unggah cepat)
+                Hemat (~400 KB · unggah super ringan)
               </option>
             </select>
           </div>

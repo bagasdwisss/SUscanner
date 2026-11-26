@@ -60,7 +60,7 @@ export async function normalizeUploadedImage(file: File): Promise<{
     mimeType = "image/jpeg";
   }
 
-  const MAX_SOURCE_SIDE = 2600;
+  const MAX_SOURCE_SIDE = 3200;
 
   if (typeof createImageBitmap === "function") {
     try {
@@ -89,7 +89,7 @@ export async function normalizeUploadedImage(file: File): Promise<{
                 ? resolve(b)
                 : reject(new Error("Gagal mengonversi gambar sumber.")),
             "image/jpeg",
-            0.94,
+            0.96,
           );
         });
         return {
@@ -570,8 +570,8 @@ export async function processDocumentPage(params: {
     filter,
     brightness,
     contrast,
-    maxOutputSide = 2100,
-    jpegQuality = 0.9,
+    maxOutputSide = 2800,
+    jpegQuality = 0.94,
   } = params;
 
   const rotatedCanvas = await renderRotatedCanvas(rawUrl, rotation);
@@ -742,18 +742,18 @@ export async function prepareCleanCropForAi(params: {
     filter: "original",
     brightness: 0,
     contrast: 0,
-    maxOutputSide: params.maxSide ?? 2200,
-    jpegQuality: 0.92,
+    maxOutputSide: params.maxSide ?? 1600,
+    jpegQuality: 0.85,
   });
   return result.dataUrl;
 }
 
 /**
- * Prepares a scanned Data URL for Vision AI OCR (PRD Section 10: longest side 1600-2200px, JPEG 90%).
+ * Prepares a scanned Data URL for Vision AI OCR (fast upload & high OCR clarity).
  */
 export async function prepareImageForAi(
   dataUrl: string,
-  maxSide = 2200,
+  maxSide = 1600,
 ): Promise<string> {
   const img = await loadImageElement(dataUrl);
   const scale = Math.min(
@@ -768,5 +768,5 @@ export async function prepareImageForAi(
   const ctx = canvas.getContext("2d");
   if (!ctx) return dataUrl;
   ctx.drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL("image/jpeg", 0.9);
+  return canvas.toDataURL("image/jpeg", 0.85);
 }

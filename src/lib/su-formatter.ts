@@ -65,19 +65,24 @@ const DIGIT_TO_HAK: Record<string, StandardHakCode> = {
 const TEXT_TO_HAK: Record<string, StandardHakCode> = {
   M: "M",
   HM: "M",
+  "H M": "M",
   "HAK MILIK": "M",
   MILIK: "M",
   U: "U",
   HGU: "U",
+  "H G U": "U",
   "HAK GUNA USAHA": "U",
   B: "B",
   HGB: "B",
+  "H G B": "B",
   "HAK GUNA BANGUNAN": "B",
   P: "P",
   HP: "P",
+  "H P": "P",
   "HAK PAKAI": "P",
   L: "L",
   HPL: "L",
+  "H P L": "L",
   "HAK PENGELOLAAN": "L",
   W: "W",
   WAKAF: "W",
@@ -263,12 +268,12 @@ export function parseNomorHakEvidence(raw: string | null | undefined): {
     return { kind: "nib_13", kodeHak: null, nomorHak5: null };
   }
 
-  // Legacy short format e.g. "HM. 2246", "Hak Milik No. 145", "Hak Milik : HM. 145", "HGB No. 105", "M.02246"
+  // Legacy short format e.g. "HM. 2246", "H.M. 145", "H.G.B. 105", "Hak Milik No. 145", "M.02246"
   const shortMatch = raw
     .trim()
     .toUpperCase()
     .match(
-      /\b(HAK\s+MILIK|HAK\s+GUNA\s+USAHA|HAK\s+GUNA\s+BANGUNAN|HAK\s+PAKAI|HAK\s+PENGELOLAAN|TANAH\s+WAKAF|HM|HGU|HGB|HP|HPL|WAKAF|M|U|B|P|L|W)[\s.\-:/]*(?:(?:NO|NOMOR)\.?)?[\s.\-:/]*(\d{1,5})\b/,
+      /\b(HAK\s+MILIK|HAK\s+GUNA\s+USAHA|HAK\s+GUNA\s+BANGUNAN|HAK\s+PAKAI|HAK\s+PENGELOLAAN|TANAH\s+WAKAF|H\.?\s*G\.?\s*B\.?|H\.?\s*G\.?\s*U\.?|H\.?\s*P\.?\s*L\.?|H\.?\s*M\.?|H\.?\s*P\.?|WAKAF|M|U|B|P|L|W)[\s.\-:/]*(?:(?:NO|NOMOR)\.?)?[\s.\-:/]*(\d{1,5})\b/,
     );
   if (shortMatch) {
     return {

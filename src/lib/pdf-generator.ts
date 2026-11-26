@@ -20,9 +20,9 @@ const PRESET_CONFIG: Record<
   PdfQualityPreset,
   { maxSide: number; startQuality: number; targetMaxBytes: number }
 > = {
-  high: { maxSide: 2300, startQuality: 0.88, targetMaxBytes: 1_900_000 },
-  standard: { maxSide: 1800, startQuality: 0.78, targetMaxBytes: 1_450_000 },
-  compact: { maxSide: 1400, startQuality: 0.65, targetMaxBytes: 900_000 },
+  high: { maxSide: 2800, startQuality: 0.94, targetMaxBytes: 4_800_000 },
+  standard: { maxSide: 1900, startQuality: 0.82, targetMaxBytes: 1_500_000 },
+  compact: { maxSide: 1400, startQuality: 0.68, targetMaxBytes: 900_000 },
 };
 
 async function reencodeJpegBytes(
@@ -118,7 +118,7 @@ export async function generateSuPdf(
     : config.targetMaxBytes;
   const qualitySteps =
     preset === "high"
-      ? [config.startQuality, 0.8, 0.72, 0.6, 0.5]
+      ? [config.startQuality, 0.86, 0.78, 0.68, 0.58]
       : [config.startQuality, config.startQuality - 0.1, config.startQuality - 0.18, 0.52];
 
   let lastBytes: Uint8Array = new Uint8Array();

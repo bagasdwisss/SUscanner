@@ -155,8 +155,8 @@ export function SuScannerApp() {
   const [lastDriveError, setLastDriveError] = useState<string | null>(null);
   const [driveConfigOpen, setDriveConfigOpen] = useState(false);
 
-  // Export & Modals
-  const [pdfQuality, setPdfQuality] = useState<PdfQualityPreset>("standard");
+  // Export & Modals (default to highest image quality for download & Drive upload)
+  const [pdfQuality, setPdfQuality] = useState<PdfQualityPreset>("high");
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [sessionHistory, setSessionHistory] = useState<SessionHistoryItem[]>(
     [],
@@ -277,17 +277,17 @@ export function SuScannerApp() {
           sourceTarget.rawUrl &&
           sourceTarget.corners
         ) {
-          const gray = await processDocumentPage({
+          const ocrClean = await processDocumentPage({
             rawUrl: sourceTarget.rawUrl,
             rotation: sourceTarget.rotation ?? 0,
             corners: sourceTarget.corners,
-            filter: "grayscale",
+            filter: "original",
             brightness: 0,
-            contrast: 15,
-            maxOutputSide: 2200,
-            jpegQuality: 0.92,
+            contrast: 0,
+            maxOutputSide: 2400,
+            jpegQuality: 0.94,
           });
-          ocrDataUrl = gray.dataUrl;
+          ocrDataUrl = ocrClean.dataUrl;
         }
 
         const outcome = await runLocalTesseractOcr(ocrDataUrl, (pct) => {
@@ -360,9 +360,7 @@ export function SuScannerApp() {
       setAiStatus("extracting");
       setAiSource("gemini");
       setOcrProgress(0);
-      setAiMessage(
-        "Mengirim gambar Surat Ukur resolusi tinggi (tanpa pemotongan warna) ke Vision AI…",
-      );
+      setAiMessage("Menganalisis Surat Ukur secara cepat dengan Vision AI…");
       setIsWrongPageSlot(false);
       setWarnings([]);
 
@@ -375,13 +373,13 @@ export function SuScannerApp() {
                 rawUrl: sourceTarget.rawUrl,
                 rotation: sourceTarget.rotation ?? 0,
                 corners: sourceTarget.corners,
-                maxSide: 2200,
+                maxSide: 1600,
               })
             : await prepareImageForAi(
                 typeof sourceTarget === "string"
                   ? sourceTarget
                   : sourceTarget.processedDataUrl,
-                2200,
+                1600,
               );
         if (controller.signal.aborted) return;
 
