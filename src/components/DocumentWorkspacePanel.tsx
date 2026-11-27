@@ -120,9 +120,8 @@ export function DocumentWorkspacePanel({
   onOpenCamera,
 }: DocumentWorkspacePanelProps) {
   const activePage = activeTab === "page1" ? page1 : page2;
-  const sectionRef = useRef<HTMLElement>(null);
-  const pageBarSentinelRef = useRef<HTMLDivElement>(null);
-  const mobileDockRef = useRef<HTMLDivElement>(null);
+  const topCardRef = useRef<HTMLDivElement>(null);
+  const floatingDockRef = useRef<HTMLDivElement>(null);
   const previewStageRef = useRef<HTMLDivElement>(null);
   const tab1Ref = useRef<HTMLButtonElement>(null);
   const tab2Ref = useRef<HTMLButtonElement>(null);
@@ -139,8 +138,7 @@ export function DocumentWorkspacePanel({
   const ghostEmptyLabelRef = useRef<HTMLParagraphElement>(null);
   const ghostTimerRef = useRef<number | null>(null);
 
-  const [isPageBarStuck, setIsPageBarStuck] = useState(false);
-  const [showMobileFloatingDock, setShowMobileFloatingDock] = useState(false);
+  const [showFloatingDock, setShowFloatingDock] = useState(false);
 
   const prevSnapshotRef = useRef<{
     activeTab: PageSlot;
@@ -204,44 +202,33 @@ export function DocumentWorkspacePanel({
   }, []);
 
   useEffect(() => {
-    const sentinel = pageBarSentinelRef.current;
-    const section = sectionRef.current;
-    if (!sentinel && !section) return;
+    const topCard = topCardRef.current;
+    if (!topCard) return;
 
-    const getHeaderClearance = () => (window.innerWidth >= 1024 ? 86 : 78);
+    const getHeaderClearance = () => (window.innerWidth >= 1024 ? 80 : 72);
 
-    let sentinelObserver: IntersectionObserver | null = null;
-    if (sentinel) {
-      sentinelObserver = new IntersectionObserver(
-        ([entry]) => {
-          setIsPageBarStuck(!entry.isIntersecting && entry.boundingClientRect.top < getHeaderClearance());
-        },
-        {
-          threshold: [0],
-          rootMargin: `-${getHeaderClearance()}px 0px 0px 0px`,
-        },
-      );
-      sentinelObserver.observe(sentinel);
-    }
-
-    let sectionObserver: IntersectionObserver | null = null;
-    if (section) {
-      sectionObserver = new IntersectionObserver(
-        ([entry]) => {
-          const isAbove = !entry.isIntersecting && entry.boundingClientRect.bottom < getHeaderClearance() + 40;
-          if (!isAbove && mobileDockRef.current?.contains(document.activeElement)) {
-            (activeTab === "page2" ? tab2Ref.current : tab1Ref.current)?.focus();
-          }
-          setShowMobileFloatingDock(isAbove);
-        },
-        { threshold: [0] },
-      );
-      sectionObserver.observe(section);
-    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const scrolledPastTopBar =
+          !entry.isIntersecting &&
+          entry.boundingClientRect.bottom < getHeaderClearance();
+        if (
+          !scrolledPastTopBar &&
+          floatingDockRef.current?.contains(document.activeElement)
+        ) {
+          (activeTab === "page2" ? tab2Ref.current : tab1Ref.current)?.focus();
+        }
+        setShowFloatingDock(scrolledPastTopBar);
+      },
+      {
+        threshold: [0],
+        rootMargin: `-${getHeaderClearance()}px 0px 0px 0px`,
+      },
+    );
+    observer.observe(topCard);
 
     return () => {
-      sentinelObserver?.disconnect();
-      sectionObserver?.disconnect();
+      observer.disconnect();
     };
   }, [activeTab]);
 
@@ -454,7 +441,7 @@ export function DocumentWorkspacePanel({
       if (rect.bottom < 160) {
         const targetTop = Math.max(
           0,
-          window.scrollY + rect.top - (window.innerWidth >= 1024 ? 156 : 144),
+          window.scrollY + rect.top - (window.innerWidth >= 1024 ? 98 : 88),
         );
         const prefersReduced = window.matchMedia(
           "(prefers-reduced-motion: reduce)",
@@ -534,93 +521,83 @@ export function DocumentWorkspacePanel({
 
   return (
     <section
-      ref={sectionRef}
       aria-label="Panel Pratinjau dan Pemindaian Dokumen"
-      className="su-pagebar-section flex flex-col gap-4"
+      className="flex flex-col gap-4"
     >
-      {/* Sentinel for cross-browser sticky floating Page Switcher */}
+      {/* Card 1: Page Tabs & Swap Header */}
       <div
-        ref={pageBarSentinelRef}
-        aria-hidden="true"
-        className="pointer-events-none -mb-4 h-px w-full"
-      />
-
-      {/* Card 1: Floating Sticky Page Tabs & Swap Header */}
-      <div
-        data-stuck={isPageBarStuck ? "true" : "false"}
-        className="su-sticky-pagebar"
+        ref={topCardRef}
+        className="nb-card flex flex-wrap items-center justify-between gap-2 bg-white px-3.5 py-2.5 sm:px-4"
       >
-        <div className="nb-card su-floating-pagebar-card flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 sm:px-4">
-          <div
-            role="tablist"
-            aria-label="Pilih Halaman Surat Ukur"
-            {...tablistFocusgroupProps}
-            className="flex items-center gap-1.5 overflow-x-auto rounded-full bg-[#F6F7F9] p-1"
+        <div
+          role="tablist"
+          aria-label="Pilih Halaman Surat Ukur"
+          {...tablistFocusgroupProps}
+          className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full bg-[#F6F7F9] p-1"
+        >
+          <button
+            ref={tab1Ref}
+            id="tab-page1"
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "page1"}
+            {...tab1FocusProps}
+            onClick={() => handleTabSwitch("page1")}
+            onKeyDown={(e) => handleTabKeyDown(e, "page1")}
+            className="su-tab inline-flex min-h-9 flex-none items-center gap-1.5 rounded-full border border-transparent bg-transparent px-3 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:gap-2 sm:px-3.5 sm:text-sm"
           >
-            <button
-              ref={tab1Ref}
-              id="tab-page1"
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "page1"}
-              {...tab1FocusProps}
-              onClick={() => handleTabSwitch("page1")}
-              onKeyDown={(e) => handleTabKeyDown(e, "page1")}
-              className="su-tab inline-flex min-h-9 flex-none items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:text-sm"
+            <span>Hal 1 · Data SU</span>
+            <span
+              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
+                activeTab === "page1"
+                  ? "bg-[#5E17EB]/10 text-[#5E17EB]"
+                  : "border border-[#E5E7EB] bg-white text-[#4B5563]"
+              }`}
             >
-              <span>Hal 1 · Data SU</span>
-              <span
-                className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
-                  activeTab === "page1"
-                    ? "bg-[#5E17EB]/10 text-[#5E17EB]"
-                    : "bg-white text-[#4B5563] border border-[#E5E7EB]"
-                }`}
-              >
-                {getOrientationBadge(page1)}
-              </span>
-            </button>
-
-            <button
-              ref={tab2Ref}
-              id="tab-page2"
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "page2"}
-              {...tab2FocusProps}
-              onClick={() => handleTabSwitch("page2")}
-              onKeyDown={(e) => handleTabKeyDown(e, "page2")}
-              className="su-tab inline-flex min-h-9 flex-none items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:text-sm"
-            >
-              <span>Hal 2 · Peta Bidang</span>
-              <span
-                className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
-                  activeTab === "page2"
-                    ? "bg-[#5E17EB]/10 text-[#5E17EB]"
-                    : "bg-white text-[#4B5563] border border-[#E5E7EB]"
-                }`}
-              >
-                {getOrientationBadge(page2)}
-              </span>
-            </button>
-          </div>
+              {getOrientationBadge(page1)}
+            </span>
+          </button>
 
           <button
+            ref={tab2Ref}
+            id="tab-page2"
             type="button"
-            onClick={onSwapPages}
-            disabled={!page1 && !page2}
-            className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#111114] hover:bg-[#F9FAFB] disabled:opacity-50"
+            role="tab"
+            aria-selected={activeTab === "page2"}
+            {...tab2FocusProps}
+            onClick={() => handleTabSwitch("page2")}
+            onKeyDown={(e) => handleTabKeyDown(e, "page2")}
+            className="su-tab inline-flex min-h-9 flex-none items-center gap-1.5 rounded-full border border-transparent bg-transparent px-3 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:gap-2 sm:px-3.5 sm:text-sm"
           >
-            <ArrowLeftRight
-              ref={topSwapIconRef}
-              className="h-3.5 w-3.5 text-[#5E17EB]"
-              aria-hidden="true"
-            />
-            <span>Tukar Hal 1 &amp; 2</span>
-            <kbd className="hidden rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#4B5563] sm:inline">
-              S
-            </kbd>
+            <span>Hal 2 · Peta Bidang</span>
+            <span
+              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
+                activeTab === "page2"
+                  ? "bg-[#5E17EB]/10 text-[#5E17EB]"
+                  : "border border-[#E5E7EB] bg-white text-[#4B5563]"
+              }`}
+            >
+              {getOrientationBadge(page2)}
+            </span>
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={onSwapPages}
+          disabled={!page1 && !page2}
+          className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#111114] hover:bg-[#F9FAFB] disabled:opacity-50"
+        >
+          <ArrowLeftRight
+            ref={topSwapIconRef}
+            className="h-3.5 w-3.5 text-[#5E17EB]"
+            aria-hidden="true"
+          />
+          <span>Tukar Hal 1 &amp; 2</span>
+          <kbd className="hidden rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#4B5563] sm:inline">
+            S
+          </kbd>
+        </button>
       </div>
 
       {/* Card 2: Active Image Toolbar */}
@@ -1204,30 +1181,31 @@ export function DocumentWorkspacePanel({
         ) : null}
       </div>
 
-      {/* Mobile/Tablet Floating Dock: stays reachable when scrolled past left panel into naming form */}
+      {/* All-Device Floating Bottom Dock: appears cleanly once top pagebar scrolls above viewport */}
       <div
-        ref={mobileDockRef}
-        aria-hidden={!showMobileFloatingDock}
-        inert={!showMobileFloatingDock ? true : undefined}
-        className={`fixed bottom-4 left-1/2 z-[25] -translate-x-1/2 transition-all duration-200 xl:hidden ${
-          showMobileFloatingDock
+        ref={floatingDockRef}
+        aria-hidden={!showFloatingDock}
+        inert={!showFloatingDock ? true : undefined}
+        data-floating-dock={showFloatingDock ? "visible" : "hidden"}
+        className={`fixed bottom-4 left-1/2 z-[25] w-max max-w-[calc(100vw-1rem)] -translate-x-1/2 sm:bottom-5 ${
+          showFloatingDock
             ? "pointer-events-auto translate-y-0 opacity-100"
             : "pointer-events-none translate-y-3 opacity-0"
-        }`}
+        } motion-safe:transition-all motion-safe:duration-200`}
       >
-        <div className="flex items-center gap-1 rounded-full border border-[#DDD6FE] bg-white/95 p-1.5 shadow-[0_12px_30px_-8px_rgba(17,17,20,0.24)] backdrop-blur-xl">
+        <div className="flex items-center gap-1 rounded-full border border-[#DDD6FE] bg-white/95 p-1 shadow-[0_14px_34px_-10px_rgba(17,17,20,0.22),0_2px_10px_-2px_rgba(94,23,235,0.12)] backdrop-blur-xl sm:gap-1.5 sm:p-1.5">
           <button
             type="button"
             onClick={() => handleTabSwitch("page1")}
-            className={`inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`inline-flex min-h-9 items-center gap-1 whitespace-nowrap rounded-full px-2 py-1.5 text-[11px] font-semibold transition-colors min-[380px]:px-2.5 sm:min-h-10 sm:gap-1.5 sm:px-3.5 sm:text-xs ${
               activeTab === "page1"
-                ? "bg-[#5E17EB] text-white"
+                ? "bg-[#5E17EB] text-white shadow-xs"
                 : "text-[#374151] hover:bg-[#F6F7F9]"
             }`}
           >
             <span>Hal 1 · Data SU</span>
             <span
-              className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+              className={`rounded-full px-1.5 py-0.5 font-mono text-[9px] font-bold sm:text-[10px] ${
                 activeTab === "page1"
                   ? "bg-white/20 text-white"
                   : "bg-[#F6F7F9] text-[#4B5563]"
@@ -1240,15 +1218,15 @@ export function DocumentWorkspacePanel({
           <button
             type="button"
             onClick={() => handleTabSwitch("page2")}
-            className={`inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`inline-flex min-h-9 items-center gap-1 whitespace-nowrap rounded-full px-2 py-1.5 text-[11px] font-semibold transition-colors min-[380px]:px-2.5 sm:min-h-10 sm:gap-1.5 sm:px-3.5 sm:text-xs ${
               activeTab === "page2"
-                ? "bg-[#5E17EB] text-white"
+                ? "bg-[#5E17EB] text-white shadow-xs"
                 : "text-[#374151] hover:bg-[#F6F7F9]"
             }`}
           >
             <span>Hal 2 · Peta Bidang</span>
             <span
-              className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+              className={`rounded-full px-1.5 py-0.5 font-mono text-[9px] font-bold sm:text-[10px] ${
                 activeTab === "page2"
                   ? "bg-white/20 text-white"
                   : "bg-[#F6F7F9] text-[#4B5563]"
@@ -1263,10 +1241,16 @@ export function DocumentWorkspacePanel({
             onClick={onSwapPages}
             disabled={!page1 && !page2}
             aria-label="Tukar posisi Halaman 1 dan Halaman 2"
-            title="Tukar Hal 1 & 2"
-            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-full border border-[#E5E7EB] bg-[#F6F7F9] text-[#5E17EB] hover:bg-[#F5F3FF] disabled:opacity-45"
+            title="Tukar Hal 1 & 2 (S)"
+            className="inline-flex min-h-9 min-w-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2 text-[#5E17EB] hover:bg-[#F5F3FF] disabled:opacity-45 sm:min-h-10 sm:min-w-10 md:px-3"
           >
             <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="hidden text-[11px] font-semibold text-[#111114] md:inline">
+              Tukar
+            </span>
+            <kbd className="hidden rounded border border-[#E5E7EB] bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#4B5563] lg:inline">
+              S
+            </kbd>
           </button>
         </div>
       </div>

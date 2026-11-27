@@ -1724,11 +1724,11 @@ export function SuScannerApp() {
         className="su-sticky-header pointer-events-none sticky top-0 z-30 w-full"
       >
         <div className="su-floating-bar pointer-events-auto">
-          <div className="su-floating-bar-inner mx-auto flex w-full max-w-[1280px] items-center justify-between gap-2.5 px-4 sm:px-6 lg:px-8 xl:px-10">
+          <div className="su-floating-bar-inner mx-auto flex w-full max-w-[1280px] items-center justify-between gap-2 px-4 sm:px-6 lg:px-5 xl:gap-2.5 xl:px-10">
           {/* Column 1 (Left): Brand Wordmark su-scanner with curved smile/scan underline */}
-          <div className="flex items-center gap-2.5 lg:justify-self-start">
+          <div className="flex shrink-0 items-center gap-2 lg:justify-self-start xl:gap-2.5">
             <div className="flex items-baseline gap-2">
-              <span className="relative inline-block text-[22px] font-extrabold leading-none tracking-[-0.04em] text-[#111114] sm:text-[24px]">
+              <span className="relative inline-block whitespace-nowrap text-[22px] font-extrabold leading-none tracking-[-0.04em] text-[#111114] sm:text-[24px]">
                 su
                 <svg
                   aria-hidden="true"
@@ -1745,7 +1745,7 @@ export function SuScannerApp() {
                 </svg>
                 -scanner
               </span>
-              <span className="hidden rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2 py-0.5 text-[10px] font-bold tracking-wider text-[#4B5563] uppercase sm:inline-flex">
+              <span className="hidden shrink-0 whitespace-nowrap rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2 py-0.5 text-[10px] font-bold tracking-wider text-[#4B5563] uppercase sm:inline-flex lg:hidden 2xl:inline-flex">
                 ATR/BPN
               </span>
             </div>
@@ -1754,23 +1754,23 @@ export function SuScannerApp() {
           {/* Column 2 (Center): Centered Pill Navbar (Desktop) */}
           <nav
             aria-label="Utilitas Aplikasi"
-            className="hidden items-center gap-0.5 rounded-full border border-[#E5E7EB]/80 bg-[#F6F7F9] px-1.5 py-1 shadow-[0_1px_2px_rgba(0,0,0,0.02)] lg:flex xl:gap-1 xl:px-2 xl:py-1.5"
+            className="hidden items-center gap-0.5 rounded-full border border-[#E5E7EB]/80 bg-[#F6F7F9] px-1 py-1 shadow-[0_1px_2px_rgba(0,0,0,0.02)] lg:flex xl:gap-1 xl:px-2 xl:py-1.5"
           >
             <button
               type="button"
               onClick={() => setBatchModalOpen(true)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1.5 text-xs font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114] xl:px-3 xl:text-[13px]"
             >
-              <Layers className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+              <Layers className="h-4 w-4 shrink-0 text-[#5E17EB]" aria-hidden="true" />
               <span>Batch / PDF</span>
             </button>
 
             <button
               type="button"
               onClick={() => setHistoryOpen(true)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1.5 text-xs font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114] xl:px-3 xl:text-[13px]"
             >
-              <History className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+              <History className="h-4 w-4 shrink-0 text-[#5E17EB]" aria-hidden="true" />
               <span>Riwayat</span>
               <span className="rounded-full bg-white px-2 py-0.5 font-mono text-[11px] font-bold text-[#111114] shadow-2xs">
                 {sessionHistory.length}
@@ -1780,21 +1780,21 @@ export function SuScannerApp() {
             <button
               type="button"
               onClick={() => setExplorerOpen(true)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1.5 text-xs font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114] xl:px-3 xl:text-[13px]"
             >
-              <FolderSearch className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+              <FolderSearch className="h-4 w-4 shrink-0 text-[#4B5563]" aria-hidden="true" />
               <span>Jelajah</span>
             </button>
 
             <button
               type="button"
               onClick={() => setDriveConfigOpen(true)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1.5 text-xs font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114] xl:px-3 xl:text-[13px]"
             >
-              <FolderOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+              <FolderOpen className="h-4 w-4 shrink-0 text-[#4B5563]" aria-hidden="true" />
               <span>Google Drive</span>
               <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold xl:px-2 ${
                   driveReady
                     ? "bg-[#ECFDF5] text-[#065F46]"
                     : "bg-[#FFFBEB] text-[#92400E]"
@@ -1807,20 +1807,20 @@ export function SuScannerApp() {
             <button
               type="button"
               onClick={() => setGuideOpen(true)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1.5 text-xs font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114] xl:px-3 xl:text-[13px]"
             >
-              <BookOpen className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
+              <BookOpen className="h-4 w-4 shrink-0 text-[#4B5563]" aria-hidden="true" />
               <span>Panduan</span>
             </button>
 
             <button
               type="button"
               onClick={() => setAiUsageOpen(true)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114]"
+              className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1.5 text-xs font-medium tracking-[-0.01em] text-[#4B5563] transition-colors hover:bg-white hover:text-[#111114] xl:px-3 xl:text-[13px]"
             >
-              <Activity className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
+              <Activity className="h-4 w-4 shrink-0 text-[#5E17EB]" aria-hidden="true" />
               <span>Usage AI</span>
-              <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 font-mono text-[11px] font-bold text-[#4C0FD1]">
+              <span className="rounded-full bg-[#F5F3FF] px-1.5 py-0.5 font-mono text-[11px] font-bold text-[#4C0FD1] xl:px-2">
                 {aiUsageStats.usedTodayRequests}/{aiUsageStats.dailyQuotaLimit}
               </span>
             </button>
@@ -1843,13 +1843,13 @@ export function SuScannerApp() {
 
             {hasWorkspace ? (
               <>
-                <span className="hidden rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2.5 py-1 font-mono text-xs font-semibold text-[#111114] md:inline-flex lg:hidden xl:inline-flex">
+                <span className="hidden shrink-0 whitespace-nowrap rounded-full border border-[#E5E7EB] bg-[#F6F7F9] px-2.5 py-1 font-mono text-xs font-semibold text-[#111114] md:inline-flex lg:hidden xl:inline-flex">
                   0{loadedPagesCount}/02 Hal
                 </span>
                 <button
                   type="button"
                   onClick={handleResetWorkspace}
-                  className="nb-btn-sm wollo-cta-dark inline-flex min-h-10 items-center gap-1.5 px-4 py-2 text-xs font-semibold sm:text-[13px]"
+                  className="nb-btn-sm wollo-cta-dark inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap px-3.5 py-2 text-xs font-semibold sm:px-4 sm:text-[13px]"
                 >
                   <Plus className="h-4 w-4" aria-hidden="true" />
                   <span>Scan Baru</span>
@@ -2019,7 +2019,7 @@ export function SuScannerApp() {
             isDecoding={isDecoding}
           />
         ) : (
-          <div className="mx-auto flex w-full max-w-[1360px] flex-1 flex-col gap-4 p-4 pb-20 sm:gap-5 sm:p-6 sm:pb-20 xl:pb-6">
+          <div className="mx-auto flex w-full max-w-[1360px] flex-1 flex-col gap-4 p-4 pb-24 sm:gap-5 sm:p-6 sm:pb-24">
             <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-[minmax(0,63fr)_minmax(340px,37fr)]">
               <DocumentWorkspacePanel
                 activeTab={activeTab}
