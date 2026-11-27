@@ -21,8 +21,6 @@ interface AiUsageSidebarProps {
   stats: AiUsageStats;
   onUpdateDailyLimit: (newLimit: number) => void;
   onResetLocalCounters: () => void;
-  isAdminUnlocked?: boolean;
-  onRequirePinUnlock?: () => void;
 }
 
 export function AiUsageSidebar({
@@ -31,8 +29,6 @@ export function AiUsageSidebar({
   stats,
   onUpdateDailyLimit,
   onResetLocalCounters,
-  isAdminUnlocked = true,
-  onRequirePinUnlock,
 }: AiUsageSidebarProps) {
   const [limitDraft, setLimitDraft] = useState(String(stats.dailyQuotaLimit));
   const [tickMs, setTickMs] = useState<number | null>(null);
@@ -65,10 +61,6 @@ export function AiUsageSidebar({
 
   const handleSaveLimit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdminUnlocked) {
-      onRequirePinUnlock?.();
-      return;
-    }
     const num = Number(limitDraft.replace(/\D/g, ""));
     if (Number.isFinite(num) && num >= 1 && num <= 100_000) {
       onUpdateDailyLimit(num);
@@ -337,13 +329,7 @@ export function AiUsageSidebar({
 
             <button
               type="button"
-              onClick={() => {
-                if (!isAdminUnlocked) {
-                  onRequirePinUnlock?.();
-                  return;
-                }
-                onResetLocalCounters();
-              }}
+              onClick={onResetLocalCounters}
               className="nb-btn-sm inline-flex min-h-9 w-full items-center justify-center gap-1.5 bg-[#F6F7F9] px-3 py-1.5 text-xs text-[#4B5563] hover:bg-white hover:text-[#111114]"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />

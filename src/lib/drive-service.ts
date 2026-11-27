@@ -40,7 +40,6 @@ export interface SheetSyncMeta {
   nib?: string;
   luasTanah?: string;
   pageCount?: number;
-  operatorName?: string;
 }
 
 export function resolveConfiguredRootFolderId(override?: string | null): string {

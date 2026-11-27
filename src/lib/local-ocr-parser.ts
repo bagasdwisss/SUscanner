@@ -140,11 +140,23 @@ function extractSuNumberAndYear(rawText: string): {
   const candidates: SuCandidate[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
+    const rawLine = lines[i];
+    if (!rawLine) continue;
+    // Strip full dd/mm/yyyy validation/registration dates before looking for SU NNNNN/YYYY
+    const line = rawLine.replace(
+      /\b\d{1,2}\s*[\/|\-]\s*\d{1,2}\s*[\/|\-]\s*(?:19|20)\d{2}\b/g,
+      " ",
+    );
 
-    const nearHeader = suHeaderIdx >= 0 && Math.abs(i - suHeaderIdx) <= 4;
-    const isNoise = NOISE_SU_LINE_RE.test(line) && !/surat\s+ukur|gambar\s+situasi/i.test(line);
+    const nearHeader = suHeaderIdx >= 0 && Math.abs(i - suHeaderIdx) <= 6;
+    const hasExplicitSuKeyword = /\b(?:surat\s+ukur|sura[tf]\s+ukur|gambar\s+situasi|no\.?\s*su|nomor\s+su)\b/i.test(
+      line,
+    );
+    const hasExplicitHakOnly =
+      /\b(?:no\.?\s*hak|nomor\s+hak|hak\s+milik|hak\s+guna|hak\s+pakai|hak\s+pengelolaan|wakaf|h\.?\s*g\.?\s*b\.?|h\.?\s*g\.?\s*u\.?|h\.?\s*p\.?\s*l\.?|h\.?\s*m\.?)\b/i.test(
+        line,
+      ) && !hasExplicitSuKeyword;
+    const isNoise = NOISE_SU_LINE_RE.test(line) && !hasExplicitSuKeyword;
     if (isNoise) continue;
 
     const headerBoost = nearHeader ? 20 : 0;
@@ -165,7 +177,7 @@ function extractSuNumberAndYear(rawText: string): {
           nomorSu: no,
           tahunSu: yr,
           kelurahanFromSu: mid,
-          evidence: `${labeledModern[1]}/${mid}/${yr}`,
+          evidence: `${no}/${mid}/${yr}`,
           score: 100 + headerBoost,
         });
         continue;
@@ -187,51 +199,58 @@ function extractSuNumberAndYear(rawText: string): {
           nomorSu: no,
           tahunSu: yr,
           kelurahanFromSu: mid,
-          evidence: `${plainModern[1]}/${mid}/${yr}`,
+          evidence: `${no}/${mid}/${yr}`,
           score: 86 + headerBoost,
         });
         continue;
       }
     }
 
-    // Candidate 3: Legacy 1960s–1990s labeled "Nomor : 12 / 1964", "No. 45 tahun 1962", or "No. 12/64" near header
+    // Candidate 3: Labeled "Nomor : 00001 / 2009", "No. SU 00001/2009", "No. 45 tahun 1962", or "No. 12/64"
     const labeledLegacy = line.match(
       new RegExp(
-        `(?:nomor|nornor|no\\.?|surat\\s+ukur\\s+no\\.?)\\s*[:.\\-]?\\s*${numTok}\\s*(?:${sepTok}|\\btahun\\b|\\bthn\\.?\\b|\\bth\\.?\\b)\\s*([0-9OoQDIl|!]{2,4})\\b`,
+        `(?:surat\\s+ukur\\s*(?:no\\.?|nomor)?|no\\.?\\s*su|nomor\\s*su|nomor|nornor|nomer|no\\.?)\\s*[:.\\-]?\\s*${numTok}\\s*(?:${sepTok}|\\btahun\\b|\\bthn\\.?\\b|\\bth\\.?\\b)\\s*([0-9OoQDIl|!]{2,4})\\b`,
         "i",
       ),
     );
-    if (labeledLegacy) {
+    if (labeledLegacy && !hasExplicitHakOnly) {
       const no = repairNumericToken(labeledLegacy[1]);
-      const yr = parseSuYearToken(labeledLegacy[2], nearHeader);
+      const yr = parseSuYearToken(labeledLegacy[2], nearHeader || hasExplicitSuKeyword);
       if (no && yr && no.length <= 5) {
         candidates.push({
           nomorSu: no,
           tahunSu: yr,
           kelurahanFromSu: null,
-          evidence: labeledLegacy[0].trim(),
-          score: 82 + headerBoost,
+          evidence: `${no}/${yr}`,
+          score: 84 + headerBoost + (no.length === 5 ? 6 : 0),
         });
         continue;
       }
     }
 
-    // Candidate 4: Bare "12 / 1964" ONLY when near "SURAT UKUR" / "GAMBAR SITUASI" header (prevents date/DI false matches)
-    if (nearHeader) {
-      const nearHeaderSlash = line.match(
-        new RegExp(`\\b${numTok}\\s*\\/\\s*${year4Tok}\\b`),
+    // Candidate 4: Adjacent NNNNN/YYYY (e.g. "00001/2009" or "00001 | 2009") outside date & Hak-only lines
+    if (!hasExplicitHakOnly) {
+      const bareSlashYear = line.match(
+        new RegExp(`(?:^|[^\\d.\\/])${numTok}\\s*[\\/|\\\\]\\s*${year4Tok}(?![\\d.\\/])`),
       );
-      if (nearHeaderSlash) {
-        const no = repairNumericToken(nearHeaderSlash[1]);
-        const yr = parseSuYearToken(nearHeaderSlash[2], false);
-        if (no && yr) {
-          candidates.push({
-            nomorSu: no,
-            tahunSu: yr,
-            kelurahanFromSu: null,
-            evidence: nearHeaderSlash[0].trim(),
-            score: 72 + headerBoost,
-          });
+      if (bareSlashYear) {
+        const no = repairNumericToken(bareSlashYear[1]);
+        const yr = parseSuYearToken(bareSlashYear[2], false);
+        if (no && yr && no.length <= 5) {
+          const looksZeroPaddedSu = no.length >= 4 && /^0/.test(no);
+          if (nearHeader || looksZeroPaddedSu || hasExplicitSuKeyword || no.length === 5) {
+            candidates.push({
+              nomorSu: no,
+              tahunSu: yr,
+              kelurahanFromSu: null,
+              evidence: `${no}/${yr}`,
+              score:
+                72 +
+                headerBoost +
+                (hasExplicitSuKeyword ? 14 : 0) +
+                (looksZeroPaddedSu ? 12 : 0),
+            });
+          }
         }
       }
     }
@@ -342,13 +361,55 @@ function extractHakAndNib(rawText: string): {
     };
   }
 
-  // Legacy short & dotted formats: "H.M. 145", "HM. 2246", "H.G.B. 105", "Hak Milik No. 145"
+  // Explicit "Nomor Hak : 00246" / "No. Hak : M. 00246" format (separate from SU NNNNN/YYYY)
+  let inferredJenisHak: StandardHakCode | null = null;
+  for (const rawLine of scrubbedLines) {
+    const line = rawLine.trim();
+    if (!line || NOISE_SU_LINE_RE.test(line)) continue;
+    const typeMatch = line.match(
+      /\b(HAK\s+MILIK|HAK\s+GUNA\s+USAHA|HAK\s+GUNA\s+BANGUNAN|HAK\s+PAKAI|HAK\s+PENGELOLAAN|H\.?\s*G\.?\s*B\.?|H\.?\s*G\.?\s*U\.?|H\.?\s*P\.?\s*L\.?|H\.?\s*M\.?|H\.?\s*P\.?|WAKAF)\b/i,
+    );
+    if (typeMatch && !inferredJenisHak) {
+      inferredJenisHak = mapHakCode(typeMatch[1]);
+    }
+  }
+
   for (const rawLine of scrubbedLines) {
     const line = rawLine.trim();
     if (!line || NOISE_SU_LINE_RE.test(line)) continue;
 
-    const legacyHakMatch = line.match(
-      /\b(HAK\s+MILIK|HAK\s+GUNA\s+USAHA|HAK\s+GUNA\s+BANGUNAN|HAK\s+PAKAI|HAK\s+PENGELOLAAN|H\.?\s*G\.?\s*B\.?|H\.?\s*G\.?\s*U\.?|H\.?\s*P\.?\s*L\.?|H\.?\s*M\.?|H\.?\s*P\.?|WAKAF)\b[\s.\-:/]*(?:(?:NO|NOMOR)\.?\s*)?([0-9OoQDIl|!]{1,5})\b/i,
+    const explicitNoHakMatch = line.match(
+      /\b(?:no\.?|nom[eo]r)\s*hak\b[\s.\-:]*([A-Za-z]{1,4}[\s.\-/]*)?(?:(?:no\.?|nom[eo]r)\s*[:.\-]?\s*)?([0-9OoQDIl|!]{1,5})\b(?!\s*[\/|\\]\s*(?:19|20)\d{2}\b)(?!\s*(?:m2|m²|meter)\b)/i,
+    );
+    if (explicitNoHakMatch) {
+      const no = repairNumericToken(explicitNoHakMatch[2]);
+      const code =
+        (explicitNoHakMatch[1] ? mapHakCode(explicitNoHakMatch[1].replace(/[.\-/]/g, " ")) : null) ||
+        inferredJenisHak;
+      if (no && no.length <= 5) {
+        return {
+          kodeAngka: null,
+          kodeHuruf: code,
+          nomorHak: no,
+          nib: detectedNib,
+          evidence: explicitNoHakMatch[0].trim(),
+          explicitContext: true,
+        };
+      }
+    }
+  }
+
+  // Legacy short & dotted formats: "H.M. 145", "HM. 2246", "H.G.B. 105", "Hak Milik No. 145"
+  for (const rawLine of scrubbedLines) {
+    const line = rawLine.trim();
+    if (!line || NOISE_SU_LINE_RE.test(line)) continue;
+    const lineWithoutSu = line.replace(
+      /\b(?:surat\s+ukur|gambar\s+situasi|no\.?\s*su|nomor\s+su)\s*(?:no\.?|nomor)?\s*[:.\-]?\s*[0-9OoQDIl|!]{1,5}(?:\s*[\/|\\]\s*(?:19|20)\d{2})?\b/gi,
+      " ",
+    );
+
+    const legacyHakMatch = lineWithoutSu.match(
+      /\b(HAK\s+MILIK|HAK\s+GUNA\s+USAHA|HAK\s+GUNA\s+BANGUNAN|HAK\s+PAKAI|HAK\s+PENGELOLAAN|H\.?\s*G\.?\s*B\.?|H\.?\s*G\.?\s*U\.?|H\.?\s*P\.?\s*L\.?|H\.?\s*M\.?|H\.?\s*P\.?|WAKAF)\b[\s.\-:/]*(?:(?:NO|NOMOR)\.?\s*[:.\-]?\s*)?([0-9OoQDIl|!]{1,5})\b(?!\s*[\/|\\]\s*(?:19|20)\d{2}\b)(?!\s*(?:m2|m²|meter)\b)/i,
     );
     if (legacyHakMatch) {
       const code = mapHakCode(legacyHakMatch[1]);

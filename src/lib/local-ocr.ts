@@ -150,6 +150,50 @@ function buildEnhancedOcrCanvas(
   };
 }
 
+/**
+ * Lightweight 1450px JPEG canvas builder for fast Searchable PDF word bounding box extraction
+ * during Google Drive uploads (avoids slow pixel-loop illumination normalization & PNG encoding).
+ */
+function buildFastSearchableCanvas(
+  sourceImg: HTMLImageElement,
+): EnhancedCanvasMeta {
+  const srcW = sourceImg.naturalWidth;
+  const srcH = sourceImg.naturalHeight;
+  const longSide = Math.max(srcW, srcH);
+  const scale = longSide > 1450 ? 1450 / longSide : 1;
+  const workW = Math.max(64, Math.round(srcW * scale));
+  const workH = Math.max(64, Math.round(srcH * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = workW;
+  canvas.height = workH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return { dataUrl: "", workW, workH, pad: 0, y0Frac: 0, y1Frac: 1 };
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "medium";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, workW, workH);
+  if ("filter" in ctx) {
+    ctx.filter = "grayscale(1) contrast(1.18)";
+  }
+  ctx.drawImage(sourceImg, 0, 0, workW, workH);
+  if ("filter" in ctx) {
+    ctx.filter = "none";
+  }
+
+  return {
+    dataUrl: canvas.toDataURL("image/jpeg", 0.85),
+    workW,
+    workH,
+    pad: 0,
+    y0Frac: 0,
+    y1Frac: 1,
+  };
+}
+
 function extractNormalizedWordsFromBlocks(
   blocks: Array<{
     paragraphs?: Array<{
@@ -255,7 +299,7 @@ export async function runLocalTesseractOcr(
     let combinedRawText = headerRes.data.text || "";
 
     if (!headerComplete) {
-      onProgress?.(65);
+      onProgress?.(60);
       const fullRes = await worker.recognize(
         fullMeta.dataUrl || imageDataUrl,
         { rotateAuto: true },
@@ -279,11 +323,49 @@ export async function runLocalTesseractOcr(
       }
     }
 
-    onProgress?.(100);
-    const { extraction, meanConfidence } = mergeMultiPassOcrResults(
+    let mergedOutcome = mergeMultiPassOcrResults(
       { result: headerParsed, meanConfidence: headerConf },
       fullPass,
     );
+
+    // Pass 3 (conditional): PSM.SPARSE_TEXT on top 48% recovers isolated SU/Hak boxes when AUTO merges/skips them
+    const stillMissingCritical =
+      !mergedOutcome.extraction.nomor_su_raw ||
+      !mergedOutcome.extraction.tahun_su ||
+      !mergedOutcome.extraction.nomor_hak_raw;
+    if (stillMissingCritical) {
+      onProgress?.(85);
+      const sparseMeta = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.48 });
+      await worker.setParameters({
+        tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+        preserve_interword_spaces: "1",
+        user_defined_dpi: "300",
+      });
+      const sparseRes = await worker.recognize(
+        sparseMeta.dataUrl || headerMeta.dataUrl || imageDataUrl,
+        undefined,
+        { text: true },
+      );
+      const sparseConf =
+        typeof sparseRes.data.confidence === "number"
+          ? sparseRes.data.confidence
+          : mergedOutcome.meanConfidence;
+      const sparseParsed = parseSuratUkurOcrText(
+        sparseRes.data.text || "",
+        sparseConf,
+      );
+      combinedRawText = `${combinedRawText}\n---SPARSE---\n${sparseRes.data.text || ""}`;
+      mergedOutcome = mergeMultiPassOcrResults(
+        {
+          result: mergedOutcome.extraction,
+          meanConfidence: mergedOutcome.meanConfidence,
+        },
+        { result: sparseParsed, meanConfidence: sparseConf },
+      );
+    }
+
+    onProgress?.(100);
+    const { extraction, meanConfidence } = mergedOutcome;
     const processed = applyExtractionToForm(extraction);
     return { processed, rawText: combinedRawText, meanConfidence, ocrWords };
   } finally {
@@ -302,7 +384,7 @@ export async function extractSearchableOcrWords(
   const { createWorker, PSM } = await import("tesseract.js");
   onProgress?.(10);
   const img = await loadImageElement(imageDataUrl);
-  const fullMeta = buildEnhancedOcrCanvas(img);
+  const fastMeta = buildFastSearchableCanvas(img);
 
   const worker = await createWorker("ind", 1, {
     logger: (msg) => {
@@ -315,16 +397,15 @@ export async function extractSearchableOcrWords(
   try {
     await worker.setParameters({
       tessedit_pageseg_mode: PSM.AUTO,
-      preserve_interword_spaces: "1",
-      user_defined_dpi: "300",
+      user_defined_dpi: "200",
     });
     const res = await worker.recognize(
-      fullMeta.dataUrl || imageDataUrl,
+      fastMeta.dataUrl || imageDataUrl,
       undefined,
       { text: true, blocks: true },
     );
     onProgress?.(100);
-    return extractNormalizedWordsFromBlocks(res.data.blocks, fullMeta);
+    return extractNormalizedWordsFromBlocks(res.data.blocks, fastMeta);
   } finally {
     await worker.terminate();
   }

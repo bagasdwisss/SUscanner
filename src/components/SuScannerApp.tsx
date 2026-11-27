@@ -6,7 +6,6 @@ import {
   BookOpen,
   History,
   Layers,
-  Lock,
   Menu,
   Plus,
   CheckCircle2,
@@ -14,7 +13,6 @@ import {
   Keyboard,
   FolderOpen,
   FolderSearch,
-  ShieldCheck,
   WifiOff,
   X,
 } from "lucide-react";
@@ -28,7 +26,6 @@ import { DriveConfigDialog } from "./DriveConfigDialog";
 import { AiUsageSidebar } from "./AiUsageSidebar";
 import { BatchQueueModal } from "./BatchQueueModal";
 import { DriveExplorerModal } from "./DriveExplorerModal";
-import { KioskPinDialog } from "./KioskPinDialog";
 import {
   computeNextAiQuotaReset,
   createInitialAiUsageStats,
@@ -100,13 +97,6 @@ import {
   loadCorrectionMemory,
   type CorrectionMemoryState,
 } from "@/lib/correction-memory";
-import {
-  appendKioskAudit,
-  createInitialKioskState,
-  isAdminSessionUnlocked,
-  loadKioskState,
-  type KioskLockState,
-} from "@/lib/kiosk-lock";
 import type {
   AiEngineSource,
   AiExtractionResult,
@@ -199,18 +189,20 @@ export function SuScannerApp() {
   const [isEnsuringSheet, setIsEnsuringSheet] = useState(false);
   const [searchablePdf, setSearchablePdf] = useState(true);
   const [isUploadingDrive, setIsUploadingDrive] = useState(false);
+  const [driveLockedSignature, setDriveLockedSignature] = useState<string | null>(
+    null,
+  );
   const [lastDriveResult, setLastDriveResult] =
     useState<DriveUploadResult | null>(null);
   const [lastDriveError, setLastDriveError] = useState<string | null>(null);
   const [driveConfigOpen, setDriveConfigOpen] = useState(false);
 
-  // Batch Queue, PDF Splitter, Drive Explorer, Offline Sync, Correction Memory & Kiosk Lock
+  // Batch Queue, PDF Splitter, Drive Explorer, Offline Sync & Correction Memory
   const [batchModalOpen, setBatchModalOpen] = useState(false);
   const [pendingBatchFiles, setPendingBatchFiles] = useState<File[] | null>(
     null,
   );
   const [explorerOpen, setExplorerOpen] = useState(false);
-  const [kioskDialogOpen, setKioskDialogOpen] = useState(false);
   const [offlineJobs, setOfflineJobs] = useState<OfflineUploadJob[]>([]);
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
   const [correctionMemory, setCorrectionMemory] =
@@ -218,10 +210,6 @@ export function SuScannerApp() {
       rules: [],
       wilayahCodes: [],
     });
-  const [kioskState, setKioskState] = useState<KioskLockState>(() =>
-    createInitialKioskState(),
-  );
-  const [adminUnlocked, setAdminUnlocked] = useState(true);
 
   // Export & Modals (default to highest image quality for download & Drive upload)
   const [pdfQuality, setPdfQuality] = useState<PdfQualityPreset>("high");
@@ -242,8 +230,7 @@ export function SuScannerApp() {
   const aiTargetIdRef = useRef<string | null>(null);
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const offlineSyncLockRef = useRef(false);
-
-  const isAdminUnlocked = !kioskState.pinEnabled || adminUnlocked;
+  const driveUploadLockRef = useRef(false);
 
   useEffect(() => {
     const sentinel = scrollSentinelRef.current;
@@ -282,9 +269,6 @@ export function SuScannerApp() {
       setClientNowMs(Date.now());
       setAiUsageStats(loadAiUsageStats());
       setCorrectionMemory(loadCorrectionMemory());
-      const ks = loadKioskState();
-      setKioskState(ks);
-      setAdminUnlocked(isAdminSessionUnlocked(ks));
       try {
         const storedUrl = localStorage.getItem(APPS_SCRIPT_STORAGE_KEY) || "";
         const storedRoot = extractDriveFolderId(
@@ -1057,6 +1041,7 @@ export function SuScannerApp() {
     setWarnings([]);
     setLastDriveResult(null);
     setLastDriveError(null);
+    setDriveLockedSignature(null);
     setExtractionVersion((v) => v + 1);
     setLiveMessage("Workspace direset. Siap memindai dokumen berikutnya.");
   }, [page1, page2]);
@@ -1065,6 +1050,17 @@ export function SuScannerApp() {
     namingMode === "standard"
       ? buildStandardFilename(fields)
       : sanitizeCustomFilename(customFilename);
+
+  const driveDocSignature = [
+    page1?.id ?? "none",
+    page2?.id ?? "none",
+    currentFilename,
+    normalizeKecamatanName(fields.kecamatan),
+    normalizeKelurahanName(fields.kelurahan),
+    driveRootFolderId,
+    conflictPolicy,
+  ].join("|");
+  const driveUploadedForCurrent = driveLockedSignature === driveDocSignature;
 
   const isDuplicateFilename = sessionHistory.some(
     (item) => item.filename.toLowerCase() === currentFilename.toLowerCase(),
@@ -1113,7 +1109,6 @@ export function SuScannerApp() {
             nib: extraMeta?.nib,
             luasTanah: extraMeta?.luasTanah,
             pageCount: extraMeta?.pageCount ?? 1,
-            operatorName: kioskState.operatorName || "Operator Kantah",
           }
         : undefined;
 
@@ -1126,7 +1121,6 @@ export function SuScannerApp() {
           kelurahan: kelurahanClean || undefined,
           rootFolderId: driveRootFolderId,
           conflictPolicy,
-          operatorName: kioskState.operatorName || "Operator Kantah",
           nomorSu: extraMeta?.nomorSu || "",
           tahunSu: extraMeta?.tahunSu || "",
           kodeHak: extraMeta?.kodeHak || "",
@@ -1219,13 +1213,6 @@ export function SuScannerApp() {
           });
           setCorrectionMemory(updatedMem);
         }
-        setKioskState((curr) =>
-          appendKioskAudit(
-            curr,
-            "upload-drive",
-            `${payload.fileName} -> /${payload.kecamatanName || kecamatanClean}${payload.kelurahanName ? `/${payload.kelurahanName}` : ""}${payload.overwritten ? " (timpa)" : payload.skipped ? " (skip)" : ""}`,
-          ),
-        );
 
         if (payload.skipped) {
           showToast(
@@ -1259,7 +1246,6 @@ export function SuScannerApp() {
       appsScriptUrl,
       conflictPolicy,
       driveRootFolderId,
-      kioskState.operatorName,
       rawEvidence.teksNomorHak,
       rememberSheetUrl,
       showToast,
@@ -1309,10 +1295,6 @@ export function SuScannerApp() {
                       nib: job.nib,
                       luasTanah: job.luasTanah,
                       pageCount: job.pageCount || 1,
-                      operatorName:
-                        job.operatorName ||
-                        kioskState.operatorName ||
-                        "Operator Kantah",
                     }
                   : undefined,
               }),
@@ -1357,7 +1339,6 @@ export function SuScannerApp() {
     [
       appsScriptUrl,
       driveRootFolderId,
-      kioskState.operatorName,
       rememberSheetUrl,
       showToast,
       syncToSheet,
@@ -1423,7 +1404,7 @@ export function SuScannerApp() {
     try {
       const pdfMeta = {
         title: currentFilename.replace(/\.pdf$/i, ""),
-        author: kioskState.operatorName || "Operator SU-Scanner",
+        author: "SU-Scanner",
         subject: `Surat Ukur ${padFiveDigits(fields.nomorSu)}/${sanitizeDigits(fields.tahunSu)} - ${normalizeKecamatanName(fields.kecamatan) || "Kantah"}`,
         keywords: [
           fields.nib ? `NIB:${fields.nib}` : "",
@@ -1468,6 +1449,9 @@ export function SuScannerApp() {
             pageCount: result.pageCount,
           },
         );
+        if (uploaded) {
+          setDriveLockedSignature(driveDocSignature);
+        }
       }
 
       const historyItem: SessionHistoryItem = {
@@ -1484,7 +1468,6 @@ export function SuScannerApp() {
         kelurahan: uploaded?.kelurahanName || kelurahanClean || undefined,
         nib: fields.nib || undefined,
         luasTanah: fields.luasTanah || undefined,
-        operatorName: kioskState.operatorName || undefined,
         driveFileUrl: uploaded?.fileUrl,
         driveFolderUrl: uploaded?.folderUrl,
         pdfBytes: new Uint8Array(result.bytes).buffer,
@@ -1515,9 +1498,9 @@ export function SuScannerApp() {
   }, [
     autoUploadOnExport,
     currentFilename,
+    driveDocSignature,
     driveReady,
     fields,
-    kioskState.operatorName,
     pdfQuality,
     performDriveUpload,
     preparePagesForPdfExport,
@@ -1526,18 +1509,19 @@ export function SuScannerApp() {
   ]);
 
   const handleUploadOnlyToDrive = useCallback(async () => {
+    if (
+      driveUploadLockRef.current ||
+      driveLockedSignature === driveDocSignature
+    ) {
+      return;
+    }
+
     if (!driveReady) {
       setDriveConfigOpen(true);
       showToast(
         "error",
         "Hubungkan Google Drive terlebih dahulu (pengaturan 1 kali), lalu klik Upload Langsung ke Drive lagi.",
       );
-      return;
-    }
-
-    const pages = await preparePagesForPdfExport();
-    if (pages.length === 0) {
-      showToast("error", "Unggah minimal 1 halaman Surat Ukur terlebih dahulu.");
       return;
     }
 
@@ -1551,12 +1535,24 @@ export function SuScannerApp() {
       return;
     }
 
+    // Lock synchronously before awaiting PDF prep/upload so rapid double clicks never duplicate uploads
+    driveUploadLockRef.current = true;
+    setDriveLockedSignature(driveDocSignature);
+    setIsUploadingDrive(true);
     setIsGeneratingPdf(true);
     setLastDriveError(null);
+
     try {
+      const pages = await preparePagesForPdfExport();
+      if (pages.length === 0) {
+        setDriveLockedSignature(null);
+        showToast("error", "Unggah minimal 1 halaman Surat Ukur terlebih dahulu.");
+        return;
+      }
+
       const pdfMeta = {
         title: currentFilename.replace(/\.pdf$/i, ""),
-        author: kioskState.operatorName || "Operator SU-Scanner",
+        author: "SU-Scanner",
         subject: `Surat Ukur ${padFiveDigits(fields.nomorSu)}/${sanitizeDigits(fields.tahunSu)} - ${kecamatanClean}`,
       };
       const result = await generateSuPdf(pages, pdfQuality, 2_850_000, pdfMeta);
@@ -1590,7 +1586,6 @@ export function SuScannerApp() {
           kelurahan: uploaded.kelurahanName || kelurahanClean || undefined,
           nib: fields.nib || undefined,
           luasTanah: fields.luasTanah || undefined,
-          operatorName: kioskState.operatorName || undefined,
           driveFileUrl: uploaded.fileUrl,
           driveFolderUrl: uploaded.folderUrl,
           pdfBytes: new Uint8Array(result.bytes).buffer,
@@ -1604,13 +1599,16 @@ export function SuScannerApp() {
       setLastDriveError(msg);
       showToast("error", msg);
     } finally {
+      driveUploadLockRef.current = false;
       setIsGeneratingPdf(false);
+      setIsUploadingDrive(false);
     }
   }, [
     currentFilename,
+    driveDocSignature,
+    driveLockedSignature,
     driveReady,
     fields,
-    kioskState.operatorName,
     pdfQuality,
     performDriveUpload,
     preparePagesForPdfExport,
@@ -1631,7 +1629,6 @@ export function SuScannerApp() {
         aiUsageOpen ||
         batchModalOpen ||
         explorerOpen ||
-        kioskDialogOpen ||
         cameraSlot !== null
       )
         return;
@@ -1693,7 +1690,6 @@ export function SuScannerApp() {
     handleRotateActive,
     handleSwapPages,
     historyOpen,
-    kioskDialogOpen,
     page1,
     page2,
   ]);
@@ -1830,7 +1826,7 @@ export function SuScannerApp() {
             </button>
           </nav>
 
-          {/* Column 3 (Right): Kiosk/Offline Pills + Active Workspace CTA */}
+          {/* Column 3 (Right): Offline Queue Pill + Active Workspace CTA */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             {offlineJobs.length > 0 ? (
               <button
@@ -1844,26 +1840,6 @@ export function SuScannerApp() {
                 <span>{offlineJobs.length}</span>
               </button>
             ) : null}
-
-            <button
-              type="button"
-              onClick={() => setKioskDialogOpen(true)}
-              title={`Operator: ${kioskState.operatorName} (${kioskState.pinEnabled ? (isAdminUnlocked ? "Admin Terbuka" : "Kiosk Terkunci") : "Kiosk Nonaktif"})`}
-              className={`hidden items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition-colors xl:inline-flex ${
-                kioskState.pinEnabled && !isAdminUnlocked
-                  ? "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]"
-                  : "border-[#E5E7EB] bg-[#F6F7F9] text-[#111114] hover:bg-white"
-              }`}
-            >
-              {kioskState.pinEnabled && !isAdminUnlocked ? (
-                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-              ) : (
-                <ShieldCheck className="h-3.5 w-3.5 text-[#5E17EB]" aria-hidden="true" />
-              )}
-              <span className="max-w-[96px] truncate">
-                {kioskState.operatorName}
-              </span>
-            </button>
 
             {hasWorkspace ? (
               <>
@@ -2003,18 +1979,6 @@ export function SuScannerApp() {
                 <FolderSearch className="h-4 w-4 text-[#4B5563]" aria-hidden="true" />
                 Jelajah Drive
               </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setKioskDialogOpen(true);
-                }}
-                className="nb-btn-sm inline-flex min-h-11 items-center gap-1.5 bg-[#F6F7F9] px-3 py-2 text-xs font-semibold text-[#111114]"
-              >
-                <Lock className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
-                Kiosk / Operator
-              </button>
             </nav>
 
             {/* Mobile Live Quota Bar */}
@@ -2097,6 +2061,7 @@ export function SuScannerApp() {
                 onChangePdfQuality={setPdfQuality}
                 isGeneratingPdf={isGeneratingPdf}
                 isUploadingDrive={isUploadingDrive}
+                driveUploadedForCurrent={driveUploadedForCurrent}
                 driveReady={driveReady}
                 autoUploadOnExport={autoUploadOnExport}
                 onToggleAutoUpload={handleToggleAutoUpload}
@@ -2166,7 +2131,7 @@ export function SuScannerApp() {
             <div className="hidden flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-xs text-[#4B5563] lg:flex">
               <div className="flex items-center gap-2 font-semibold text-[#111114]">
                 <Keyboard className="h-4 w-4 text-[#5E17EB]" aria-hidden="true" />
-                <span>Shortcut Operator</span>
+                <span>Shortcut Keyboard</span>
               </div>
               <div className="flex flex-wrap items-center gap-4">
                 {[
@@ -2250,9 +2215,6 @@ export function SuScannerApp() {
         onClearHistory={() => {
           void clearSessionHistory().then(() => {
             setSessionHistory([]);
-            setKioskState((curr) =>
-              appendKioskAudit(curr, "clear-history", "Riwayat sesi dikosongkan"),
-            );
             showToast("success", "Riwayat sesi telah dikosongkan.");
           });
         }}
@@ -2271,10 +2233,7 @@ export function SuScannerApp() {
           setCorrectionMemory(clearAllCorrectionMemory());
           showToast("success", "Memori koreksi lokal dibersihkan.");
         }}
-        auditLogs={kioskState.auditLogs}
         driveSheetUrl={driveSheetUrl}
-        isAdminUnlocked={isAdminUnlocked}
-        onRequirePinUnlock={() => setKioskDialogOpen(true)}
         onNotify={showToast}
       />
 
@@ -2306,11 +2265,6 @@ export function SuScannerApp() {
         syncToSheet={syncToSheet}
         sheetUrl={driveSheetUrl}
         onSheetUrlDiscovered={rememberSheetUrl}
-        isAdminUnlocked={isAdminUnlocked}
-        onRequirePinUnlock={() => {
-          setDriveConfigOpen(false);
-          setKioskDialogOpen(true);
-        }}
         onSaveConfig={({
           appsScriptUrl: nextUrl,
           rootFolderId: nextRoot,
@@ -2348,13 +2302,6 @@ export function SuScannerApp() {
           } catch {
             // Ignore storage restrictions
           }
-          setKioskState((curr) =>
-            appendKioskAudit(
-              curr,
-              "drive-config",
-              `Root ${nextRoot} · Policy ${nextPolicy} · Sheets ${nextSheet}`,
-            ),
-          );
           showToast("success", "Pengaturan Google Drive disimpan.");
         }}
         onClearAppsScript={() => {
@@ -2376,20 +2323,12 @@ export function SuScannerApp() {
         open={aiUsageOpen}
         onClose={() => setAiUsageOpen(false)}
         stats={aiUsageStats}
-        isAdminUnlocked={isAdminUnlocked}
-        onRequirePinUnlock={() => {
-          setAiUsageOpen(false);
-          setKioskDialogOpen(true);
-        }}
         onUpdateDailyLimit={(newLimit) => {
           setAiUsageStats((prev) => {
             const next = { ...prev, dailyQuotaLimit: newLimit };
             saveAiUsageStats(next);
             return next;
           });
-          setKioskState((curr) =>
-            appendKioskAudit(curr, "quota-limit", `Batas kuota -> ${newLimit}`),
-          );
           showToast(
             "success",
             `Batas kuota harian AI diperbarui menjadi ${newLimit} request.`,
@@ -2415,7 +2354,6 @@ export function SuScannerApp() {
         conflictPolicy={conflictPolicy}
         appsScriptUrl={appsScriptUrl}
         rootFolderId={driveRootFolderId}
-        operatorName={kioskState.operatorName || "Operator Meja 1"}
         syncToSheet={syncToSheet}
         driveSheetUrl={driveSheetUrl}
         onSheetUrlDiscovered={rememberSheetUrl}
@@ -2447,19 +2385,6 @@ export function SuScannerApp() {
           setExplorerOpen(false);
           setDriveConfigOpen(true);
         }}
-      />
-
-      <KioskPinDialog
-        key={kioskDialogOpen ? "kiosk-open" : "kiosk-closed"}
-        open={kioskDialogOpen}
-        onClose={() => setKioskDialogOpen(false)}
-        state={kioskState}
-        unlocked={isAdminUnlocked}
-        onUpdateState={(next, unlockedNext) => {
-          setKioskState(next);
-          setAdminUnlocked(unlockedNext);
-        }}
-        onNotify={showToast}
       />
     </div>
   );

@@ -17,8 +17,8 @@ import {
 
 export const maxDuration = 60;
 
-const AI_TIMEOUT_MS = 30_000;
-const PER_MODEL_TIMEOUT_MS = 10_000;
+const AI_TIMEOUT_MS = 32_000;
+const PER_MODEL_TIMEOUT_MS = 12_000;
 const MAX_IMAGE_BYTES = 4_200_000;
 const FALLBACK_GEMINI_MODELS = [
   "gemini-3.5-flash",
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
             systemInstruction: SU_SYSTEM_INSTRUCTION,
             temperature: 0.0,
             mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
-            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
             responseMimeType: "application/json",
             responseJsonSchema: SU_GEMINI_RESPONSE_JSON_SCHEMA,
             abortSignal: attemptSignal,

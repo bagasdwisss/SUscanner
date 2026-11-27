@@ -64,6 +64,10 @@ function normalizeKelurahanTitle(name) {
 
 function findSubfolder(parentFolder, targetName, normalizeFn) {
   var cleanTarget = normalizeFn(targetName);
+  if (cleanTarget && typeof parentFolder.getFoldersByName === "function") {
+    var exact = parentFolder.getFoldersByName(cleanTarget);
+    if (exact.hasNext()) return exact.next();
+  }
   var targetNormalized = cleanTarget.toLowerCase();
   var folders = parentFolder.getFolders();
   while (folders.hasNext()) {
@@ -86,7 +90,16 @@ function findOrCreateSubfolder(parentFolder, targetName, normalizeFn) {
 
 function findMatchingFilesInFolder(folder, filename) {
   var matches = [];
-  var targetLower = String(filename || "").trim().toLowerCase();
+  var cleanName = String(filename || "").trim();
+  if (!cleanName) return matches;
+  if (typeof folder.getFilesByName === "function") {
+    var exactFiles = folder.getFilesByName(cleanName);
+    while (exactFiles.hasNext()) {
+      matches.push(exactFiles.next());
+    }
+    if (matches.length > 0) return matches;
+  }
+  var targetLower = cleanName.toLowerCase();
   var files = folder.getFiles();
   while (files.hasNext()) {
     var f = files.next();
@@ -98,6 +111,16 @@ function findMatchingFilesInFolder(folder, filename) {
 }
 
 function nextRevisionFilename(folder, filename) {
+  if (typeof folder.getFilesByName === "function") {
+    if (!folder.getFilesByName(filename).hasNext()) return filename;
+    var r = 2;
+    while (r < 500) {
+      var candidate = filename.replace(/(\\.pdf)$/i, "_rev" + r + "$1");
+      if (candidate === filename) candidate = filename + "_rev" + r;
+      if (!folder.getFilesByName(candidate).hasNext()) return candidate;
+      r++;
+    }
+  }
   var existingNames = {};
   var files = folder.getFiles();
   while (files.hasNext()) {
@@ -115,35 +138,12 @@ function nextRevisionFilename(folder, filename) {
 }
 
 var MASTER_TAB_NAME = "Rekap Semua";
-var KECAMATAN_COLOR_PALETTE = [
-  { tab: "#2563EB", row: "#DBEAFE" },
-  { tab: "#16A34A", row: "#DCFCE7" },
-  { tab: "#EA580C", row: "#FFEDD5" },
-  { tab: "#7C3AED", row: "#EDE9FE" },
-  { tab: "#E11D48", row: "#FFE4E6" },
-  { tab: "#0D9488", row: "#CCFBF1" },
-  { tab: "#D97706", row: "#FEF3C7" },
-  { tab: "#4F46E5", row: "#E0E7FF" },
-  { tab: "#C026D3", row: "#FAE8FF" },
-  { tab: "#0891B2", row: "#CFFAFE" },
-  { tab: "#65A30D", row: "#ECFCCB" },
-  { tab: "#B45309", row: "#FDE68A" },
-  { tab: "#0284C7", row: "#E0F2FE" },
-  { tab: "#059669", row: "#D1FAE5" },
-  { tab: "#DC2626", row: "#FEE2E2" },
-  { tab: "#9333EA", row: "#F3E8FF" },
-  { tab: "#475569", row: "#E2E8F0" },
-  { tab: "#DB2777", row: "#FCE7F3" },
-  { tab: "#CA8A04", row: "#FEF9C3" },
-  { tab: "#1D4ED8", row: "#DBEAFE" },
-  { tab: "#15803D", row: "#DCFCE7" },
-  { tab: "#C2410C", row: "#FFEDD5" }
-];
+var REKAP_HEADER_BG = "#1E293B";
 
 var REKAP_COLUMNS = [
   "No", "Waktu Upload", "Nama File PDF", "Nomor SU", "Tahun SU",
   "Kode Hak", "Nomor Hak", "NIB", "Luas Tanah", "Kecamatan",
-  "Kelurahan", "Halaman", "Link PDF Drive", "Folder Drive", "Operator"
+  "Kelurahan", "Halaman", "Link PDF Drive", "Folder Drive"
 ];
 
 function sanitizeTabTitle(name) {
@@ -155,17 +155,44 @@ function sanitizeTabTitle(name) {
   return s.length > 95 ? s.slice(0, 95).trim() : s;
 }
 
-function formatTabHeader(sheet, headerHex) {
-  var numCols = Math.max(REKAP_COLUMNS.length, sheet.getLastColumn());
+function removeLegacyOperatorColumn(sheet) {
+  var numCols = REKAP_COLUMNS.length;
+  try {
+    if (sheet.getLastRow() >= 1 && sheet.getLastColumn() > numCols) {
+      var extraHeader = String(sheet.getRange(1, numCols + 1).getValue() || "").trim().toLowerCase();
+      if (extraHeader === "operator") {
+        if (typeof sheet.deleteColumn === "function") {
+          sheet.deleteColumn(numCols + 1);
+        } else {
+          sheet.getRange(1, numCols + 1, sheet.getLastRow(), 1).clearContent();
+        }
+      }
+    }
+  } catch (ignoreLegacyCol) {}
+}
+
+function formatRekapTabHeader(sheet) {
+  if (typeof sheet.setTabColor === "function") sheet.setTabColor(null);
+  removeLegacyOperatorColumn(sheet);
+  var numCols = REKAP_COLUMNS.length;
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(REKAP_COLUMNS);
+  } else {
+    sheet.getRange(1, 1, 1, numCols).setValues([REKAP_COLUMNS]);
   }
   sheet.setFrozenRows(1);
   sheet.getRange(1, 1, 1, numCols)
-    .setBackground(headerHex || "#1E293B")
+    .setBackground(REKAP_HEADER_BG)
     .setFontColor("#FFFFFF")
     .setFontWeight("bold")
     .setVerticalAlignment("middle");
+}
+
+function styleAppendedDataRow(sheet, rowIndex) {
+  var numCols = REKAP_COLUMNS.length;
+  var r = sheet.getRange(rowIndex, 1, 1, numCols);
+  r.setBackground("#FFFFFF").setFontColor("#111827");
+  if (typeof r.setFontWeight === "function") r.setFontWeight("normal");
 }
 
 function getSheetOwnerKecamatan(sheet) {
@@ -185,57 +212,6 @@ function getSheetOwnerKecamatan(sheet) {
     if (colVal) return colVal;
   }
   return sheet.getName();
-}
-
-function buildKecColorAssignments(ss, extraKec) {
-  var tabLookup = {};
-  for (var p = 0; p < KECAMATAN_COLOR_PALETTE.length; p++) {
-    tabLookup[KECAMATAN_COLOR_PALETTE[p].tab.toUpperCase()] = KECAMATAN_COLOR_PALETTE[p];
-  }
-
-  var kecMap = {};
-  var usedTabs = {};
-
-  var assignKec = function(kecName, preferredTabHex) {
-    var k = String(kecName || "").trim().toLowerCase();
-    if (!k || kecMap[k]) return;
-    if (preferredTabHex && tabLookup[preferredTabHex.toUpperCase()] && !usedTabs[preferredTabHex.toUpperCase()]) {
-      var pref = tabLookup[preferredTabHex.toUpperCase()];
-      kecMap[k] = pref;
-      usedTabs[pref.tab.toUpperCase()] = true;
-      return;
-    }
-    for (var i = 0; i < KECAMATAN_COLOR_PALETTE.length; i++) {
-      var cand = KECAMATAN_COLOR_PALETTE[i];
-      if (!usedTabs[cand.tab.toUpperCase()]) {
-        kecMap[k] = cand;
-        usedTabs[cand.tab.toUpperCase()] = true;
-        return;
-      }
-    }
-    kecMap[k] = KECAMATAN_COLOR_PALETTE[Object.keys(kecMap).length % KECAMATAN_COLOR_PALETTE.length];
-  };
-
-  var sheets = ss.getSheets();
-  for (var sIdx = 0; sIdx < sheets.length; sIdx++) {
-    var sh = sheets[sIdx];
-    var sName = sh.getName();
-    if (sName === MASTER_TAB_NAME || sName === "Sheet1") continue;
-    var owner = getSheetOwnerKecamatan(sh);
-    var curTabHex = typeof sh.getTabColor === "function" ? String(sh.getTabColor() || "").toUpperCase() : "";
-    assignKec(owner, curTabHex);
-  }
-
-  var master = ss.getSheetByName(MASTER_TAB_NAME);
-  if (master && master.getLastRow() >= 2) {
-    var mVals = master.getRange(2, 10, master.getLastRow() - 1, 1).getValues();
-    for (var r = 0; r < mVals.length; r++) {
-      assignKec(mVals[r][0], "");
-    }
-  }
-
-  if (extraKec) assignKec(extraKec, "");
-  return kecMap;
 }
 
 function cmpTextField(va, vb) {
@@ -258,14 +234,14 @@ function cmpNumOrTextField(va, vb) {
   return cmpTextField(sa, sb);
 }
 
-function sortAndColorSheetRows(sheet, headerHex, rowBgOverride, kecColorMap) {
+function normalizeSheetDesignAndSort(sheet) {
   if (!sheet || typeof sheet.getLastRow !== "function") return;
-  formatTabHeader(sheet, headerHex);
+  formatRekapTabHeader(sheet);
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) return;
 
   var numRows = lastRow - 1;
-  var numCols = Math.max(REKAP_COLUMNS.length, sheet.getLastColumn());
+  var numCols = REKAP_COLUMNS.length;
   var dataRange = sheet.getRange(2, 1, numRows, numCols);
   var values = dataRange.getValues();
 
@@ -273,39 +249,28 @@ function sortAndColorSheetRows(sheet, headerHex, rowBgOverride, kecColorMap) {
     return cmpTextField(a[9], b[9]) || cmpTextField(a[10], b[10]) || cmpNumOrTextField(a[4], b[4]) || cmpNumOrTextField(a[3], b[3]) || cmpTextField(a[2], b[2]);
   });
 
-  var newBgs = [];
-  var fontColors = [];
+  var cleanBgs = [];
+  var cleanFgs = [];
   for (var i = 0; i < numRows; i++) {
     values[i][0] = i + 1;
-    var rowKec = String(values[i][9] || "").trim().toLowerCase();
-    var bg = rowBgOverride || (kecColorMap && kecColorMap[rowKec] && kecColorMap[rowKec].row) || "#F8FAFC";
     var bgRow = [];
     var fgRow = [];
     for (var c = 0; c < numCols; c++) {
-      bgRow.push(bg);
+      bgRow.push("#FFFFFF");
       fgRow.push("#111827");
     }
-    newBgs.push(bgRow);
-    fontColors.push(fgRow);
+    cleanBgs.push(bgRow);
+    cleanFgs.push(fgRow);
   }
 
   dataRange.setValues(values);
-  dataRange.setBackgrounds(newBgs);
-  dataRange.setFontColors(fontColors);
+  dataRange.setBackgrounds(cleanBgs);
+  dataRange.setFontColors(cleanFgs);
+  if (typeof dataRange.setFontWeight === "function") dataRange.setFontWeight("normal");
   dataRange.setBorder(false, false, false, false, false, false);
-
-  if (!rowBgOverride) {
-    for (var bIdx = 0; bIdx < numRows; bIdx++) {
-      var curK = String(values[bIdx][9] || "").trim().toLowerCase();
-      var prevK = bIdx > 0 ? String(values[bIdx - 1][9] || "").trim().toLowerCase() : "";
-      if (bIdx === 0 || curK !== prevK) {
-        sheet.getRange(2 + bIdx, 1, 1, numCols).setBorder(true, null, null, null, null, null, "#64748B", SpreadsheetApp.BorderStyle.SOLID);
-      }
-    }
-  }
 }
 
-function getOrCreateMasterTab(ss) {
+function getOrCreateMasterTabFast(ss) {
   var master = ss.getSheetByName(MASTER_TAB_NAME);
   if (!master) {
     var defaultSheet = ss.getSheetByName("Sheet1");
@@ -315,65 +280,21 @@ function getOrCreateMasterTab(ss) {
     } else {
       master = ss.insertSheet(MASTER_TAB_NAME, 0);
     }
-  }
-  formatTabHeader(master, "#1E293B");
-  if (typeof master.setTabColor === "function") {
-    master.setTabColor("#1E293B");
+    formatRekapTabHeader(master);
+  } else if (master.getLastRow() === 0) {
+    formatRekapTabHeader(master);
   }
   return master;
 }
 
-function findOrCreateKelurahanTab(ss, kecName, kelName, colorPair) {
-  var desiredBase = sanitizeTabTitle(kelName || kecName);
-  var disambiguated = sanitizeTabTitle((kelName || kecName) + " (" + kecName + ")");
-  var kecLower = String(kecName || "").trim().toLowerCase();
-
-  var existingSheets = ss.getSheets();
-  for (var i = 0; i < existingSheets.length; i++) {
-    var sh = existingSheets[i];
-    var shName = sh.getName();
-    if (shName === MASTER_TAB_NAME || shName === "Sheet1") continue;
-    var ownerLower = getSheetOwnerKecamatan(sh).toLowerCase();
-    if (ownerLower === kecLower && (shName.toLowerCase() === desiredBase.toLowerCase() || shName.toLowerCase() === disambiguated.toLowerCase())) {
-      formatTabHeader(sh, colorPair.tab);
-      if (typeof sh.setTabColor === "function") sh.setTabColor(colorPair.tab);
-      return sh;
-    }
-  }
-
-  var clash = ss.getSheetByName(desiredBase);
-  var finalTitle = clash ? disambiguated : desiredBase;
-  if (ss.getSheetByName(finalTitle)) {
-    finalTitle = sanitizeTabTitle(finalTitle + " " + Date.now().toString().slice(-3));
-  }
-  var newSheet = ss.insertSheet(finalTitle);
-  try {
-    if (typeof newSheet.addDeveloperMetadata === "function") {
-      newSheet.addDeveloperMetadata("kecamatan", kecName);
-    }
-  } catch (ignoreAddMeta) {}
-  formatTabHeader(newSheet, colorPair.tab);
-  if (typeof newSheet.setTabColor === "function") newSheet.setTabColor(colorPair.tab);
-  return newSheet;
-}
-
-function syncAndSortAllTabs(ss, extraKec) {
-  var kecColorMap = buildKecColorAssignments(ss, extraKec);
-  var master = getOrCreateMasterTab(ss);
-  sortAndColorSheetRows(master, "#1E293B", null, kecColorMap);
-
+function sortTabBarByKecamatan(ss, master) {
   var allSheets = ss.getSheets();
   var tabEntries = [];
   for (var i = 0; i < allSheets.length; i++) {
     var sh = allSheets[i];
     var shName = sh.getName();
     if (shName === MASTER_TAB_NAME) continue;
-    var owner = getSheetOwnerKecamatan(sh);
-    var ownerLower = owner.trim().toLowerCase();
-    var pair = kecColorMap[ownerLower] || KECAMATAN_COLOR_PALETTE[0];
-    formatTabHeader(sh, pair.tab);
-    if (typeof sh.setTabColor === "function") sh.setTabColor(pair.tab);
-    tabEntries.push({ sheet: sh, owner: ownerLower, name: shName.toLowerCase() });
+    tabEntries.push({ sheet: sh, owner: getSheetOwnerKecamatan(sh).trim().toLowerCase(), name: shName.toLowerCase() });
   }
 
   tabEntries.sort(function(a, b) {
@@ -393,10 +314,61 @@ function syncAndSortAllTabs(ss, extraKec) {
       ss.moveActiveSheet(targetPos);
     }
   }
-  return kecColorMap;
 }
 
-function ensureRekapSheet(rootFolder) {
+function findOrCreateKelurahanTabFast(ss, kecName, kelName) {
+  var desiredBase = sanitizeTabTitle(kelName || kecName);
+  var disambiguated = sanitizeTabTitle((kelName || kecName) + " (" + kecName + ")");
+  var kecLower = String(kecName || "").trim().toLowerCase();
+
+  var directMatch = ss.getSheetByName(desiredBase);
+  if (directMatch && desiredBase !== MASTER_TAB_NAME && desiredBase !== "Sheet1") {
+    if (getSheetOwnerKecamatan(directMatch).toLowerCase() === kecLower) {
+      return { sheet: directMatch, created: false };
+    }
+  }
+
+  var directDisambig = ss.getSheetByName(disambiguated);
+  if (directDisambig && getSheetOwnerKecamatan(directDisambig).toLowerCase() === kecLower) {
+    return { sheet: directDisambig, created: false };
+  }
+
+  var existingSheets = ss.getSheets();
+  for (var i = 0; i < existingSheets.length; i++) {
+    var sh = existingSheets[i];
+    var shName = sh.getName();
+    if (shName === MASTER_TAB_NAME || shName === "Sheet1") continue;
+    var ownerLower = getSheetOwnerKecamatan(sh).toLowerCase();
+    if (ownerLower === kecLower && (shName.toLowerCase() === desiredBase.toLowerCase() || shName.toLowerCase() === disambiguated.toLowerCase())) {
+      return { sheet: sh, created: false };
+    }
+  }
+
+  var finalTitle = directMatch ? disambiguated : desiredBase;
+  if (ss.getSheetByName(finalTitle)) {
+    finalTitle = sanitizeTabTitle(finalTitle + " " + Date.now().toString().slice(-3));
+  }
+  var newSheet = ss.insertSheet(finalTitle);
+  try {
+    if (typeof newSheet.addDeveloperMetadata === "function") {
+      newSheet.addDeveloperMetadata("kecamatan", kecName);
+    }
+  } catch (ignoreAddMeta) {}
+  formatRekapTabHeader(newSheet);
+  return { sheet: newSheet, created: true };
+}
+
+function syncAndSortAllTabs(ss) {
+  var master = getOrCreateMasterTabFast(ss);
+  normalizeSheetDesignAndSort(master);
+  var allSheets = ss.getSheets();
+  for (var i = 0; i < allSheets.length; i++) {
+    if (allSheets[i].getName() !== MASTER_TAB_NAME) normalizeSheetDesignAndSort(allSheets[i]);
+  }
+  sortTabBarByKecamatan(ss, master);
+}
+
+function openOrCreateRekapSpreadsheetFast(rootFolder) {
   if (typeof SpreadsheetApp === "undefined") {
     return { ok: false, error: "SpreadsheetApp tidak tersedia." };
   }
@@ -418,8 +390,7 @@ function ensureRekapSheet(rootFolder) {
     createdFile.moveTo(rootFolder);
     created = true;
   }
-  var master = getOrCreateMasterTab(ss);
-  syncAndSortAllTabs(ss, "");
+  var master = getOrCreateMasterTabFast(ss);
   return {
     ok: true,
     ss: ss,
@@ -430,9 +401,16 @@ function ensureRekapSheet(rootFolder) {
   };
 }
 
+function ensureRekapSheet(rootFolder) {
+  var res = openOrCreateRekapSpreadsheetFast(rootFolder);
+  if (!res.ok || !res.ss) return res;
+  syncAndSortAllTabs(res.ss);
+  return res;
+}
+
 function appendScanRowToSheet(rootFolder, rowObj) {
   try {
-    var ensured = ensureRekapSheet(rootFolder);
+    var ensured = openOrCreateRekapSpreadsheetFast(rootFolder);
     if (!ensured.ok || !ensured.ss || !ensured.sheet) {
       return { logged: false, error: ensured.error };
     }
@@ -440,8 +418,9 @@ function appendScanRowToSheet(rootFolder, rowObj) {
     var master = ensured.sheet;
     var kecName = String(rowObj.kecamatan || "").trim() || "Tanpa Kecamatan";
     var kelName = String(rowObj.kelurahan || "").trim();
-    var colorMap = buildKecColorAssignments(ss, kecName);
-    var pair = colorMap[kecName.toLowerCase()] || KECAMATAN_COLOR_PALETTE[0];
+
+    removeLegacyOperatorColumn(master);
+    if (typeof master.setTabColor === "function") master.setTabColor(null);
 
     var rowValues = [
       Math.max(1, master.getLastRow()),
@@ -457,19 +436,27 @@ function appendScanRowToSheet(rootFolder, rowObj) {
       kelName,
       rowObj.pageCount || 1,
       rowObj.fileUrl || "",
-      rowObj.folderName || "",
-      rowObj.operatorName || "Operator"
+      rowObj.folderName || ""
     ];
 
     master.appendRow(rowValues);
+    styleAppendedDataRow(master, master.getLastRow());
 
-    var kelTab = findOrCreateKelurahanTab(ss, kecName, kelName, pair);
+    var kelTabRes = findOrCreateKelurahanTabFast(ss, kecName, kelName);
+    var kelTab = kelTabRes.sheet;
+    if (!kelTabRes.created) {
+      removeLegacyOperatorColumn(kelTab);
+      if (typeof kelTab.setTabColor === "function") kelTab.setTabColor(null);
+      if (kelTab.getLastRow() === 0) formatRekapTabHeader(kelTab);
+    }
     var kelRowValues = rowValues.slice();
     kelRowValues[0] = Math.max(1, kelTab.getLastRow());
     kelTab.appendRow(kelRowValues);
-    sortAndColorSheetRows(kelTab, pair.tab, pair.row, null);
+    styleAppendedDataRow(kelTab, kelTab.getLastRow());
 
-    syncAndSortAllTabs(ss, kecName);
+    if (kelTabRes.created || ensured.created) {
+      sortTabBarByKecamatan(ss, master);
+    }
     return { logged: true, sheetUrl: ensured.sheetUrl };
   } catch (err) {
     return { logged: false, error: err && err.message ? err.message : String(err) };
@@ -707,8 +694,7 @@ function doPost(e) {
         nomorHak: body.sheetMeta.nomorHak || "",
         nib: body.sheetMeta.nib || "",
         luasTanah: body.sheetMeta.luasTanah || "",
-        pageCount: body.sheetMeta.pageCount || 1,
-        operatorName: body.sheetMeta.operatorName || "Operator"
+        pageCount: body.sheetMeta.pageCount || 1
       });
     }
 

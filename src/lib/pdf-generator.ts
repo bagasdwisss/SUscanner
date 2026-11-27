@@ -46,11 +46,10 @@ function sanitizeWinAnsiText(raw: string): string {
 }
 
 async function reencodeJpegBytes(
-  dataUrl: string,
+  img: HTMLImageElement,
   maxSide: number,
   quality: number,
 ): Promise<{ bytes: Uint8Array; width: number; height: number }> {
-  const img = await loadImageElement(dataUrl);
   const scale = Math.min(
     1,
     maxSide / Math.max(img.naturalWidth, img.naturalHeight),
@@ -90,12 +89,13 @@ async function reencodeJpegBytes(
 
 async function encodePdfDocument(
   pages: PdfPageInput[],
+  loadedImages: HTMLImageElement[],
   maxSide: number,
   quality: number,
   metadata?: PdfGenerationMetadata,
 ): Promise<{ bytes: Uint8Array; searchableWordCount: number }> {
   const encodedPages = await Promise.all(
-    pages.map((p) => reencodeJpegBytes(p.dataUrl, maxSide, quality)),
+    loadedImages.map((img) => reencodeJpegBytes(img, maxSide, quality)),
   );
 
   const pdfDoc = await PDFDocument.create();
@@ -179,22 +179,41 @@ export async function generateSuPdf(
   const targetMaxBytes = maxBytesOverride
     ? Math.min(config.targetMaxBytes, maxBytesOverride)
     : config.targetMaxBytes;
+  // Drive uploads use a calibrated maxSide & quality so the 2.85 MB target hits on the 1st pass
+  const isDriveCap = Boolean(maxBytesOverride && maxBytesOverride <= 3_000_000);
+  const effectiveMaxSide = isDriveCap
+    ? Math.min(config.maxSide, pages.length >= 2 ? 2050 : 2350)
+    : config.maxSide;
   const qualitySteps =
     preset === "high"
-      ? maxBytesOverride
-        ? [0.95, 0.9, 0.85, 0.78, 0.7]
+      ? isDriveCap
+        ? pages.length >= 2
+          ? [0.86, 0.78, 0.7]
+          : [0.91, 0.84, 0.76]
         : [0.95, 0.9, 0.85]
       : preset === "standard"
-        ? [0.91, 0.86, 0.82]
+        ? isDriveCap && pages.length >= 2
+          ? [0.85, 0.78]
+          : [0.91, 0.86, 0.82]
         : [0.88, 0.84, 0.8];
 
+  const loadedImages = await Promise.all(
+    pages.map((p) => loadImageElement(p.dataUrl)),
+  );
+
   let lastBytes: Uint8Array = new Uint8Array();
-  let lastQuality = config.startQuality;
+  let lastQuality = qualitySteps[0] ?? config.startQuality;
   let lastWordCount = 0;
 
   for (const quality of qualitySteps) {
     const q = Math.max(0.55, Math.min(0.96, quality));
-    const encoded = await encodePdfDocument(pages, config.maxSide, q, metadata);
+    const encoded = await encodePdfDocument(
+      pages,
+      loadedImages,
+      effectiveMaxSide,
+      q,
+      metadata,
+    );
     lastBytes = encoded.bytes;
     lastQuality = q;
     lastWordCount = encoded.searchableWordCount;
@@ -206,7 +225,13 @@ export async function generateSuPdf(
 
   // Ensure Vercel Serverless 4.5 MB JSON body limit (~3.0 MB binary PDF) is never exceeded
   if (maxBytesOverride && lastBytes.byteLength > maxBytesOverride) {
-    const fallback = await encodePdfDocument(pages, 1650, 0.76, metadata);
+    const fallback = await encodePdfDocument(
+      pages,
+      loadedImages,
+      1650,
+      0.76,
+      metadata,
+    );
     lastBytes = fallback.bytes;
     lastQuality = 0.76;
     lastWordCount = fallback.searchableWordCount;

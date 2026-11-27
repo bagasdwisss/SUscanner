@@ -84,6 +84,7 @@ interface NamingExportPanelProps {
   onChangePdfQuality: (q: PdfQualityPreset) => void;
   isGeneratingPdf: boolean;
   isUploadingDrive: boolean;
+  driveUploadedForCurrent?: boolean;
   driveReady: boolean;
   autoUploadOnExport: boolean;
   onToggleAutoUpload: (next: boolean) => void;
@@ -181,6 +182,7 @@ export function NamingExportPanel({
   onChangePdfQuality,
   isGeneratingPdf,
   isUploadingDrive,
+  driveUploadedForCurrent = false,
   driveReady,
   autoUploadOnExport,
   onToggleAutoUpload,
@@ -472,7 +474,16 @@ export function NamingExportPanel({
     onExportPdf();
   };
 
-  const handleClickUploadDrive = () => {
+  const handleClickUploadDrive = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (
+      isGeneratingPdf ||
+      isUploadingDrive ||
+      pageCount === 0 ||
+      driveUploadedForCurrent ||
+      e.currentTarget.disabled
+    ) {
+      return;
+    }
     if (!validateForAction()) return;
     if (!normalizedKecamatan) {
       kecamatanRef.current?.focus();
@@ -486,6 +497,8 @@ export function NamingExportPanel({
       onNotifyError(msg);
       return;
     }
+    // Synchronously prevent any rapid second click in the same event tick
+    e.currentTarget.disabled = true;
     onUploadToDrive();
   };
 
@@ -1500,18 +1513,33 @@ export function NamingExportPanel({
           <button
             type="button"
             onClick={handleClickUploadDrive}
-            disabled={isGeneratingPdf || isUploadingDrive || pageCount === 0}
+            disabled={
+              isGeneratingPdf ||
+              isUploadingDrive ||
+              pageCount === 0 ||
+              driveUploadedForCurrent
+            }
             className="nb-btn wollo-cta-dark inline-flex min-h-12 w-full items-center justify-center gap-2 px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-55"
           >
-            <CloudUpload className="h-4 w-4" aria-hidden="true" />
+            {driveUploadedForCurrent && !isUploadingDrive ? (
+              <CheckCircle2 className="h-4 w-4 text-[#A7F3D0]" aria-hidden="true" />
+            ) : (
+              <CloudUpload className="h-4 w-4" aria-hidden="true" />
+            )}
             <span>
               {isUploadingDrive
                 ? "Mengunggah ke Subfolder Drive…"
-                : normalizedKecamatan && normalizedKelurahan
-                  ? `Upload Langsung ke Drive (/ ${normalizedKecamatan} / ${normalizedKelurahan})`
-                  : normalizedKecamatan
-                    ? `Upload Langsung ke Drive (/ ${normalizedKecamatan})`
-                    : "Upload Langsung ke Drive"}
+                : driveUploadedForCurrent
+                  ? normalizedKecamatan && normalizedKelurahan
+                    ? `Sudah Terupload ke Drive (/ ${normalizedKecamatan} / ${normalizedKelurahan})`
+                    : normalizedKecamatan
+                      ? `Sudah Terupload ke Drive (/ ${normalizedKecamatan})`
+                      : "Sudah Terupload ke Drive"
+                  : normalizedKecamatan && normalizedKelurahan
+                    ? `Upload Langsung ke Drive (/ ${normalizedKecamatan} / ${normalizedKelurahan})`
+                    : normalizedKecamatan
+                      ? `Upload Langsung ke Drive (/ ${normalizedKecamatan})`
+                      : "Upload Langsung ke Drive"}
             </span>
           </button>
 

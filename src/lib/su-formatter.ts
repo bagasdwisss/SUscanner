@@ -417,22 +417,28 @@ export function applyExtractionToForm(
   const suEvidenceSimple = extraction.raw_evidence.teks_nomor_su?.match(
     /\b(\d{1,5})\s*(?:\/|\btahun\b|\bthn\.?)\s*((?:19|20)\d{2})\b/i,
   );
+  const suEvidenceLegacy2 = extraction.raw_evidence.teks_nomor_su?.match(
+    /\b(\d{1,5})\s*\/\s*([6-9]\d)\b/,
+  );
   const suMiddleIsKelurahan =
     suEvidenceSlash && /[a-zA-Z]{2,}/.test(suEvidenceSlash[2])
       ? suEvidenceSlash[2].trim()
       : null;
 
+  const rawSuDigits = sanitizeDigits(extraction.nomor_su_raw);
   const nomorSuClean =
-    sanitizeDigits(extraction.nomor_su_raw) ||
+    (rawSuDigits.length >= 1 && rawSuDigits.length <= 5 ? rawSuDigits : "") ||
     (suEvidenceSlash ? sanitizeDigits(suEvidenceSlash[1]) : "") ||
-    (suEvidenceSimple ? sanitizeDigits(suEvidenceSimple[1]) : "");
+    (suEvidenceSimple ? sanitizeDigits(suEvidenceSimple[1]) : "") ||
+    (suEvidenceLegacy2 ? sanitizeDigits(suEvidenceLegacy2[1]) : "");
   const nomorSuFormatted = nomorSuClean ? padFiveDigits(nomorSuClean) : "";
 
   // 2. Tahun SU: sanitize 4 digits + logical year check (1960..currentYear)
   const tahunClean = (
     sanitizeDigits(extraction.tahun_su).slice(0, 4) ||
     (suEvidenceSlash ? suEvidenceSlash[3] : "") ||
-    (suEvidenceSimple ? suEvidenceSimple[2] : "")
+    (suEvidenceSimple ? suEvidenceSimple[2] : "") ||
+    (suEvidenceLegacy2 ? `19${suEvidenceLegacy2[2]}` : "")
   ).slice(0, 4);
   const tahunInRange =
     tahunClean.length === 4 &&
@@ -444,7 +450,7 @@ export function applyExtractionToForm(
     );
   }
 
-  // 3. Kode Hak & Nomor Hak with 14-digit vs 13-digit NIB disambiguation
+  // 3. Kode Hak & Nomor Hak with 14-digit vs 13-digit NIB disambiguation and SU-copy guard
   const parsedEvidence = parseNomorHakEvidence(
     extraction.raw_evidence.teks_nomor_hak,
   );
@@ -478,9 +484,37 @@ export function applyExtractionToForm(
     nomorHakDigits = parsedEvidence.nomorHak5;
   }
 
-  const nomorHakFormatted = nomorHakDigits
+  let nomorHakFormatted = nomorHakDigits
     ? padFiveDigits(nomorHakDigits)
     : "";
+  let duplicateSuHakRejected = false;
+
+  // Guard against AI/OCR mistakenly copying Nomor SU (e.g. 00001/2009) into Nomor Hak
+  if (nomorSuFormatted && nomorHakFormatted && nomorSuFormatted === nomorHakFormatted) {
+    const hakEvText = extraction.raw_evidence.teks_nomor_hak || "";
+    const suEvText = extraction.raw_evidence.teks_nomor_su || "";
+    const hakEvLooksLikeSuSlash =
+      /\b\d{1,5}\s*\/\s*(?:19|20)\d{2}\b/.test(hakEvText) &&
+      parsedEvidence.kind !== "nomor_hak_14";
+
+    if (parsedEvidence.nomorHak5 && parsedEvidence.nomorHak5 !== nomorSuFormatted) {
+      nomorHakFormatted = parsedEvidence.nomorHak5;
+    } else if (
+      hakEvLooksLikeSuSlash ||
+      (!hakEvText.trim() && suEvText.trim()) ||
+      (hakEvText.trim() && hakEvText.trim() === suEvText.trim())
+    ) {
+      nomorHakFormatted = "";
+      duplicateSuHakRejected = true;
+      warnings.push(
+        `Nomor Hak terbaca sama dengan Nomor SU ("${nomorSuFormatted}") tanpa bukti Hak terpisah — dibersihkan agar tidak tertukar. Silakan isi Nomor Hak 5 digit.`,
+      );
+    } else {
+      warnings.push(
+        `Nomor SU (${nomorSuFormatted}) dan Nomor Hak (${nomorHakFormatted}) kebetulan bernilai sama — pastikan keduanya memang identik di warkah.`,
+      );
+    }
+  }
 
   // 4. Kecamatan & Kelurahan/Desa with deterministic fallback from teks_lokasi / teks_nomor_su
   const lokasi = extraction.raw_evidence.teks_lokasi || "";
@@ -556,7 +590,10 @@ export function applyExtractionToForm(
 
   let hakScore = extraction.confidence.nomor_hak;
   let hakReason: string | null = null;
-  if (parsedEvidence.kind === "nib_13" && !nomorHakFormatted) {
+  if (duplicateSuHakRejected) {
+    hakScore = 0;
+    hakReason = "Dibersihkan karena identik dengan Nomor SU";
+  } else if (parsedEvidence.kind === "nib_13" && !nomorHakFormatted) {
     hakScore = 0;
     hakReason = "Hanya NIB 13 digit yang terlihat";
   }

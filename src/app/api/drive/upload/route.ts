@@ -26,7 +26,6 @@ const uploadBodySchema = z.object({
       nib: z.string().max(40).optional(),
       luasTanah: z.string().max(40).optional(),
       pageCount: z.number().int().min(1).max(50).optional(),
-      operatorName: z.string().max(80).optional(),
     })
     .optional()
     .nullable(),

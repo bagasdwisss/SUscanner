@@ -35,7 +35,6 @@ import {
   validateHakRegionCrossCheck,
 } from "./wilayah-dict.ts";
 import { analyzeRgbaImageQuality } from "./image-quality.ts";
-import { hashKioskPin } from "./kiosk-lock.ts";
 import {
   buildReportCsvBlob,
   buildReportXlsxBlob,
@@ -702,22 +701,40 @@ describe("SU-Scanner formatter & domain rules", () => {
     );
   });
 
-  it("extracts luas tanah from OCR text and hashes kiosk admin PIN deterministically", async () => {
+  it("extracts luas tanah and keeps 5-digit Nomor SU (00001/2009) separate from 5-digit Nomor Hak", () => {
     const parsed = parseSuratUkurOcrText(
-      "SURAT UKUR\nNomor: 00006/Helvetia Timur/2007\nLuas tanah: 145 m2\nKecamatan: Medan Helvetia\nKelurahan: Helvetia Timur",
+      "SURAT UKUR\n00001/2009\nHak Milik\nNomor Hak : 00246\nLuas tanah: 145 m2\nKecamatan: Medan Helvetia\nKelurahan: Helvetia Timur",
       88,
     );
     assert.ok(parsed.luas_tanah?.includes("145"));
+    assert.equal(parsed.nomor_su_raw, "00001");
+    assert.equal(parsed.tahun_su, "2009");
+    assert.equal(parsed.kode_jenis_hak_huruf, "M");
+    assert.equal(parsed.nomor_hak_raw, "00246");
 
-    const h1 = await hashKioskPin("2468", "kantah-medan");
-    const h2 = await hashKioskPin("2468", "kantah-medan");
-    const hDiff = await hashKioskPin("9999", "kantah-medan");
-    assert.equal(h1, h2);
-    assert.notEqual(h1, hDiff);
-    assert.ok(h1.length >= 16);
+    const applied = applyExtractionToForm(parsed);
+    assert.equal(applied.fields.nomorSu, "00001");
+    assert.equal(applied.fields.tahunSu, "2009");
+    assert.equal(applied.fields.nomorHak, "00246");
+
+    // Guard against AI copying Nomor SU into Nomor Hak without independent Hak evidence
+    const copiedSuIntoHak = applyExtractionToForm({
+      ...parsed,
+      nomor_hak_raw: "00001",
+      raw_evidence: {
+        teks_nomor_su: "00001/2009",
+        teks_nomor_hak: "00001/2009",
+        teks_lokasi: "Kecamatan Medan Helvetia",
+      },
+    });
+    assert.equal(copiedSuIntoHak.fields.nomorSu, "00001");
+    assert.equal(copiedSuIntoHak.fields.nomorHak, "");
+    assert.ok(
+      copiedSuIntoHak.warnings.some((w) => w.includes("identik") || w.includes("sama")),
+    );
   });
 
-  it("builds valid CSV, OOXML XLSX, and hierarchical Kecamatan/Kelurahan ZIP backup packages", async () => {
+  it("builds valid CSV, OOXML XLSX, and hierarchical Kecamatan/Kelurahan ZIP backup packages without Operator column", async () => {
     const dummyPdf = new TextEncoder().encode("%PDF-1.4\n%%EOF").buffer;
     const sampleItems: SessionHistoryItem[] = [
       {
@@ -734,7 +751,6 @@ describe("SU-Scanner formatter & domain rules", () => {
         luasTanah: "145 m2",
         kecamatan: "Medan Helvetia",
         kelurahan: "Helvetia Timur",
-        operatorName: "Operator Meja 1",
         pdfBytes: dummyPdf,
       },
       {
@@ -756,6 +772,7 @@ describe("SU-Scanner formatter & domain rules", () => {
     const csvText = await buildReportCsvBlob(sampleItems).text();
     assert.ok(csvText.includes("SU.00006.2007.M.02246.pdf"));
     assert.ok(csvText.includes("Medan Helvetia"));
+    assert.equal(csvText.includes("Operator"), false);
 
     const xlsxBytes = new Uint8Array(await buildReportXlsxBlob(sampleItems).arrayBuffer());
     const xlsxFiles = unzipSync(xlsxBytes);
@@ -778,7 +795,7 @@ describe("SU-Scanner formatter & domain rules", () => {
     assert.ok("rekap-scan.csv" in zipEntries);
   });
 
-  it("creates per-Kelurahan sheet tabs grouped adjacent by Kecamatan with matching tab colors", () => {
+  it("creates per-Kelurahan sheet tabs grouped adjacent by Kecamatan with uniform Rekap Semua styling and no Operator column", () => {
     const createAppsScriptEnv = () => {
       type SheetState = {
         name: string;
@@ -808,11 +825,19 @@ describe("SU-Scanner formatter & domain rules", () => {
           setBackgrounds: (bgs: string[][]) => {
             for (let ri = 0; ri < nr; ri++) st.bgs[r0 - 1 + ri] = [...bgs[ri]];
           },
-          setBackground() { return this; },
+          setBackground(hex: string) {
+            for (let ri = 0; ri < nr; ri++) {
+              st.bgs[r0 - 1 + ri] = Array.from({ length: nc }, () => hex);
+            }
+            return this;
+          },
           setFontColor() { return this; },
           setFontColors() { return this; },
           setFontWeight() { return this; },
+          setFontSize() { return this; },
+          setHorizontalAlignment() { return this; },
           setVerticalAlignment() { return this; },
+          setWrap() { return this; },
           setBorder() { return this; },
         });
 
@@ -821,13 +846,21 @@ describe("SU-Scanner formatter & domain rules", () => {
           setName: (n: string) => { st.name = n; },
           getIndex: () => sheets.indexOf(st) + 1,
           getTabColor: () => st.tabColor,
-          setTabColor: (hex: string) => { st.tabColor = hex; },
+          setTabColor: (hex: string | null) => { st.tabColor = hex; },
           getLastRow: () => st.rows.length,
           getLastColumn: () =>
-            st.rows.reduce((m, r) => Math.max(m, r.length), 0) || 15,
+            st.rows.reduce((m, r) => Math.max(m, r.length), 0) || 14,
           appendRow: (row: unknown[]) => {
             st.rows.push([...row]);
           },
+          deleteColumn: (colOneBased: number) => {
+            for (const row of st.rows) {
+              if (row.length >= colOneBased) {
+                row.splice(colOneBased - 1, 1);
+              }
+            }
+          },
+          getFrozenRows: () => 1,
           setFrozenRows: () => {},
           getRange: (r0: number, c0: number, nr = 1, nc = 1) =>
             makeRange(r0, c0, nr, nc),
@@ -964,26 +997,34 @@ describe("SU-Scanner formatter & domain rules", () => {
         true,
       );
 
-      // Expected tab bar order:
-      // [Rekap Semua, Babura (Medan Baru), Helvetia Tengah (Medan Helvetia), Helvetia Timur (Medan Helvetia), Babura (Medan Baru) -> wait: Medan Sunggal created first "Babura", Medan Baru got "Babura (Medan Baru)"]
       const tabNames = sheets.map((s) => s.name);
       assert.equal(tabNames[0], "Rekap Semua");
       assert.equal(tabNames.length, 5);
 
+      const rekapSemua = sheets[0];
       const helTengah = sheets.find((s) => s.name === "Helvetia Tengah")!;
       const helTimur = sheets.find((s) => s.name === "Helvetia Timur")!;
       const babSunggal = sheets.find((s) => s.name === "Babura")!;
       const babBaru = sheets.find((s) => s.name === "Babura (Medan Baru)")!;
 
-      // All Kelurahans under Medan Helvetia share exact same tab color & sit adjacent!
-      assert.ok(helTengah.tabColor);
-      assert.equal(helTengah.tabColor, helTimur.tabColor);
-      assert.equal(Math.abs(sheets.indexOf(helTengah) - sheets.indexOf(helTimur)), 1);
+      // Uniform Rekap Semua design: 14 headers, NO "Operator" column, NO tab colors, clean white rows
+      const headerRow = rekapSemua.rows[0] as string[];
+      assert.equal(headerRow.length, 14);
+      assert.equal(headerRow.includes("Operator"), false);
+      for (const sh of sheets) {
+        assert.equal(sh.tabColor, null);
+        assert.equal((sh.rows[0] as string[]).length, 14);
+        assert.equal((sh.rows[0] as string[]).includes("Operator"), false);
+        assert.equal(sh.bgs[0]?.[0]?.toUpperCase(), "#1E293B");
+        assert.equal(sh.bgs[1]?.[0]?.toUpperCase(), "#FFFFFF");
+      }
 
-      // Different Kecamatans have distinct colors and sit grouped: Medan Baru -> Medan Helvetia -> Medan Sunggal
-      assert.notEqual(babBaru.tabColor, helTengah.tabColor);
-      assert.notEqual(babSunggal.tabColor, helTengah.tabColor);
-      assert.notEqual(babBaru.tabColor, babSunggal.tabColor);
+      assert.equal(babSunggal.rows.length, 2);
+      assert.equal(babBaru.rows.length, 2);
+      assert.equal(rekapSemua.rows.length, 5);
+
+      // Tabs remain grouped adjacent by Kecamatan
+      assert.equal(Math.abs(sheets.indexOf(helTengah) - sheets.indexOf(helTimur)), 1);
       assert.deepEqual(
         sheets.map((s) => s.name),
         ["Rekap Semua", "Babura (Medan Baru)", "Helvetia Tengah", "Helvetia Timur", "Babura"],

@@ -229,7 +229,6 @@ export interface SessionHistoryItem {
   kelurahan?: string;
   nib?: string;
   luasTanah?: string;
-  operatorName?: string;
   driveFileUrl?: string;
   driveFolderUrl?: string;
   /** Optional PDF bytes persisted in local IndexedDB for re-download during session */
@@ -244,7 +243,6 @@ export interface OfflineUploadJob {
   kelurahan?: string;
   rootFolderId?: string;
   conflictPolicy: DriveConflictPolicy;
-  operatorName?: string;
   nomorSu: string;
   tahunSu: string;
   kodeHak: string;

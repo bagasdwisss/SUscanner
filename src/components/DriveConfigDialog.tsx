@@ -8,7 +8,6 @@ import {
   ExternalLink,
   FileSpreadsheet,
   FolderOpen,
-  Lock,
   RotateCcw,
 } from "lucide-react";
 import { AppDialog } from "./AppDialog";
@@ -35,8 +34,6 @@ interface DriveConfigDialogProps {
   syncToSheet?: boolean;
   sheetUrl?: string | null;
   onSheetUrlDiscovered?: (url: string) => void;
-  isAdminUnlocked?: boolean;
-  onRequirePinUnlock?: () => void;
   onSaveConfig: (next: {
     appsScriptUrl: string;
     rootFolderId: string;
@@ -58,8 +55,6 @@ export function DriveConfigDialog({
   syncToSheet = true,
   sheetUrl = null,
   onSheetUrlDiscovered,
-  isAdminUnlocked = true,
-  onRequirePinUnlock,
   onSaveConfig,
   onClearAppsScript,
 }: DriveConfigDialogProps) {
@@ -202,10 +197,6 @@ export function DriveConfigDialog({
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdminUnlocked) {
-      onRequirePinUnlock?.();
-      return;
-    }
     const cleanedFolder = extractDriveFolderId(folderDraft);
     if (!cleanedFolder) {
       setErrorMsg(
@@ -255,30 +246,12 @@ export function DriveConfigDialog({
             form="drive-config-form"
             className="nb-btn-sm wollo-cta-primary inline-flex min-h-10 items-center gap-1.5 px-5 py-2 text-xs font-semibold"
           >
-            {!isAdminUnlocked ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             Simpan Pengaturan Drive
           </button>
         </>
       }
     >
       <form id="drive-config-form" onSubmit={handleSave} className="space-y-4 text-sm">
-        {!isAdminUnlocked ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-3.5 py-2.5 text-xs">
-            <span className="inline-flex items-center gap-1.5 font-bold text-[#92400E]">
-              <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Mode Kiosk Aktif: Pengaturan Drive dikunci PIN Admin.
-            </span>
-            {onRequirePinUnlock ? (
-              <button
-                type="button"
-                onClick={onRequirePinUnlock}
-                className="nb-btn-sm bg-white px-3 py-1 text-[11px] font-bold text-[#111114]"
-              >
-                Buka Kunci Admin
-              </button>
-            ) : null}
-          </div>
-        ) : null}
         {/* Connection Status Banner */}
         <div
           className={`nb-card-sm flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${
@@ -408,10 +381,6 @@ export function DriveConfigDialog({
             <button
               type="button"
               onClick={() => {
-                if (!isAdminUnlocked) {
-                  onRequirePinUnlock?.();
-                  return;
-                }
                 setUrlDraft(DEFAULT_APPS_SCRIPT_URL);
                 onClearAppsScript();
               }}

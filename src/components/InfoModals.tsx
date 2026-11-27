@@ -11,8 +11,6 @@ import {
   FileText,
   FolderOpen,
   Keyboard,
-  Lock,
-  Shield,
   Trash2,
 } from "lucide-react";
 import { AppDialog } from "./AppDialog";
@@ -23,14 +21,13 @@ import {
   triggerBlobDownload,
 } from "@/lib/backup-export";
 import type { CorrectionRule } from "@/lib/correction-memory";
-import type { KioskAuditEntry } from "@/lib/kiosk-lock";
 import { HAK_OPTIONS } from "@/lib/su-formatter";
 import { formatBytes } from "@/lib/session-history";
 import { triggerPdfDownload } from "@/lib/pdf-generator";
 import type { OfflineUploadJob, SessionHistoryItem } from "@/lib/su-types";
 import type { LearnedWilayahCodeMapping } from "@/lib/wilayah-dict";
 
-type HistoryTab = "history" | "offline" | "stats" | "memory" | "audit";
+type HistoryTab = "history" | "offline" | "stats" | "memory";
 
 interface HistoryDialogProps {
   open: boolean;
@@ -45,10 +42,7 @@ interface HistoryDialogProps {
   wilayahCodes?: LearnedWilayahCodeMapping[];
   onDeleteCorrectionRule?: (id: string) => void;
   onClearCorrectionMemory?: () => void;
-  auditLogs?: KioskAuditEntry[];
   driveSheetUrl?: string | null;
-  isAdminUnlocked?: boolean;
-  onRequirePinUnlock?: () => void;
   onNotify?: (kind: "success" | "error", text: string) => void;
 }
 
@@ -65,10 +59,7 @@ export function HistoryDialog({
   wilayahCodes = [],
   onDeleteCorrectionRule,
   onClearCorrectionMemory,
-  auditLogs = [],
   driveSheetUrl,
-  isAdminUnlocked = true,
-  onRequirePinUnlock,
   onNotify,
 }: HistoryDialogProps) {
   const [activeTab, setActiveTab] = useState<HistoryTab>("history");
@@ -125,7 +116,7 @@ export function HistoryDialog({
       open={open}
       onClose={onClose}
       title={`Riwayat, Laporan & Antrean Sync (${items.length})`}
-      subtitle="Rekap Excel/CSV, paket backup ZIP per Kecamatan/Kelurahan, antrean upload offline, memori koreksi OCR, dan log audit."
+      subtitle="Rekap Excel/CSV, paket backup ZIP per Kecamatan/Kelurahan, antrean upload offline, dan memori koreksi OCR."
       maxWidthClass="max-w-3xl"
       headerBgClass="bg-white"
       footer={
@@ -133,20 +124,10 @@ export function HistoryDialog({
           {items.length > 0 && activeTab === "history" ? (
             <button
               type="button"
-              onClick={() => {
-                if (!isAdminUnlocked) {
-                  onRequirePinUnlock?.();
-                  return;
-                }
-                onClearHistory();
-              }}
+              onClick={onClearHistory}
               className="nb-btn-sm inline-flex min-h-10 items-center gap-2 border-[#FECDD3] bg-[#FFF1F2] px-3.5 py-2 text-xs font-semibold text-[#9F1239] hover:bg-[#FFE4E6]"
             >
-              {!isAdminUnlocked ? (
-                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-              ) : (
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              )}
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
               Hapus Semua Riwayat
             </button>
           ) : null}
@@ -169,7 +150,6 @@ export function HistoryDialog({
               { id: "offline", label: `Antrean Offline (${offlineJobs.length})` },
               { id: "stats", label: "Rekap Wilayah" },
               { id: "memory", label: `Memori Koreksi (${correctionRules.length})` },
-              { id: "audit", label: `Audit (${auditLogs.length})` },
             ] as const
           ).map((t) => (
             <button
@@ -284,7 +264,6 @@ export function HistoryDialog({
                           dateStyle: "medium",
                           timeStyle: "short",
                         })}
-                        {item.operatorName ? ` · ${item.operatorName}` : ""}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -460,38 +439,7 @@ export function HistoryDialog({
               </ul>
             )}
           </div>
-        ) : (
-          <div className="nb-card space-y-2.5 bg-white p-4">
-            <div className="flex items-center gap-2 text-xs font-bold text-[#111114]">
-              <Shield className="h-4 w-4 text-[#5E17EB]" />
-              Log Audit Aktivitas &amp; Kiosk ({auditLogs.length})
-            </div>
-            {auditLogs.length === 0 ? (
-              <p className="text-xs text-[#4B5563]">
-                Belum ada catatan audit keamanan/ekspor.
-              </p>
-            ) : (
-              <ul className="space-y-1.5 text-xs">
-                {auditLogs.slice(0, 30).map((log) => (
-                  <li
-                    key={log.id}
-                    className="rounded-xl border border-[#E5E7EB] bg-[#F6F7F9] px-3 py-2"
-                  >
-                    <div className="flex justify-between font-semibold text-[#111114]">
-                      <span>{log.action}</span>
-                      <span className="font-mono text-[11px] text-[#4B5563]">
-                        {new Date(log.timestamp).toLocaleTimeString("id-ID")}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-[#4B5563]">
-                      {log.operatorName} · {log.detail}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
+        ) : null}
       </div>
     </AppDialog>
   );

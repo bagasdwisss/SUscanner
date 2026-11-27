@@ -45,7 +45,6 @@ const REPORT_HEADERS = [
   "Link PDF Google Drive",
   "Link Folder Drive",
   "Waktu Pindai",
-  "Operator",
 ] as const;
 
 function itemToRowCells(item: SessionHistoryItem, idx: number): string[] {
@@ -65,7 +64,6 @@ function itemToRowCells(item: SessionHistoryItem, idx: number): string[] {
     item.driveFileUrl || "",
     item.driveFolderUrl || "",
     new Date(item.createdAt).toLocaleString("id-ID"),
-    item.operatorName || "",
   ];
 }
 

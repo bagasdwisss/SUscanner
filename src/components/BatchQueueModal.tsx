@@ -74,7 +74,6 @@ interface BatchQueueModalProps {
   conflictPolicy: DriveConflictPolicy;
   appsScriptUrl: string;
   rootFolderId: string;
-  operatorName: string;
   syncToSheet: boolean;
   driveSheetUrl?: string | null;
   onSheetUrlDiscovered?: (url: string) => void;
@@ -118,7 +117,6 @@ export function BatchQueueModal({
   conflictPolicy: defaultConflictPolicy,
   appsScriptUrl,
   rootFolderId,
-  operatorName,
   syncToSheet,
   driveSheetUrl,
   onSheetUrlDiscovered,
@@ -129,6 +127,7 @@ export function BatchQueueModal({
 }: BatchQueueModalProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const stopFlagRef = useRef(false);
+  const uploadAllLockRef = useRef(false);
   const consumedInitialRef = useRef<File[] | null>(null);
   const kecListId = useId();
   const kelListId = useId();
@@ -523,7 +522,7 @@ export function BatchQueueModal({
     const filename = buildStandardFilename(item.fields);
     return generateSuPdf(pages, pdfQuality, maxBytesForDrive, {
       title: filename,
-      author: operatorName,
+      author: "SU-Scanner",
       subject: `Surat Ukur ${item.fields.kecamatan}${item.fields.kelurahan ? ` / ${item.fields.kelurahan}` : ""}`,
       keywords: [item.fields.nib || "", item.fields.luasTanah || ""].filter(
         Boolean,
@@ -532,13 +531,15 @@ export function BatchQueueModal({
   };
 
   const handleUploadAllReady = async () => {
+    if (uploadAllLockRef.current) return;
+    uploadAllLockRef.current = true;
     setIsUploadingAll(true);
     let successCount = 0;
     let offlineQueued = 0;
 
     try {
       for (const item of items) {
-        if (item.status === "uploaded") continue;
+        if (item.status === "uploaded" || item.status === "uploading") continue;
         const val = validateStandardFields(item.fields);
         const kec = normalizeKecamatanName(item.fields.kecamatan);
         if (!val.valid || !kec) continue;
@@ -565,7 +566,6 @@ export function BatchQueueModal({
               kelurahan: kel || undefined,
               rootFolderId,
               conflictPolicy,
-              operatorName,
               nomorSu: padFiveDigits(item.fields.nomorSu),
               tahunSu: item.fields.tahunSu,
               kodeHak: item.fields.kodeHak || "M",
@@ -613,7 +613,6 @@ export function BatchQueueModal({
                 nib: item.fields.nib || "",
                 luasTanah: item.fields.luasTanah || "",
                 pageCount: pdf.pageCount,
-                operatorName,
               },
             }),
           });
@@ -647,7 +646,6 @@ export function BatchQueueModal({
               kelurahan: data.kelurahanName || kel || undefined,
               nib: item.fields.nib,
               luasTanah: item.fields.luasTanah,
-              operatorName,
               driveFileUrl: data.fileUrl,
               driveFolderUrl: data.folderUrl,
               pdfBytes: pdf.bytes.slice().buffer,
@@ -683,6 +681,7 @@ export function BatchQueueModal({
         );
       }
     } finally {
+      uploadAllLockRef.current = false;
       setIsUploadingAll(false);
     }
   };
@@ -719,7 +718,6 @@ export function BatchQueueModal({
           kelurahan: normalizeKelurahanName(it.fields.kelurahan) || undefined,
           nib: it.fields.nib,
           luasTanah: it.fields.luasTanah,
-          operatorName,
           driveFileUrl: it.driveResult?.fileUrl,
           driveFolderUrl: it.driveResult?.folderUrl,
           pdfBytes: pdf.bytes.slice().buffer,

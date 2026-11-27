@@ -4,18 +4,19 @@ import { z } from "zod";
  * Compact, token-efficient system instruction for Indonesian ATR/BPN Surat Ukur (SU)
  * structured extraction (including 1960s 1-sheet SUs, Kecamatan/Kelurahan, NIB, and Luas Tanah).
  */
-export const SU_SYSTEM_INSTRUCTION = `Ekstrak data "SURAT UKUR" / "GAMBAR SITUASI" ATR/BPN (warkah modern 2 hal maupun lama 1960-an 1 lembar) ke JSON presisi:
+export const SU_SYSTEM_INSTRUCTION = `Ekstrak data "SURAT UKUR" / "GAMBAR SITUASI" ATR/BPN (warkah modern 2 hal maupun lama 1960-an 1 lembar, cetakan dot-matrix tipis maupun ketik/tulisan tangan) ke JSON presisi:
 1. raw_evidence: salin persis teks asli di kertas (teks_nomor_su, teks_nomor_hak, teks_lokasi). nib_terdeteksi: angka NIB 13 digit bila tercantum.
 2. is_halaman_data_su: true bila ada teks identitas SU; false HANYA bila murni peta bidang tanpa nomor SU.
-3. nomor_su_raw & tahun_su: ambil hanya nomor urut SU (pertahankan nol depan, mis. "06", "12") & 4 digit tahun SU (konversi 2 digit lama mis. /64 -> "1964"). Jangan ambil D.I. 302/307, Peta Bidang, NIP, atau tanggal validasi.
+3. nomor_su_raw & tahun_su: Nomor Surat Ukur SELALU berada tepat di samping tahunnya (pola NNNNN/YYYY, NN/Kelurahan/YYYY, atau lama No. NN/YY atau NN Tahun YYYY), contoh "00001/2009" -> nomor_su_raw: "00001", tahun_su: "2009". Pertahankan nol depan penuh menjadi 5 digit bila tersedia (mis. "00001", "00245"), jangan pangkas nol depan! Konversi tahun 2 digit lama mis. /64 -> "1964". DILARANG mengambil Nomor Hak, D.I. 302/307, Peta Bidang, NIP, luas, atau tanggal pengesahan.
 4. kode_jenis_hak_angka & kode_jenis_hak_huruf: 1/HM->M, 2/HGU->U, 3/HGB->B, 4/HP->P, 5/HPL->L, 8/Wakaf->W.
-5. nomor_hak_raw: 5 digit nomor hak (digit ke-10..14 pada pola 14 digit BPN, atau angka pada HM.145 / H.M. 145). DILARANG mengisi NIB 13 digit.
+5. nomor_hak_raw: 5 digit Nomor Hak — ENTITAS TERPISAH dari Nomor SU! Ambil 5 digit nomor hak (digit ke-10..14 pada pola 14 digit BPN PP.KK.Kec.Kel.H.NNNNN, mis. 02.01.14.03.1.02246 -> "02246"; atau angka pada "HM. 145" / "Nomor Hak: 00145" -> "00145"). DILARANG menyalin nomor_su_raw ke nomor_hak_raw atau mengisi NIB 13 digit.
 6. kecamatan_raw: nama pada baris Kecamatan/Ketjamatan saja (jangan Kota/Kabupaten).
 7. kelurahan_raw: nama pada baris Kelurahan/Desa/Kampung atau segmen tengah Nomor SU modern (06/Helvetia Timur/2007 -> "Helvetia Timur"). null bila tidak ada.
 8. luas_tanah: luas bidang tanah beserta satuan (mis. "245 m2") jika terbaca jelas, else null.
 9. catatan_peringatan: isi sangat singkat hanya jika teks penting buram/terpotong, else null. Jangan menebak bila tidak terbaca.`;
 
-export const SU_USER_PROMPT = "Ekstrak data Surat Ukur ke JSON.";
+export const SU_USER_PROMPT =
+  "Ekstrak data Surat Ukur ke JSON. Nomor SU adalah angka 5 digit di samping /Tahun (mis. 00001/2009 -> nomor_su_raw='00001', tahun_su='2009') dan terpisah tegas dari Nomor Hak 5 digit.";
 
 export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
   type: "object",
@@ -32,14 +33,26 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
     nib_terdeteksi: { type: ["string", "null"] },
     luas_tanah: { type: ["string", "null"] },
     is_halaman_data_su: { type: "boolean" },
-    nomor_su_raw: { type: ["string", "null"] },
-    tahun_su: { type: ["string", "null"] },
+    nomor_su_raw: {
+      type: ["string", "null"],
+      description:
+        "Nomor urut Surat Ukur yang berada tepat di samping /Tahun SU (5 digit bila tersedia, mis. 00001 pada 00001/2009). Terpisah dari Nomor Hak.",
+    },
+    tahun_su: {
+      type: ["string", "null"],
+      description:
+        "4 digit tahun penerbitan Surat Ukur tepat di sebelah kanan garis miring Nomor SU (mis. 2009 pada 00001/2009).",
+    },
     kode_jenis_hak_angka: { type: ["string", "null"] },
     kode_jenis_hak_huruf: {
       type: ["string", "null"],
       enum: ["M", "U", "B", "P", "L", "W", null],
     },
-    nomor_hak_raw: { type: ["string", "null"] },
+    nomor_hak_raw: {
+      type: ["string", "null"],
+      description:
+        "5 digit Nomor Hak (terpisah dari Nomor SU dan bukan NIB 13 digit), mis. 02246 dari 02.01.14.03.1.02246 atau HM 145.",
+    },
     kecamatan_raw: { type: ["string", "null"] },
     kelurahan_raw: { type: ["string", "null"] },
     confidence: {
