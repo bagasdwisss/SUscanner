@@ -120,6 +120,10 @@ export function DocumentWorkspacePanel({
   onOpenCamera,
 }: DocumentWorkspacePanelProps) {
   const activePage = activeTab === "page1" ? page1 : page2;
+  const sectionRef = useRef<HTMLElement>(null);
+  const pageBarSentinelRef = useRef<HTMLDivElement>(null);
+  const mobileDockRef = useRef<HTMLDivElement>(null);
+  const previewStageRef = useRef<HTMLDivElement>(null);
   const tab1Ref = useRef<HTMLButtonElement>(null);
   const tab2Ref = useRef<HTMLButtonElement>(null);
   const topSwapIconRef = useRef<SVGSVGElement>(null);
@@ -134,6 +138,9 @@ export function DocumentWorkspacePanel({
   const ghostEmptyRef = useRef<HTMLDivElement>(null);
   const ghostEmptyLabelRef = useRef<HTMLParagraphElement>(null);
   const ghostTimerRef = useRef<number | null>(null);
+
+  const [isPageBarStuck, setIsPageBarStuck] = useState(false);
+  const [showMobileFloatingDock, setShowMobileFloatingDock] = useState(false);
 
   const prevSnapshotRef = useRef<{
     activeTab: PageSlot;
@@ -195,6 +202,48 @@ export function DocumentWorkspacePanel({
       }
     };
   }, []);
+
+  useEffect(() => {
+    const sentinel = pageBarSentinelRef.current;
+    const section = sectionRef.current;
+    if (!sentinel && !section) return;
+
+    const getHeaderClearance = () => (window.innerWidth >= 1024 ? 86 : 78);
+
+    let sentinelObserver: IntersectionObserver | null = null;
+    if (sentinel) {
+      sentinelObserver = new IntersectionObserver(
+        ([entry]) => {
+          setIsPageBarStuck(!entry.isIntersecting && entry.boundingClientRect.top < getHeaderClearance());
+        },
+        {
+          threshold: [0],
+          rootMargin: `-${getHeaderClearance()}px 0px 0px 0px`,
+        },
+      );
+      sentinelObserver.observe(sentinel);
+    }
+
+    let sectionObserver: IntersectionObserver | null = null;
+    if (section) {
+      sectionObserver = new IntersectionObserver(
+        ([entry]) => {
+          const isAbove = !entry.isIntersecting && entry.boundingClientRect.bottom < getHeaderClearance() + 40;
+          if (!isAbove && mobileDockRef.current?.contains(document.activeElement)) {
+            (activeTab === "page2" ? tab2Ref.current : tab1Ref.current)?.focus();
+          }
+          setShowMobileFloatingDock(isAbove);
+        },
+        { threshold: [0] },
+      );
+      sectionObserver.observe(section);
+    }
+
+    return () => {
+      sentinelObserver?.disconnect();
+      sectionObserver?.disconnect();
+    };
+  }, [activeTab]);
 
   useLayoutEffect(() => {
     const prev = prevSnapshotRef.current;
@@ -398,6 +447,24 @@ export function DocumentWorkspacePanel({
       zoomPercent: 100,
       pan: { x: 0, y: 0 },
     });
+    // If operator switched pages while scrolled below the preview stage, bring preview back into view
+    const stageEl = previewStageRef.current;
+    if (stageEl) {
+      const rect = stageEl.getBoundingClientRect();
+      if (rect.bottom < 160) {
+        const targetTop = Math.max(
+          0,
+          window.scrollY + rect.top - (window.innerWidth >= 1024 ? 156 : 144),
+        );
+        const prefersReduced = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+        window.scrollTo({
+          top: targetTop,
+          behavior: prefersReduced ? "auto" : "smooth",
+        });
+      }
+    }
   };
 
   const handleTabKeyDown = (
@@ -467,80 +534,93 @@ export function DocumentWorkspacePanel({
 
   return (
     <section
+      ref={sectionRef}
       aria-label="Panel Pratinjau dan Pemindaian Dokumen"
-      className="flex flex-col gap-4"
+      className="su-pagebar-section flex flex-col gap-4"
     >
-      {/* Card 1: Page Tabs & Swap Header */}
-      <div className="nb-card flex flex-wrap items-center justify-between gap-2 bg-white px-3.5 py-2.5 sm:px-4">
-        <div
-          role="tablist"
-          aria-label="Pilih Halaman Surat Ukur"
-          {...tablistFocusgroupProps}
-          className="flex items-center gap-1.5 overflow-x-auto rounded-full bg-[#F6F7F9] p-1"
-        >
-          <button
-            ref={tab1Ref}
-            id="tab-page1"
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "page1"}
-            {...tab1FocusProps}
-            onClick={() => handleTabSwitch("page1")}
-            onKeyDown={(e) => handleTabKeyDown(e, "page1")}
-            className="su-tab inline-flex min-h-9 flex-none items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:text-sm"
+      {/* Sentinel for cross-browser sticky floating Page Switcher */}
+      <div
+        ref={pageBarSentinelRef}
+        aria-hidden="true"
+        className="pointer-events-none -mb-4 h-px w-full"
+      />
+
+      {/* Card 1: Floating Sticky Page Tabs & Swap Header */}
+      <div
+        data-stuck={isPageBarStuck ? "true" : "false"}
+        className="su-sticky-pagebar"
+      >
+        <div className="nb-card su-floating-pagebar-card flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 sm:px-4">
+          <div
+            role="tablist"
+            aria-label="Pilih Halaman Surat Ukur"
+            {...tablistFocusgroupProps}
+            className="flex items-center gap-1.5 overflow-x-auto rounded-full bg-[#F6F7F9] p-1"
           >
-            <span>Hal 1 · Data SU</span>
-            <span
-              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
-                activeTab === "page1"
-                  ? "bg-[#5E17EB]/10 text-[#5E17EB]"
-                  : "bg-white text-[#4B5563] border border-[#E5E7EB]"
-              }`}
+            <button
+              ref={tab1Ref}
+              id="tab-page1"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "page1"}
+              {...tab1FocusProps}
+              onClick={() => handleTabSwitch("page1")}
+              onKeyDown={(e) => handleTabKeyDown(e, "page1")}
+              className="su-tab inline-flex min-h-9 flex-none items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:text-sm"
             >
-              {getOrientationBadge(page1)}
-            </span>
-          </button>
+              <span>Hal 1 · Data SU</span>
+              <span
+                className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
+                  activeTab === "page1"
+                    ? "bg-[#5E17EB]/10 text-[#5E17EB]"
+                    : "bg-white text-[#4B5563] border border-[#E5E7EB]"
+                }`}
+              >
+                {getOrientationBadge(page1)}
+              </span>
+            </button>
+
+            <button
+              ref={tab2Ref}
+              id="tab-page2"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "page2"}
+              {...tab2FocusProps}
+              onClick={() => handleTabSwitch("page2")}
+              onKeyDown={(e) => handleTabKeyDown(e, "page2")}
+              className="su-tab inline-flex min-h-9 flex-none items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:text-sm"
+            >
+              <span>Hal 2 · Peta Bidang</span>
+              <span
+                className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
+                  activeTab === "page2"
+                    ? "bg-[#5E17EB]/10 text-[#5E17EB]"
+                    : "bg-white text-[#4B5563] border border-[#E5E7EB]"
+                }`}
+              >
+                {getOrientationBadge(page2)}
+              </span>
+            </button>
+          </div>
 
           <button
-            ref={tab2Ref}
-            id="tab-page2"
             type="button"
-            role="tab"
-            aria-selected={activeTab === "page2"}
-            {...tab2FocusProps}
-            onClick={() => handleTabSwitch("page2")}
-            onKeyDown={(e) => handleTabKeyDown(e, "page2")}
-            className="su-tab inline-flex min-h-9 flex-none items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] transition-colors hover:text-[#111114] sm:text-sm"
+            onClick={onSwapPages}
+            disabled={!page1 && !page2}
+            className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#111114] hover:bg-[#F9FAFB] disabled:opacity-50"
           >
-            <span>Hal 2 · Peta Bidang</span>
-            <span
-              className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
-                activeTab === "page2"
-                  ? "bg-[#5E17EB]/10 text-[#5E17EB]"
-                  : "bg-white text-[#4B5563] border border-[#E5E7EB]"
-              }`}
-            >
-              {getOrientationBadge(page2)}
-            </span>
+            <ArrowLeftRight
+              ref={topSwapIconRef}
+              className="h-3.5 w-3.5 text-[#5E17EB]"
+              aria-hidden="true"
+            />
+            <span>Tukar Hal 1 &amp; 2</span>
+            <kbd className="hidden rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#4B5563] sm:inline">
+              S
+            </kbd>
           </button>
         </div>
-
-        <button
-          type="button"
-          onClick={onSwapPages}
-          disabled={!page1 && !page2}
-          className="nb-btn-sm inline-flex min-h-9 items-center gap-1.5 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#111114] hover:bg-[#F9FAFB] disabled:opacity-50"
-        >
-          <ArrowLeftRight
-            ref={topSwapIconRef}
-            className="h-3.5 w-3.5 text-[#5E17EB]"
-            aria-hidden="true"
-          />
-          <span>Tukar Hal 1 &amp; 2</span>
-          <kbd className="hidden rounded border border-[#E5E7EB] bg-[#F6F7F9] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#4B5563] sm:inline">
-            S
-          </kbd>
-        </button>
       </div>
 
       {/* Card 2: Active Image Toolbar */}
@@ -722,6 +802,7 @@ export function DocumentWorkspacePanel({
 
       {/* Bento Card 3: Main Preview Canvas Stage */}
       <div
+        ref={previewStageRef}
         role="tabpanel"
         aria-labelledby={activeTab === "page1" ? "tab-page1" : "tab-page2"}
         tabIndex={0}
@@ -1121,6 +1202,73 @@ export function DocumentWorkspacePanel({
             Mode SU 1 Lembar · Siap Ekspor 1 Hal
           </span>
         ) : null}
+      </div>
+
+      {/* Mobile/Tablet Floating Dock: stays reachable when scrolled past left panel into naming form */}
+      <div
+        ref={mobileDockRef}
+        aria-hidden={!showMobileFloatingDock}
+        inert={!showMobileFloatingDock ? true : undefined}
+        className={`fixed bottom-4 left-1/2 z-[25] -translate-x-1/2 transition-all duration-200 xl:hidden ${
+          showMobileFloatingDock
+            ? "pointer-events-auto translate-y-0 opacity-100"
+            : "pointer-events-none translate-y-3 opacity-0"
+        }`}
+      >
+        <div className="flex items-center gap-1 rounded-full border border-[#DDD6FE] bg-white/95 p-1.5 shadow-[0_12px_30px_-8px_rgba(17,17,20,0.24)] backdrop-blur-xl">
+          <button
+            type="button"
+            onClick={() => handleTabSwitch("page1")}
+            className={`inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              activeTab === "page1"
+                ? "bg-[#5E17EB] text-white"
+                : "text-[#374151] hover:bg-[#F6F7F9]"
+            }`}
+          >
+            <span>Hal 1 · Data SU</span>
+            <span
+              className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+                activeTab === "page1"
+                  ? "bg-white/20 text-white"
+                  : "bg-[#F6F7F9] text-[#4B5563]"
+              }`}
+            >
+              {getOrientationBadge(page1)}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabSwitch("page2")}
+            className={`inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              activeTab === "page2"
+                ? "bg-[#5E17EB] text-white"
+                : "text-[#374151] hover:bg-[#F6F7F9]"
+            }`}
+          >
+            <span>Hal 2 · Peta Bidang</span>
+            <span
+              className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+                activeTab === "page2"
+                  ? "bg-white/20 text-white"
+                  : "bg-[#F6F7F9] text-[#4B5563]"
+              }`}
+            >
+              {getOrientationBadge(page2)}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onSwapPages}
+            disabled={!page1 && !page2}
+            aria-label="Tukar posisi Halaman 1 dan Halaman 2"
+            title="Tukar Hal 1 & 2"
+            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-full border border-[#E5E7EB] bg-[#F6F7F9] text-[#5E17EB] hover:bg-[#F5F3FF] disabled:opacity-45"
+          >
+            <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </section>
   );

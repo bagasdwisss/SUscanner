@@ -2019,7 +2019,7 @@ export function SuScannerApp() {
             isDecoding={isDecoding}
           />
         ) : (
-          <div className="mx-auto flex w-full max-w-[1360px] flex-1 flex-col gap-4 p-4 sm:gap-5 sm:p-6">
+          <div className="mx-auto flex w-full max-w-[1360px] flex-1 flex-col gap-4 p-4 pb-20 sm:gap-5 sm:p-6 sm:pb-20 xl:pb-6">
             <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-[minmax(0,63fr)_minmax(340px,37fr)]">
               <DocumentWorkspacePanel
                 activeTab={activeTab}
