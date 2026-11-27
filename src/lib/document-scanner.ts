@@ -912,8 +912,8 @@ export async function prepareCleanCropForAi(params: {
     filter: "original",
     brightness: 0,
     contrast: 0,
-    maxOutputSide: params.maxSide ?? 1600,
-    jpegQuality: 0.85,
+    maxOutputSide: params.maxSide ?? 1920,
+    jpegQuality: 0.9,
   });
   return result.dataUrl;
 }
@@ -923,7 +923,7 @@ export async function prepareCleanCropForAi(params: {
  */
 export async function prepareImageForAi(
   dataUrl: string,
-  maxSide = 1600,
+  maxSide = 1920,
 ): Promise<string> {
   const img = await loadImageElement(dataUrl);
   const scale = Math.min(
@@ -940,5 +940,5 @@ export async function prepareImageForAi(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL("image/jpeg", 0.85);
+  return canvas.toDataURL("image/jpeg", 0.9);
 }

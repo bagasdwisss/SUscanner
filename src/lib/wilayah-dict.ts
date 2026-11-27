@@ -220,7 +220,7 @@ export const MASTER_WILAYAH_ENTRIES: readonly KecamatanWilayahEntry[] = [
   },
   {
     kecamatan: "Medan Selayang",
-    kantahCodes: ["17"],
+    kantahCodes: ["10", "17"],
     kelurahan: [
       "Asam Kumbang",
       "Beringin",
@@ -374,7 +374,10 @@ function normalizeForFuzzyMatch(raw: string): string {
     .replace(/oe/g, "u")
     .replace(/0/g, "o")
     .replace(/[1|]/g, "i")
+    .replace(/3/g, "e")
+    .replace(/4/g, "a")
     .replace(/5/g, "s")
+    .replace(/[69]/g, "g")
     .replace(/8/g, "b")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")

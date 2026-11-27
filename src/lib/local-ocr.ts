@@ -69,7 +69,23 @@ function buildEnhancedOcrCanvas(
 
   const imgData = workCtx.getImageData(0, 0, workW, workH);
   const { data } = imgData;
-  const block = 16;
+
+  // Detect yellow/green ATR/BPN guilloche security paper so watermark microtext is suppressed
+  let chromaSum = 0;
+  let chromaCount = 0;
+  for (let y = 0; y < workH; y += 12) {
+    const row = y * workW;
+    for (let x = 0; x < workW; x += 12) {
+      const p = (row + x) * 4;
+      const rgAvg = (data[p] + data[p + 1]) * 0.5;
+      chromaSum += Math.max(0, rgAvg - data[p + 2]);
+      chromaCount++;
+    }
+  }
+  const avgYellowChroma = chromaCount > 0 ? chromaSum / chromaCount : 0;
+  const isSecurityPaper = avgYellowChroma > 26;
+
+  const block = 36;
   const gw = Math.max(4, Math.ceil(workW / block));
   const gh = Math.max(4, Math.ceil(workH / block));
   const bgGrid = new Float32Array(gw * gh);
@@ -80,16 +96,18 @@ function buildEnhancedOcrCanvas(
     for (let bx = 0; bx < gw; bx++) {
       const x0 = bx * block;
       const x1 = Math.min(workW, x0 + block);
-      let maxLum = 180;
+      let maxVal = isSecurityPaper ? 140 : 175;
       for (let y = y0; y < y1; y += 3) {
         const row = y * workW;
         for (let x = x0; x < x1; x += 3) {
           const p = (row + x) * 4;
-          const l = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-          if (l > maxLum) maxLum = l;
+          const v = isSecurityPaper
+            ? (data[p] + data[p + 1]) * 0.5
+            : 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+          if (v > maxVal) maxVal = v;
         }
       }
-      bgGrid[by * gw + bx] = maxLum;
+      bgGrid[by * gw + bx] = maxVal;
     }
   }
 
@@ -111,9 +129,16 @@ function buildEnhancedOcrCanvas(
         bgGrid[y1 * gw + x1] * tx * ty;
 
       const p = (y * workW + x) * 4;
-      const lum = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-      let norm = (lum * 255) / Math.max(90, bg);
-      norm = norm > 232 ? 255 : clamp((norm - 148) * 1.38 + 148, 0, 255);
+      const val = isSecurityPaper
+        ? (data[p] + data[p + 1]) * 0.5
+        : 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+      let norm = (val * 255) / Math.max(isSecurityPaper ? 95 : 85, bg);
+      if (isSecurityPaper) {
+        // Whitens yellow/olive guilloche background ('BADANPERTANAHANNASIONAL') cleanly as validated on top_clean_158
+        norm = norm > 160 ? 255 : clamp((norm - 118) * 2.8 + 95, 0, 255);
+      } else {
+        norm = norm > 208 ? 255 : clamp((norm - 138) * 1.55 + 132, 0, 255);
+      }
       data[p] = norm;
       data[p + 1] = norm;
       data[p + 2] = norm;
@@ -246,7 +271,7 @@ export async function runLocalTesseractOcr(
   onProgress?.(5);
 
   const img = await loadImageElement(imageDataUrl);
-  const headerMeta = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.62 });
+  const headerMeta = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.74 });
   const fullMeta = buildEnhancedOcrCanvas(img);
 
   const worker = await createWorker("ind", 1, {
@@ -328,14 +353,17 @@ export async function runLocalTesseractOcr(
       fullPass,
     );
 
-    // Pass 3 (conditional): PSM.SPARSE_TEXT on top 48% recovers isolated SU/Hak boxes when AUTO merges/skips them
+    // Pass 3 (conditional): PSM.SPARSE_TEXT on top 50% recovers top-left Nomor Hak boxes, right Nomor hak/NIB, SU/Tahun, Kec & Kel
     const stillMissingCritical =
       !mergedOutcome.extraction.nomor_su_raw ||
       !mergedOutcome.extraction.tahun_su ||
-      !mergedOutcome.extraction.nomor_hak_raw;
+      !mergedOutcome.extraction.nomor_hak_raw ||
+      !mergedOutcome.extraction.kecamatan_raw ||
+      !mergedOutcome.extraction.kelurahan_raw ||
+      !mergedOutcome.extraction.nib_terdeteksi;
     if (stillMissingCritical) {
       onProgress?.(85);
-      const sparseMeta = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.48 });
+      const sparseMeta = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.5 });
       await worker.setParameters({
         tessedit_pageseg_mode: PSM.SPARSE_TEXT,
         preserve_interword_spaces: "1",

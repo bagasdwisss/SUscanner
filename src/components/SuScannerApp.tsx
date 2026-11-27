@@ -577,13 +577,13 @@ export function SuScannerApp() {
                 rawUrl: sourceTarget.rawUrl,
                 rotation: sourceTarget.rotation ?? 0,
                 corners: sourceTarget.corners,
-                maxSide: 1600,
+                maxSide: 1920,
               })
             : await prepareImageForAi(
                 typeof sourceTarget === "string"
                   ? sourceTarget
                   : sourceTarget.processedDataUrl,
-                1600,
+                1920,
               );
         if (controller.signal.aborted) return;
 

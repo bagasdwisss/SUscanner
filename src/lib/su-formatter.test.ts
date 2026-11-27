@@ -734,6 +734,82 @@ describe("SU-Scanner formatter & domain rules", () => {
     );
   });
 
+  it("handles real physical ATR/BPN blangko layout (top-left boxed Hak, boxed/right NIB, compact 616/1998, stamps)", () => {
+    const boxedYellowBlank = `
+|0|2|.|0|1|.|1|0|.|0|2|.|1|.|0|1|4|8|8|   HAK MILIK
+AL 014904                                Nomor hak : 1488
+SURAT UKUR
+GAMBAR SITUASI
+NIB. |0|2|.|0|1|.|1|6|.|0|6|.|0|0|6|7|6|
+Nomor : ............ / 19............
+616/TANJUNG SARI/1998
+SEBIDANG TANAH TERLETAK DALAM
+Propinsi : SUMATERA UTARA
+Kabupaten/Kotamadya : MEDAN       Telah Dialihmediakan
+Kecamatan : MEDAN SELAYANG        07/12/2023 CV. BERKAT CAHAYA ABADI
+Desa/Kelurahan : TANJUNG SARI     TANGG. UP.02.01.12.31/08/2023
+Lembar : 1 / 1  Kotak : C23/A
+Luas : 872.- m2 (delapanratus tujuhpuluh dua meter persegi).
+    `;
+    const parsedReal = parseSuratUkurOcrText(boxedYellowBlank, 84);
+    assert.equal(parsedReal.nomor_su_raw, "616");
+    assert.equal(parsedReal.tahun_su, "1998");
+    assert.equal(parsedReal.raw_evidence.teks_nomor_su, "616/1998");
+    assert.equal(parsedReal.kode_jenis_hak_huruf, "M");
+    assert.equal(parsedReal.nomor_hak_raw, "01488");
+    assert.equal(parsedReal.nib_terdeteksi, "02.01.16.06.00676");
+
+    const applied = applyExtractionToForm(parsedReal, 2026);
+    assert.equal(applied.rawEvidence.teksNomorSu, "616/1998");
+    assert.equal(applied.fields.nomorSu, "00616");
+    assert.equal(applied.fields.tahunSu, "1998");
+    assert.equal(applied.fields.kodeHak, "M");
+    assert.equal(applied.fields.nomorHak, "01488");
+    assert.equal(applied.fields.nib, "02.01.16.06.00676");
+    assert.equal(applied.fields.luasTanah, "872 m2");
+    assert.equal(applied.fields.kecamatan, "Medan Selayang");
+    assert.equal(applied.fields.kelurahan, "Tanjung Sari");
+    assert.equal(
+      buildStandardFilename(applied.fields),
+      "SU.00616.1998.M.01488.pdf",
+    );
+
+    // Variant where NIB appears underneath right-side Nomor hak (no top-left 14-digit boxes)
+    const nibUnderRightHak = `
+      HAK MILIK
+      Nomor hak : 1488
+      02.01.16.06.00676
+      SURAT UKUR
+      616/TANJUNG SARI/1998
+      Kecamatan : Medan Selayang
+      Desa/Kelurahan : Tanjung Sari
+    `;
+    const parsedRight = parseSuratUkurOcrText(nibUnderRightHak, 85);
+    const appliedRight = applyExtractionToForm(parsedRight, 2026);
+    assert.equal(appliedRight.rawEvidence.teksNomorSu, "616/1998");
+    assert.equal(appliedRight.fields.kodeHak, "M");
+    assert.equal(appliedRight.fields.nomorHak, "01488");
+    assert.equal(appliedRight.fields.nib, "02.01.16.06.00676");
+    assert.equal(appliedRight.fields.kecamatan, "Medan Selayang");
+    assert.equal(appliedRight.fields.kelurahan, "Tanjung Sari");
+
+    // Handles dotted guide lines around Kecamatan / Desa/Kelurahan & filters out garbled digit fallback
+    const dottedForm = `
+      SURAT UKUR
+      Nomor hak : ........... 1488
+      610/Anguk9 3a/1995
+      Kecamatan : ......... MEDAN SELAYANG .........
+      Desa/Kelurahan : ...... TANJUNG SARI ......
+    `;
+    const parsedDotted = parseSuratUkurOcrText(dottedForm, 76);
+    assert.equal(parsedDotted.kecamatan_raw, "Medan Selayang");
+    assert.equal(parsedDotted.kelurahan_raw, "Tanjung Sari");
+    assert.equal(parsedDotted.nomor_hak_raw, "1488");
+
+    const garbledOnly = parseSuratUkurOcrText("SURAT UKUR\n610/Anguk9 3a/1995", 60);
+    assert.equal(garbledOnly.kelurahan_raw, null);
+  });
+
   it("builds valid CSV, OOXML XLSX, and hierarchical Kecamatan/Kelurahan ZIP backup packages without Operator column", async () => {
     const dummyPdf = new TextEncoder().encode("%PDF-1.4\n%%EOF").buffer;
     const sampleItems: SessionHistoryItem[] = [

@@ -245,9 +245,9 @@ export function parseNomorHakEvidence(raw: string | null | undefined): {
     return { kind: "unknown", kodeHak: null, nomorHak5: null };
   }
 
-  // Match embedded 14-digit BPN Nomor Hak even if surrounded by labels or trailing dash
+  // Match embedded 14-digit BPN Nomor Hak even if surrounded by box walls, labels, or trailing dash
   const match14 = raw.match(
-    /\b(\d{2})[\s.\-·_]*(\d{2})[\s.\-·_]*(\d{2})[\s.\-·_]*(\d{2})[\s.\-·_]*([123458])[\s.\-·_]*(\d{5})\b/,
+    /\b(\d{2})[\s.\-·_,:;|\/\[\]]*(\d{2})[\s.\-·_,:;|\/\[\]]*(\d{2})[\s.\-·_,:;|\/\[\]]*(\d{2})[\s.\-·_,:;|\/\[\]]*([123458])[\s.\-·_,:;|\/\[\]]*(\d{5})\b/,
   );
   if (match14) {
     return {
@@ -270,6 +270,21 @@ export function parseNomorHakEvidence(raw: string | null | undefined): {
 
   if (digits.length === 13) {
     return { kind: "nib_13", kodeHak: null, nomorHak5: null };
+  }
+
+  const explicitNoHakMatch = raw
+    .trim()
+    .match(
+      /\b(?:no\.?|nom[eo]r)\s*hak\b[\s.\-:]*([A-Za-z]{1,4}[\s.\-/]*)?(?:(?:no\.?|nom[eo]r)\.?\s*)?(\d{1,5})\b(?!\s*\/\s*(?:19|20)\d{2}\b)/i,
+    );
+  if (explicitNoHakMatch) {
+    return {
+      kind: "short_hak",
+      kodeHak: explicitNoHakMatch[1]
+        ? mapHakCode(explicitNoHakMatch[1].replace(/[.\-/]/g, " "))
+        : null,
+      nomorHak5: padFiveDigits(explicitNoHakMatch[2]),
+    };
   }
 
   // Legacy short format e.g. "HM. 2246", "H.M. 145", "H.G.B. 105", "Hak Milik No. 145", "M.02246"
@@ -598,6 +613,14 @@ export function applyExtractionToForm(
     hakReason = "Hanya NIB 13 digit yang terlihat";
   }
 
+  const normalizedTeksNomorSu =
+    nomorSuClean && tahunClean
+      ? `${(suEvidenceSlash ? sanitizeDigits(suEvidenceSlash[1]) : "") || nomorSuClean}/${tahunClean}`
+      : extraction.raw_evidence.teks_nomor_su;
+  const cleanedLuasTanah = extraction.luas_tanah
+    ? extraction.luas_tanah.replace(/(\d)[\s.\-]+(?=(?:m\s*2|m²|meter))/gi, "$1 ").trim()
+    : "";
+
   return {
     fields: {
       nomorSu: nomorSuFormatted,
@@ -609,7 +632,7 @@ export function applyExtractionToForm(
       kecamatan: kecamatanNormalized,
       kelurahan: kelurahanNormalized,
       nib: extraction.nib_terdeteksi || "",
-      luasTanah: extraction.luas_tanah || "",
+      luasTanah: cleanedLuasTanah,
     },
     confidences: {
       nomorSu: makeMeta(extraction.confidence.nomor_su, Boolean(nomorSuFormatted)),
@@ -631,7 +654,7 @@ export function applyExtractionToForm(
     isWrongPageSlot: !extraction.is_halaman_data_su,
     warnings,
     rawEvidence: {
-      teksNomorSu: extraction.raw_evidence.teks_nomor_su,
+      teksNomorSu: normalizedTeksNomorSu,
       teksNomorHak: extraction.raw_evidence.teks_nomor_hak,
       teksLokasi: extraction.raw_evidence.teks_lokasi ?? null,
       nibTerdeteksi: extraction.nib_terdeteksi,
