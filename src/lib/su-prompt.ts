@@ -4,21 +4,33 @@ import { z } from "zod";
  * Compact, token-efficient system instruction for Indonesian ATR/BPN Surat Ukur (SU)
  * structured extraction (including 1960s 1-sheet SUs, Kecamatan/Kelurahan, NIB, and Luas Tanah).
  */
-export const SU_SYSTEM_INSTRUCTION = `Ekstrak data blangko fisik "SURAT UKUR" / "GAMBAR SITUASI" ATR/BPN (warkah modern, blangko kuning guilloche berkotak, maupun lama 1960-an) ke JSON presisi:
-1. TATA LETAK FISIK BLANGKO SU:
-   - POJOK KIRI ATAS (dalam kotak-kotak 14 digit PP.KK.Kec.Kel.H.NNNNN, mis. 02.01.10.02.1.01488): ini adalah NOMOR HAK! Digit ke-9 = jenis hak (1=M, 2=HGU, 3=HGB, 4=HP, 5=HPL, 8=Wakaf) & 5 digit terakhir (01488) = nomor_hak_raw. Abaikan kode seri kertas di bawahnya (mis. AL 014904).
-   - POJOK KANAN ATAS: tercantum jenis hak (mis. HAK MILIK) & baris "Nomor hak : ..." (mis. 1488 -> pad 5 digit "01488"). Gunakan bersama kotak kiri atas untuk konfirmasi silang nomor_hak_raw.
-   - NIB (13 digit, mis. 02.01.16.06.00676): bisa berada DI BAWAH tulisan "Nomor hak" di kanan atas, ATAU di kotak-kotak bertuliskan "NIB" tepat di bawah judul SURAT UKUR / GAMBAR SITUASI. Simpan ke nib_terdeteksi (JANGAN masukkan ke nomor_hak_raw atau nomor_su_raw).
-   - NOMOR SU & TAHUN SU: berada di tengah di bawah SURAT UKUR / GAMBAR SITUASI & baris template "Nomor : ..... / 19...." (mis. 616/TANJUNG SARI/1998 atau 00001/2009). Jika berpola N/Kelurahan/Tahun (seperti "616/TANJUNG SARI/1998"), ekstrak teks_nomor_su ringkas menjadi "616/1998" saja (tanpa nama kelurahan), nomor_su_raw: "616" (pertahankan nol depan penuh bila ada, mis. "00001"), tahun_su: "1998", lalu pindahkan "TANJUNG SARI" ke kelurahan_raw.
-2. ABADIKAN & ABAIKAN DISTRAKTOR: Abaikan stempel "Telah Dialihmediakan" beserta tanggalnya (mis. 07/12/2023, 31/08/2023, TANGG. UP...), "Lembar : 1/1", "Kotak : C23/A", "AL 014904", "D.I. 302/307", NIP, dan baris kosong template "... / 19...".
-3. is_halaman_data_su: true bila ada identitas SU/GS; false HANYA bila murni peta bidang tanpa identitas SU.
-4. kode_jenis_hak_angka & kode_jenis_hak_huruf: 1/HM->M, 2/HGU->U, 3/HGB->B, 4/HP->P, 5/HPL->L, 8/Wakaf->W.
-5. kecamatan_raw & kelurahan_raw: ambil dari baris Kecamatan/Ketjamatan & Desa/Kelurahan (atau segmen tengah Nomor SU seperti TANJUNG SARI). Jangan ambil Propinsi atau Kabupaten/Kotamadya.
-6. luas_tanah: ambil angka & satuan (mis. "872.- m2" -> "872 m2").
-7. catatan_peringatan: isi sangat singkat hanya jika teks penting buram/terpotong, else null. Jangan menebak bila tidak terbaca.`;
+export const SU_SYSTEM_INSTRUCTION = `Ekstrak data blangko fisik "SURAT UKUR" / "GAMBAR SITUASI" ATR/BPN ke JSON presisi (baik blangko 1 halaman tegak, buku lipat terbuka 2 panel DAFTAR ISIAN 207, maupun blangko kuning/hijau guilloche & lama 1960-an):
+1. BEDAKAN DUA TATA LETAK BLANGKO SU:
+   A. BUKU TERBUKA 2 PANEL (DAFTAR ISIAN 207):
+      - PANEL KIRI (Hal lain-lain / Daftar Isian 302 / Tanda tangan Kepala Seksi / Tabel Pemisahan): JANGAN PERNAH ambil "Daftar Isian 302 tgl... No. 671/2000" atau nomor di tabel Pemisahan sebagai Nomor SU!
+      - PANEL KANAN ("SURAT UKUR"): Semua identitas arsip ada DI PANEL KANAN! Kotak 14 digit PP.KK.Kec.Kel.H.NNNNN (mis. 02.01.10.02.1.02095) ada di kiri-atas panel kanan (digit ke-9 = kode hak, 5 digit terakhir = nomor_hak_raw); NIB ada di kanan atas sebelah tulisan "NIB :" (bisa 13 digit modern ATAU 4-6 digit seperti "02374").
+   B. BLANGKO 1 HALAMAN TEGAK:
+      - POJOK KIRI ATAS (kotak 14 digit PP.KK.Kec.Kel.H.NNNNN, mis. 02.01.10.02.1.01488): ini NOMOR HAK! Digit ke-9 = jenis hak (1=M, 2=HGU, 3=HGB, 4=HP, 5=HPL, 8=Wakaf) & 5 digit terakhir = nomor_hak_raw. Abaikan kode seri kertas (mis. AL 014904 / AM 750746).
+      - POJOK KANAN ATAS: tercantum jenis hak & baris "Nomor hak : ...".
+      - NIB: berada DI BAWAH tulisan "Nomor hak" kanan atas ATAU di kotak "NIB" bawah judul SURAT UKUR. Bisa 13 digit (02.01.16.06.00676) ATAU 4-6 digit (02374). Simpan ke nib_terdeteksi (JANGAN masukkan ke nomor_hak_raw atau nomor_su_raw).
+2. NOMOR SU & TAHUN SU:
+   - Berada tepat di bawah judul "SURAT UKUR" / "GAMBAR SITUASI" (terkadang diketik sedikit di atas garis titik-titik "Nomor : ..... / 19....", mis. "71/Tanjung Sari/2000" atau "616/TANJUNG SARI/1998" atau "00001/2009").
+   - Jika berpola N/Kelurahan/Tahun (mis. "71/Tanjung Sari/2000" atau "616/TANJUNG SARI/1998"), ekstrak teks_nomor_su ringkas = "71/2000" (tanpa nama kelurahan), nomor_su_raw = "71" (pertahankan nol depan jika memang tertulis "00001"), tahun_su = "2000", dan pindahkan nama kelurahan ke kelurahan_raw.
+3. ABAIKAN DISTRAKTOR:
+   - Daftar Isian 302 / 307 / 207 (seperti "No. 671/2000" di panel kiri!), stempel "Telah Dialihmediakan" beserta tanggal/nomornya (mis. 01/12/2023, 07/12/2023, 100/SP-UP...), "Lembar : 14 / Kotak : 1/2", kode seri perforasi (AM 750746, AL 014904), NIP 18 digit, dan garis kosong "... / 19...".
+   - Jika dikirim 2 gambar: Gambar 1 = halaman penuh, Gambar 2 = zoom detail panel SURAT UKUR / header. Gunakan Gambar 2 untuk membaca digit kecil, NIB samar, & tulisan tangan dengan teliti.
+4. ATURAN KEJUJURAN CONFIDENCE (ANTI-99% PALSU):
+   - DILARANG memberi skor 0.95/0.99 seragam di semua kolom! Evaluasi tiap kolom secara kritis berdasarkan keterbacaan visual nyatanya:
+   - 0.93–0.98: HANYA jika huruf/angka cetakan mesin tajam atau tulisan tangan 1 goresan bersih tanpa keraguan satu digit pun.
+   - 0.72–0.85: Jika diketik tipis di atas watermark hijau "BADANPERTANAHANNASIONAL", sedikit buram, atau terpotong garis titik-titik.
+   - 0.45–0.70: WAJIB diturunkan bila ada angka tulisan tangan yang TERTIMPA / DICORET / DIPERBAIKI (mis. angka terakhir tampak seperti 5 tertimpa 8 atau 0/8 meragukan), tertutup stempel/lipatan, atau hasil tebakan — dan jelaskan singkat digit mana yang meragukan di catatan_peringatan!
+5. is_halaman_data_su: true bila ada identitas SU/GS; false HANYA bila murni peta bidang ("SKALA 1 : ...") tanpa identitas SU.
+6. kode_jenis_hak_angka & kode_jenis_hak_huruf: 1/HM->M, 2/HGU->U, 3/HGB->B, 4/HP->P, 5/HPL->L, 8/Wakaf->W.
+7. kecamatan_raw & kelurahan_raw: ambil dari baris Kecamatan/Ketjamatan & Desa/Kelurahan (atau segmen tengah Nomor SU). Jangan ambil Propinsi atau Kabupaten/Kotamadya.
+8. luas_tanah: ambil angka & satuan (mis. "138.- m2" -> "138 m2").`;
 
 export const SU_USER_PROMPT =
-  "Ekstrak data Surat Ukur ke JSON: Nomor Hak 5 digit dari kotak 14 digit kiri atas & kolom Nomor hak kanan atas; NIB 13 digit di bawah Nomor hak atau kotak NIB; dan Nomor SU/Tahun ringkas N/YYYY (mis. 616/TANJUNG SARI/1998 diekstrak menjadi teks_nomor_su='616/1998', nomor_su_raw='616', tahun_su='1998', kelurahan_raw='Tanjung Sari').";
+  "Ekstrak data blangko SURAT UKUR ke JSON secara jujur: abaikan Daftar Isian 302 (halaman kiri) & stempel Telah Dialihmediakan. Baca Nomor Hak 5 digit dari kotak 14 digit & Nomor SU N/YYYY tepat di bawah judul SURAT UKUR. Jika ada digit tulisan tangan tertimpa/samar, turunkan confidence kolom tsb ke <=0.70 dan tulis alasannya di catatan_peringatan.";
 
 export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
   type: "object",
@@ -43,7 +55,7 @@ export const SU_GEMINI_RESPONSE_JSON_SCHEMA = {
     nib_terdeteksi: {
       type: ["string", "null"],
       description:
-        "Angka 13 digit NIB yang berada di bawah Nomor hak sebelah kanan atau di dalam kotak-kotak bertuliskan NIB (mis. 02.01.16.06.00676).",
+        "Angka NIB di sebelah label 'NIB :' kanan atas atau kotak NIB — bisa 13 digit (02.01.16.06.00676) ATAU 4-6 digit lama (mis. 02374).",
     },
     luas_tanah: { type: ["string", "null"] },
     is_halaman_data_su: { type: "boolean" },

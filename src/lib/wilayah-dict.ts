@@ -728,6 +728,31 @@ export function validateHakRegionCrossCheck(params: {
   }
 
   if (matchedKecEntry) {
+    if (
+      `${provCode}.${kabCode}` === "02.01" &&
+      matchedKecEntry.kantahCodes &&
+      matchedKecEntry.kantahCodes.length > 0 &&
+      !matchedKecEntry.kantahCodes.includes(kecCode)
+    ) {
+      const kelOwner = kelTrim
+        ? findKecamatanByKelurahanAndCode(kelTrim, kecCode)
+        : null;
+      if (kelOwner && kelOwner.kecamatan !== matchedKecEntry.kecamatan) {
+        return {
+          hasPrefix8: true,
+          prefix8,
+          provCode,
+          kabCode,
+          kecCode,
+          kelCode,
+          status: "mismatch",
+          suggestedKecamatan: kelOwner.kecamatan,
+          suggestedKelurahan: kelTrim || undefined,
+          message: `Peringatan silang: Kode kecamatan ${kecCode} pada Nomor Hak (${prefix8}) & Kelurahan "${kelTrim}" mengarah ke ${kelOwner.kecamatan}, bukan "${matchedKecEntry.kecamatan}".`,
+        };
+      }
+    }
+
     return {
       hasPrefix8: true,
       prefix8,
@@ -752,5 +777,47 @@ export function validateHakRegionCrossCheck(params: {
     kelCode,
     status: "unverified",
     message: `Kode wilayah Nomor Hak: ${prefix8} (Prov ${provCode}, Kab/Kota ${kabCode}, Kec ${kecCode}, Kel ${kelCode}).`,
+  };
+}
+
+/**
+ * Finds the matching Kecamatan in MASTER_WILAYAH_ENTRIES that owns `kelurahanName`
+ * (optionally disambiguating with a 2-digit Kantah kecamatan code).
+ */
+export function findKecamatanByKelurahanAndCode(
+  kelurahanName: string,
+  kantahKecCode?: string | null,
+): { kecamatan: string; kelurahan: string; uniqueOwner: boolean } | null {
+  const cleanKel = normalizeForFuzzyMatch(kelurahanName);
+  if (!cleanKel || cleanKel.length < 3) return null;
+
+  const owners: Array<{ entry: KecamatanWilayahEntry; kel: string }> = [];
+  for (const entry of getAllWilayahEntries()) {
+    for (const k of entry.kelurahan) {
+      if (normalizeForFuzzyMatch(k) === cleanKel) {
+        owners.push({ entry, kel: k });
+        break;
+      }
+    }
+  }
+  if (owners.length === 0) return null;
+
+  if (kantahKecCode) {
+    const codeMatch = owners.find((o) =>
+      o.entry.kantahCodes?.includes(kantahKecCode),
+    );
+    if (codeMatch) {
+      return {
+        kecamatan: codeMatch.entry.kecamatan,
+        kelurahan: codeMatch.kel,
+        uniqueOwner: owners.length === 1,
+      };
+    }
+  }
+
+  return {
+    kecamatan: owners[0].entry.kecamatan,
+    kelurahan: owners[0].kel,
+    uniqueOwner: owners.length === 1,
   };
 }

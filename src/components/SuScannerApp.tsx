@@ -50,8 +50,7 @@ import {
   detectPaperCornersFromCanvas,
   FULL_FRAME_CORNERS,
   normalizeUploadedImage,
-  prepareCleanCropForAi,
-  prepareImageForAi,
+  prepareAiImageBundle,
   processDocumentPage,
   renderRotatedCanvas,
   rotateCorners,
@@ -584,28 +583,29 @@ export function SuScannerApp() {
       setWarnings([]);
 
       try {
-        const aiImageDataUrl =
-          typeof sourceTarget !== "string" &&
-          sourceTarget.rawUrl &&
-          sourceTarget.corners
-            ? await prepareCleanCropForAi({
+        const aiBundle =
+          typeof sourceTarget !== "string"
+            ? await prepareAiImageBundle({
                 rawUrl: sourceTarget.rawUrl,
                 rotation: sourceTarget.rotation ?? 0,
                 corners: sourceTarget.corners,
+                edgeMidpoints: sourceTarget.edgeMidpoints,
+                processedDataUrl: sourceTarget.processedDataUrl,
                 maxSide: 1920,
               })
-            : await prepareImageForAi(
-                typeof sourceTarget === "string"
-                  ? sourceTarget
-                  : sourceTarget.processedDataUrl,
-                1920,
-              );
+            : await prepareAiImageBundle({
+                processedDataUrl: sourceTarget,
+                maxSide: 1920,
+              });
         if (controller.signal.aborted) return;
 
         const response = await fetch("/api/extract-su", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageDataUrl: aiImageDataUrl }),
+          body: JSON.stringify({
+            imageDataUrl: aiBundle.overviewDataUrl,
+            headerCropDataUrl: aiBundle.headerCropDataUrl,
+          }),
           signal: controller.signal,
         });
 
@@ -692,6 +692,7 @@ export function SuScannerApp() {
         rawUrl: normalized.rawUrl,
         rotation: 0,
         corners: detected.corners,
+        edgeMidpoints: detected.edgeMidpoints,
         filter: initialFilter,
         brightness: 0,
         contrast: 0,
@@ -706,6 +707,7 @@ export function SuScannerApp() {
         rawHeight: normalized.rawHeight,
         rotation: 0,
         corners: detected.corners,
+        edgeMidpoints: detected.edgeMidpoints,
         autoDetectedCorners: cloneCorners(detected.corners),
         hasAutoContour: detected.detected,
         filter: initialFilter,
@@ -995,6 +997,7 @@ export function SuScannerApp() {
         {
           ...target,
           corners: detected.corners,
+          edgeMidpoints: detected.edgeMidpoints,
           autoDetectedCorners: cloneCorners(detected.corners),
           hasAutoContour: detected.detected,
         },

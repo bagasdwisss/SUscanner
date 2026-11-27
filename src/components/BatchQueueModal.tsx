@@ -27,7 +27,7 @@ import {
 import {
   detectPaperCornersFromCanvas,
   normalizeUploadedImage,
-  prepareCleanCropForAi,
+  prepareAiImageBundle,
   processDocumentPage,
   renderRotatedCanvas,
 } from "@/lib/document-scanner";
@@ -189,6 +189,7 @@ export function BatchQueueModal({
         rawWidth: number;
         rawHeight: number;
         corners: BatchQueuePair["page1Corners"];
+        edgeMidpoints: BatchQueuePair["page1EdgeMidpoints"];
         processedUrl: string;
         quality: BatchQueuePair["page1Quality"];
       }> = [];
@@ -205,6 +206,7 @@ export function BatchQueueModal({
           rawUrl: norm.rawUrl,
           rotation: 0,
           corners: detected.corners,
+          edgeMidpoints: detected.edgeMidpoints,
           filter: "original",
           brightness: 0,
           contrast: 0,
@@ -217,6 +219,7 @@ export function BatchQueueModal({
           rawWidth: norm.rawWidth,
           rawHeight: norm.rawHeight,
           corners: detected.corners,
+          edgeMidpoints: detected.edgeMidpoints,
           processedUrl: proc.dataUrl,
           quality: proc.qualityReport,
         });
@@ -235,6 +238,7 @@ export function BatchQueueModal({
             page1Width: p1.rawWidth,
             page1Height: p1.rawHeight,
             page1Corners: p1.corners,
+            page1EdgeMidpoints: p1.edgeMidpoints,
             page1ProcessedUrl: p1.processedUrl,
             page1Quality: p1.quality,
             ...(p2
@@ -244,6 +248,7 @@ export function BatchQueueModal({
                   page2Width: p2.rawWidth,
                   page2Height: p2.rawHeight,
                   page2Corners: p2.corners,
+                  page2EdgeMidpoints: p2.edgeMidpoints,
                   page2ProcessedUrl: p2.processedUrl,
                   page2Quality: p2.quality,
                 }
@@ -264,6 +269,7 @@ export function BatchQueueModal({
             page1Width: p1.rawWidth,
             page1Height: p1.rawHeight,
             page1Corners: p1.corners,
+            page1EdgeMidpoints: p1.edgeMidpoints,
             page1ProcessedUrl: p1.processedUrl,
             page1Quality: p1.quality,
             fields: createEmptyFields(),
@@ -333,16 +339,21 @@ export function BatchQueueModal({
         let page1Words = item.page1OcrWords;
 
         try {
-          const aiImg = await prepareCleanCropForAi({
+          const aiBundle = await prepareAiImageBundle({
             rawUrl: item.page1RawUrl,
             rotation: 0,
             corners: item.page1Corners,
+            edgeMidpoints: item.page1EdgeMidpoints,
+            processedDataUrl: item.page1ProcessedUrl,
             maxSide: 1600,
           });
           const res = await fetch("/api/extract-su", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageDataUrl: aiImg }),
+            body: JSON.stringify({
+              imageDataUrl: aiBundle.overviewDataUrl,
+              headerCropDataUrl: aiBundle.headerCropDataUrl,
+            }),
           });
           const payload = (await res.json().catch(() => null)) as {
             extraction?: AiExtractionResult;

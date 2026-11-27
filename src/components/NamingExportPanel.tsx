@@ -138,7 +138,8 @@ function ConfidenceBadge({ meta }: { meta: FieldConfidenceMeta }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${badgeStyles[meta.level]}`}
+      title={meta.reason ?? undefined}
+      className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${badgeStyles[meta.level]}`}
     >
       {meta.level === "high" ? (
         <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -147,7 +148,7 @@ function ConfidenceBadge({ meta }: { meta: FieldConfidenceMeta }) {
       ) : (
         <XCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
       )}
-      <span>
+      <span className="truncate">
         {meta.level === "high"
           ? pct
             ? `Yakin (${pct})`
@@ -159,6 +160,7 @@ function ConfidenceBadge({ meta }: { meta: FieldConfidenceMeta }) {
             : pct && meta.score !== null && meta.score > 0
               ? `Rendah (${pct})`
               : "Perlu Isi"}
+        {meta.level !== "high" && meta.reason ? ` · ${meta.reason}` : ""}
       </span>
     </span>
   );

@@ -22,35 +22,40 @@ interface EnhancedCanvasMeta {
   workW: number;
   workH: number;
   pad: number;
+  x0Frac: number;
+  x1Frac: number;
   y0Frac: number;
   y1Frac: number;
 }
 
 /**
  * Normalizes illumination and boosts crisp ink readability on an HTMLCanvas,
- * adding a 28px white quiet-zone border so Tesseract LSTM reads edge digits reliably.
+ * suppressing green/yellow ATR/BPN guilloche watermark microtext using Red-weighted
+ * ink isolation plus a 28px quiet-zone border for Tesseract LSTM.
  */
 function buildEnhancedOcrCanvas(
   sourceImg: HTMLImageElement,
-  cropFraction?: { y0: number; y1: number },
+  cropFraction?: { x0?: number; x1?: number; y0?: number; y1?: number },
 ): EnhancedCanvasMeta {
   const srcW = sourceImg.naturalWidth;
   const srcH = sourceImg.naturalHeight;
+  const x0Frac = cropFraction?.x0 ?? 0;
+  const x1Frac = cropFraction?.x1 ?? 1;
   const y0Frac = cropFraction?.y0 ?? 0;
   const y1Frac = cropFraction?.y1 ?? 1;
-  const sy = cropFraction ? Math.round(srcH * y0Frac) : 0;
-  const sh = cropFraction
-    ? Math.max(64, Math.round(srcH * (y1Frac - y0Frac)))
-    : srcH;
+  const sx = Math.round(srcW * x0Frac);
+  const sw = Math.max(64, Math.round(srcW * (x1Frac - x0Frac)));
+  const sy = Math.round(srcH * y0Frac);
+  const sh = Math.max(64, Math.round(srcH * (y1Frac - y0Frac)));
 
-  const longSide = Math.max(srcW, sh);
+  const longSide = Math.max(sw, sh);
   const scale =
-    longSide < 1800
-      ? Math.min(2.2, 2000 / Math.max(1, longSide))
-      : longSide > 2400
-        ? 2400 / longSide
+    longSide < 1200
+      ? Math.min(1.45, 1400 / Math.max(1, longSide))
+      : longSide > 2200
+        ? 2200 / longSide
         : 1;
-  const workW = Math.max(64, Math.round(srcW * scale));
+  const workW = Math.max(64, Math.round(sw * scale));
   const workH = Math.max(64, Math.round(sh * scale));
 
   const workCanvas = document.createElement("canvas");
@@ -58,19 +63,28 @@ function buildEnhancedOcrCanvas(
   workCanvas.height = workH;
   const workCtx = workCanvas.getContext("2d", { willReadFrequently: true });
   if (!workCtx) {
-    return { dataUrl: "", workW, workH, pad: 0, y0Frac, y1Frac };
+    return {
+      dataUrl: "",
+      workW,
+      workH,
+      pad: 0,
+      x0Frac,
+      x1Frac,
+      y0Frac,
+      y1Frac,
+    };
   }
 
   workCtx.imageSmoothingEnabled = true;
   workCtx.imageSmoothingQuality = "high";
   workCtx.fillStyle = "#ffffff";
   workCtx.fillRect(0, 0, workW, workH);
-  workCtx.drawImage(sourceImg, 0, sy, srcW, sh, 0, 0, workW, workH);
+  workCtx.drawImage(sourceImg, sx, sy, sw, sh, 0, 0, workW, workH);
 
   const imgData = workCtx.getImageData(0, 0, workW, workH);
   const { data } = imgData;
 
-  // Detect yellow/green ATR/BPN guilloche security paper so watermark microtext is suppressed
+  // Detect yellow/olive ATR/BPN guilloche security paper so green microtext & teal stamps are suppressed
   let chromaSum = 0;
   let chromaCount = 0;
   for (let y = 0; y < workH; y += 12) {
@@ -83,12 +97,19 @@ function buildEnhancedOcrCanvas(
     }
   }
   const avgYellowChroma = chromaCount > 0 ? chromaSum / chromaCount : 0;
-  const isSecurityPaper = avgYellowChroma > 26;
+  const isSecurityPaper = avgYellowChroma > 24;
 
-  const block = 36;
+  // For green/yellow security paper, weighting Red strongly keeps dark typewriter/pen ink sharp
+  // while pushing green 'BADANPERTANAHANNASIONAL' microtext & green stamps up near paper brightness.
+  const measureInkVal = (r: number, g: number, b: number): number =>
+    isSecurityPaper
+      ? 0.68 * r + 0.24 * g + 0.08 * b
+      : 0.299 * r + 0.587 * g + 0.114 * b;
+
+  const block = Math.max(36, Math.round(Math.min(workW, workH) * 0.055));
   const gw = Math.max(4, Math.ceil(workW / block));
   const gh = Math.max(4, Math.ceil(workH / block));
-  const bgGrid = new Float32Array(gw * gh);
+  const rawGrid = new Float32Array(gw * gh);
 
   for (let by = 0; by < gh; by++) {
     const y0 = by * block;
@@ -96,18 +117,48 @@ function buildEnhancedOcrCanvas(
     for (let bx = 0; bx < gw; bx++) {
       const x0 = bx * block;
       const x1 = Math.min(workW, x0 + block);
-      let maxVal = isSecurityPaper ? 140 : 175;
-      for (let y = y0; y < y1; y += 3) {
-        const row = y * workW;
-        for (let x = x0; x < x1; x += 3) {
-          const p = (row + x) * 4;
-          const v = isSecurityPaper
-            ? (data[p] + data[p + 1]) * 0.5
-            : 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-          if (v > maxVal) maxVal = v;
+      if (isSecurityPaper) {
+        const blockSamples: number[] = [];
+        for (let y = y0; y < y1; y += 3) {
+          const row = y * workW;
+          for (let x = x0; x < x1; x += 3) {
+            const p = (row + x) * 4;
+            blockSamples.push(measureInkVal(data[p], data[p + 1], data[p + 2]));
+          }
+        }
+        blockSamples.sort((a, b) => a - b);
+        const p84Idx = Math.max(0, Math.floor((blockSamples.length - 1) * 0.84));
+        rawGrid[by * gw + bx] =
+          blockSamples.length > 0 ? Math.max(125, blockSamples[p84Idx]) : 185;
+      } else {
+        let maxVal = 170;
+        for (let y = y0; y < y1; y += 3) {
+          const row = y * workW;
+          for (let x = x0; x < x1; x += 3) {
+            const p = (row + x) * 4;
+            const v = measureInkVal(data[p], data[p + 1], data[p + 2]);
+            if (v > maxVal) maxVal = v;
+          }
+        }
+        rawGrid[by * gw + bx] = maxVal;
+      }
+    }
+  }
+
+  // Smooth/dilate background grid across 3x3 blocks so bold titles or stamps never pull down paper brightness
+  const bgGrid = new Float32Array(gw * gh);
+  for (let by = 0; by < gh; by++) {
+    for (let bx = 0; bx < gw; bx++) {
+      let bestBg = rawGrid[by * gw + bx];
+      if (isSecurityPaper) {
+        for (let ky = Math.max(0, by - 1); ky <= Math.min(gh - 1, by + 1); ky++) {
+          for (let kx = Math.max(0, bx - 1); kx <= Math.min(gw - 1, bx + 1); kx++) {
+            const nb = rawGrid[ky * gw + kx];
+            if (nb > bestBg) bestBg = nb;
+          }
         }
       }
-      bgGrid[by * gw + bx] = maxVal;
+      bgGrid[by * gw + bx] = bestBg;
     }
   }
 
@@ -129,13 +180,16 @@ function buildEnhancedOcrCanvas(
         bgGrid[y1 * gw + x1] * tx * ty;
 
       const p = (y * workW + x) * 4;
-      const val = isSecurityPaper
-        ? (data[p] + data[p + 1]) * 0.5
-        : 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-      let norm = (val * 255) / Math.max(isSecurityPaper ? 95 : 85, bg);
+      const val = measureInkVal(data[p], data[p + 1], data[p + 2]);
+      let norm = (val * 255) / Math.max(isSecurityPaper ? 90 : 85, bg);
       if (isSecurityPaper) {
-        // Whitens yellow/olive guilloche background ('BADANPERTANAHANNASIONAL') cleanly as validated on top_clean_158
-        norm = norm > 160 ? 255 : clamp((norm - 118) * 2.8 + 95, 0, 255);
+        // P82 Red-channel normalization wipes green guilloche microtext (>=178) while keeping typewriter ink razor crisp
+        norm =
+          norm >= 178
+            ? 255
+            : norm <= 105
+              ? 0
+              : Math.round(((norm - 105) / 73) * 255);
       } else {
         norm = norm > 208 ? 255 : clamp((norm - 138) * 1.55 + 132, 0, 255);
       }
@@ -157,6 +211,8 @@ function buildEnhancedOcrCanvas(
       workW,
       workH,
       pad: 0,
+      x0Frac,
+      x1Frac,
       y0Frac,
       y1Frac,
     };
@@ -170,6 +226,74 @@ function buildEnhancedOcrCanvas(
     workW,
     workH,
     pad,
+    x0Frac,
+    x1Frac,
+    y0Frac,
+    y1Frac,
+  };
+}
+
+function buildSmoothOcrCanvas(
+  sourceImg: HTMLImageElement,
+  cropFraction?: { x0?: number; x1?: number; y0?: number; y1?: number },
+): EnhancedCanvasMeta {
+  const srcW = sourceImg.naturalWidth;
+  const srcH = sourceImg.naturalHeight;
+  const x0Frac = cropFraction?.x0 ?? 0;
+  const x1Frac = cropFraction?.x1 ?? 1;
+  const y0Frac = cropFraction?.y0 ?? 0;
+  const y1Frac = cropFraction?.y1 ?? 1;
+  const sx = Math.round(srcW * x0Frac);
+  const sw = Math.max(64, Math.round(srcW * (x1Frac - x0Frac)));
+  const sy = Math.round(srcH * y0Frac);
+  const sh = Math.max(64, Math.round(srcH * (y1Frac - y0Frac)));
+
+  const longSide = Math.max(sw, sh);
+  const scale =
+    longSide < 1200
+      ? Math.min(1.45, 1400 / Math.max(1, longSide))
+      : longSide > 2200
+        ? 2200 / longSide
+        : 1;
+  const workW = Math.max(64, Math.round(sw * scale));
+  const workH = Math.max(64, Math.round(sh * scale));
+
+  const pad = 24;
+  const canvas = document.createElement("canvas");
+  canvas.width = workW + pad * 2;
+  canvas.height = workH + pad * 2;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return {
+      dataUrl: "",
+      workW,
+      workH,
+      pad: 0,
+      x0Frac,
+      x1Frac,
+      y0Frac,
+      y1Frac,
+    };
+  }
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  if ("filter" in ctx) {
+    ctx.filter = "grayscale(1) contrast(1.25)";
+  }
+  ctx.drawImage(sourceImg, sx, sy, sw, sh, pad, pad, workW, workH);
+  if ("filter" in ctx) {
+    ctx.filter = "none";
+  }
+
+  return {
+    dataUrl: canvas.toDataURL("image/png"),
+    workW,
+    workH,
+    pad,
+    x0Frac,
+    x1Frac,
     y0Frac,
     y1Frac,
   };
@@ -194,7 +318,16 @@ function buildFastSearchableCanvas(
   canvas.height = workH;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    return { dataUrl: "", workW, workH, pad: 0, y0Frac: 0, y1Frac: 1 };
+    return {
+      dataUrl: "",
+      workW,
+      workH,
+      pad: 0,
+      x0Frac: 0,
+      x1Frac: 1,
+      y0Frac: 0,
+      y1Frac: 1,
+    };
   }
 
   ctx.imageSmoothingEnabled = true;
@@ -214,6 +347,8 @@ function buildFastSearchableCanvas(
     workW,
     workH,
     pad: 0,
+    x0Frac: 0,
+    x1Frac: 1,
     y0Frac: 0,
     y1Frac: 1,
   };
@@ -235,6 +370,7 @@ function extractNormalizedWordsFromBlocks(
 ): OcrWordBox[] {
   if (!blocks || meta.workW <= 0 || meta.workH <= 0) return [];
   const words: OcrWordBox[] = [];
+  const spanX = meta.x1Frac - meta.x0Frac;
   const spanY = meta.y1Frac - meta.y0Frac;
 
   for (const blk of blocks) {
@@ -243,10 +379,12 @@ function extractNormalizedWordsFromBlocks(
         for (const w of line.words ?? []) {
           const text = (w.text || "").trim();
           if (!text || w.confidence < 20) continue;
-          const x0 = clamp((w.bbox.x0 - meta.pad) / meta.workW, 0, 1);
-          const x1 = clamp((w.bbox.x1 - meta.pad) / meta.workW, 0, 1);
+          const localX0 = clamp((w.bbox.x0 - meta.pad) / meta.workW, 0, 1);
+          const localX1 = clamp((w.bbox.x1 - meta.pad) / meta.workW, 0, 1);
           const localY0 = clamp((w.bbox.y0 - meta.pad) / meta.workH, 0, 1);
           const localY1 = clamp((w.bbox.y1 - meta.pad) / meta.workH, 0, 1);
+          const x0 = clamp(meta.x0Frac + localX0 * spanX, 0, 1);
+          const x1 = clamp(meta.x0Frac + localX1 * spanX, 0, 1);
           const y0 = clamp(meta.y0Frac + localY0 * spanY, 0, 1);
           const y1 = clamp(meta.y0Frac + localY1 * spanY, 0, 1);
           if (x1 > x0 && y1 > y0) {
@@ -260,8 +398,9 @@ function extractNormalizedWordsFromBlocks(
 }
 
 /**
- * Runs deep 2-stage client-side OCR via `tesseract.js` and captures word coordinates
+ * Runs deep multi-stage client-side OCR via `tesseract.js` and captures word coordinates
  * so Searchable PDF export is ready immediately.
+ * Automatically isolates the right SURAT UKUR panel on 2-page open booklet spreads.
  */
 export async function runLocalTesseractOcr(
   imageDataUrl: string,
@@ -271,8 +410,14 @@ export async function runLocalTesseractOcr(
   onProgress?.(5);
 
   const img = await loadImageElement(imageDataUrl);
-  const headerMeta = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.74 });
-  const fullMeta = buildEnhancedOcrCanvas(img);
+  const isWideSpread = img.naturalWidth / Math.max(1, img.naturalHeight) >= 1.24;
+
+  const primaryMeta = isWideSpread
+    ? buildSmoothOcrCanvas(img, { x0: 0.45, x1: 1, y0: 0, y1: 0.88 })
+    : buildEnhancedOcrCanvas(img, { x0: 0, x1: 1, y0: 0, y1: 0.74 });
+  const fullMeta = isWideSpread
+    ? buildEnhancedOcrCanvas(img, { x0: 0.45, x1: 1, y0: 0, y1: 0.88 })
+    : buildEnhancedOcrCanvas(img);
 
   const worker = await createWorker("ind", 1, {
     logger: (msg) => {
@@ -291,49 +436,51 @@ export async function runLocalTesseractOcr(
       user_defined_dpi: "300",
     });
 
-    const headerRes = await worker.recognize(
-      headerMeta.dataUrl || imageDataUrl,
+    const primaryRes = await worker.recognize(
+      primaryMeta.dataUrl || imageDataUrl,
       undefined,
       { text: true, blocks: true },
     );
-    const headerConf =
-      typeof headerRes.data.confidence === "number"
-        ? headerRes.data.confidence
-        : 72;
-    const headerParsed = parseSuratUkurOcrText(
-      headerRes.data.text || "",
-      headerConf,
+    const primaryConf =
+      typeof primaryRes.data.confidence === "number"
+        ? primaryRes.data.confidence
+        : 70;
+    const primaryParsed = parseSuratUkurOcrText(
+      primaryRes.data.text || "",
+      primaryConf,
     );
     let ocrWords = extractNormalizedWordsFromBlocks(
-      headerRes.data.blocks,
-      headerMeta,
+      primaryRes.data.blocks,
+      primaryMeta,
     );
 
-    const headerComplete = Boolean(
-      headerParsed.nomor_su_raw &&
-        headerParsed.tahun_su &&
-        headerParsed.kode_jenis_hak_huruf &&
-        headerParsed.nomor_hak_raw &&
-        headerParsed.kecamatan_raw,
+    const primaryComplete = Boolean(
+      primaryParsed.nomor_su_raw &&
+        primaryParsed.tahun_su &&
+        primaryParsed.kode_jenis_hak_huruf &&
+        primaryParsed.nomor_hak_raw &&
+        primaryParsed.kecamatan_raw &&
+        primaryParsed.kelurahan_raw,
     );
 
     let fullPass: {
       result: ReturnType<typeof parseSuratUkurOcrText>;
       meanConfidence: number;
     } | null = null;
-    let combinedRawText = headerRes.data.text || "";
+    let combinedRawText = primaryRes.data.text || "";
 
-    if (!headerComplete) {
-      onProgress?.(60);
+    // Run guilloche-cleaned pass whenever any primary field is still missing
+    if (!primaryComplete) {
+      onProgress?.(55);
       const fullRes = await worker.recognize(
         fullMeta.dataUrl || imageDataUrl,
-        { rotateAuto: true },
+        undefined,
         { text: true, blocks: true },
       );
       const fullConf =
         typeof fullRes.data.confidence === "number"
           ? fullRes.data.confidence
-          : headerConf;
+          : primaryConf;
       fullPass = {
         result: parseSuratUkurOcrText(fullRes.data.text || "", fullConf),
         meanConfidence: fullConf,
@@ -343,17 +490,19 @@ export async function runLocalTesseractOcr(
         fullRes.data.blocks,
         fullMeta,
       );
-      if (fullWords.length > 0) {
+      if (fullWords.length > 0 && !isWideSpread) {
+        ocrWords = fullWords;
+      } else if (fullWords.length > 0 && isWideSpread && ocrWords.length < 12) {
         ocrWords = fullWords;
       }
     }
 
     let mergedOutcome = mergeMultiPassOcrResults(
-      { result: headerParsed, meanConfidence: headerConf },
+      { result: primaryParsed, meanConfidence: primaryConf },
       fullPass,
     );
 
-    // Pass 3 (conditional): PSM.SPARSE_TEXT on top 50% recovers top-left Nomor Hak boxes, right Nomor hak/NIB, SU/Tahun, Kec & Kel
+    // Focused high-res sparse pass on top header boxes / SU title block when any key field is still missing
     const stillMissingCritical =
       !mergedOutcome.extraction.nomor_su_raw ||
       !mergedOutcome.extraction.tahun_su ||
@@ -362,15 +511,20 @@ export async function runLocalTesseractOcr(
       !mergedOutcome.extraction.kelurahan_raw ||
       !mergedOutcome.extraction.nib_terdeteksi;
     if (stillMissingCritical) {
-      onProgress?.(85);
-      const sparseMeta = buildEnhancedOcrCanvas(img, { y0: 0, y1: 0.5 });
+      onProgress?.(82);
+      const sparseCrop = isWideSpread
+        ? { x0: 0.46, x1: 1, y0: 0.04, y1: 0.62 }
+        : { x0: 0, x1: 1, y0: 0, y1: 0.58 };
+      const sparseMeta = isWideSpread
+        ? buildSmoothOcrCanvas(img, sparseCrop)
+        : buildEnhancedOcrCanvas(img, sparseCrop);
       await worker.setParameters({
         tessedit_pageseg_mode: PSM.SPARSE_TEXT,
         preserve_interword_spaces: "1",
         user_defined_dpi: "300",
       });
       const sparseRes = await worker.recognize(
-        sparseMeta.dataUrl || headerMeta.dataUrl || imageDataUrl,
+        sparseMeta.dataUrl || primaryMeta.dataUrl || imageDataUrl,
         undefined,
         { text: true },
       );
@@ -393,8 +547,21 @@ export async function runLocalTesseractOcr(
     }
 
     onProgress?.(100);
-    const { extraction, meanConfidence } = mergedOutcome;
+    const { extraction, meanConfidence: rawMeanConf } = mergedOutcome;
     const processed = applyExtractionToForm(extraction);
+    const extractedCount = [
+      processed.fields.nomorSu,
+      processed.fields.tahunSu,
+      processed.fields.nomorHak,
+      processed.fields.kecamatan,
+      processed.fields.kelurahan,
+    ].filter(Boolean).length;
+    const meanConfidence =
+      extractedCount === 0
+        ? Math.min(rawMeanConf, 35)
+        : extractedCount <= 2
+          ? Math.min(rawMeanConf, 65)
+          : rawMeanConf;
     return { processed, rawText: combinedRawText, meanConfidence, ocrWords };
   } finally {
     await worker.terminate();

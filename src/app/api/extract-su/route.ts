@@ -17,8 +17,8 @@ import {
 
 export const maxDuration = 60;
 
-const AI_TIMEOUT_MS = 32_000;
-const PER_MODEL_TIMEOUT_MS = 12_000;
+const AI_TIMEOUT_MS = 45_000;
+const PER_MODEL_TIMEOUT_MS = 20_000;
 const MAX_IMAGE_BYTES = 4_200_000;
 const FALLBACK_GEMINI_MODELS = [
   "gemini-3.5-flash",
@@ -44,14 +44,25 @@ function getErrorStatusCode(err: unknown): number | null {
   return null;
 }
 
+const DATA_URL_IMAGE_RE =
+  /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+
 const requestBodySchema = z.object({
   imageDataUrl: z
     .string()
     .min(32)
     .refine(
-      (val) => /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(val),
+      (val) => DATA_URL_IMAGE_RE.test(val),
       "Format gambar harus berupa data URL JPEG, PNG, atau WebP.",
     ),
+  headerCropDataUrl: z
+    .string()
+    .min(32)
+    .refine(
+      (val) => DATA_URL_IMAGE_RE.test(val),
+      "Format header crop harus berupa data URL JPEG, PNG, atau WebP.",
+    )
+    .optional(),
 });
 
 function extractJsonText(rawText: string): unknown {
@@ -93,12 +104,17 @@ export async function POST(request: NextRequest) {
   }
 
   const { mimeType, base64 } = parseDataUrl(parsedBody.imageDataUrl);
-  const approxBytes = Math.floor((base64.length * 3) / 4);
-  if (approxBytes > MAX_IMAGE_BYTES) {
+  const headerParsed = parsedBody.headerCropDataUrl
+    ? parseDataUrl(parsedBody.headerCropDataUrl)
+    : null;
+  const approxBytes =
+    Math.floor((base64.length * 3) / 4) +
+    (headerParsed ? Math.floor((headerParsed.base64.length * 3) / 4) : 0);
+  if (approxBytes > MAX_IMAGE_BYTES + 1_800_000) {
     return NextResponse.json(
       {
         code: "IMAGE_TOO_LARGE",
-        error: "Ukuran gambar Halaman 1 melebihi batas 4 MB untuk ekstraksi AI.",
+        error: "Ukuran gambar Halaman 1 melebihi batas muatan ekstraksi AI.",
       },
       { status: 413 },
     );
@@ -147,6 +163,15 @@ export async function POST(request: NextRequest) {
                 mediaType: mimeType,
                 data: base64,
               },
+              ...(headerParsed
+                ? [
+                    {
+                      type: "file" as const,
+                      mediaType: headerParsed.mimeType,
+                      data: headerParsed.base64,
+                    },
+                  ]
+                : []),
             ],
           },
         ],
@@ -181,21 +206,31 @@ export async function POST(request: NextRequest) {
         AbortSignal.timeout(PER_MODEL_TIMEOUT_MS),
       ]);
       try {
+        const geminiParts = [
+          SU_USER_PROMPT,
+          createPartFromBase64(
+            base64,
+            mimeType,
+            PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH,
+          ),
+          ...(headerParsed
+            ? [
+                createPartFromBase64(
+                  headerParsed.base64,
+                  headerParsed.mimeType,
+                  PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH,
+                ),
+              ]
+            : []),
+        ];
         const response = await ai.models.generateContent({
           model: geminiModel,
-          contents: [
-            SU_USER_PROMPT,
-            createPartFromBase64(
-              base64,
-              mimeType,
-              PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH,
-            ),
-          ],
+          contents: geminiParts,
           config: {
             systemInstruction: SU_SYSTEM_INSTRUCTION,
             temperature: 0.0,
             mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
             responseMimeType: "application/json",
             responseJsonSchema: SU_GEMINI_RESPONSE_JSON_SCHEMA,
             abortSignal: attemptSignal,

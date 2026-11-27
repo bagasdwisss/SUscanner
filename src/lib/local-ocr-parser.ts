@@ -6,13 +6,15 @@ import {
   parseNomorHakEvidence,
 } from "./su-formatter.ts";
 import {
+  getKecamatanOptions,
+  getKelurahanOptions,
   matchWilayahKecamatan,
   matchWilayahKelurahan,
 } from "./wilayah-dict.ts";
 import type { AiExtractionResult, StandardHakCode } from "./su-types.ts";
 
 const NOISE_SU_LINE_RE =
-  /\b(d\.?\s*i\.?\s*30\d|daftar\s+isian|peta\s+bidang|gambar\s+ukur|n\.?\s*i\.?\s*p\.?|nrp|skala|luas\s+tanah|tanggal|tgl\.?|ditanda|kepala\s+kantor|kutipan|terdaftar|penunjuk|lembaran|berlaku|telah\s+dialihmediakan|dialihmediakan|berkat\s+cahaya|tangg\.?\s*up|lembar\s*:|nomor\s+pendaftaran|kotak\s*:)\b/i;
+  /\b(d\.?\s*i\.?\s*30\d|daftar\s+isian(?:\s*\d+)?|30[27]\s*(?:tgl|\.|no)|207\b|hal\s+lain|peta\s+bidang|gambar\s+ukur|n\.?\s*i\.?\s*p\.?|nrp|skala|luas\s+tanah|tanggal|tgl\.?|ditanda|kepala\s+(?:kantor|seksi)|kutipan|terdaftar|penunjuk|lembaran|berlaku|telah\s+dialihmediakan|dialihmediakan|berkat\s+cahaya|tangg\.?\s*up|sp[\-\.]up|lembar\s*:|nomor\s+pendaftaran|kotak\s*:)\b/i;
 
 const KECAMATAN_LABEL_RE =
   /(?:kec[ae](?:m|rn)[ae][tl][ae][nm]|ketj[ae](?:m|rn)[ae][tl][ae][nm]|(?:k[eo]c|ketj)\.?(?![a-z]))\s*[:.\-]?\s*(.+)$/i;
@@ -93,6 +95,8 @@ function extractKecamatanFromText(rawText: string): {
   evidence: string | null;
 } {
   const lines = rawText.split(/\r?\n/);
+  let weakCandidate: { kecamatan: string; evidence: string } | null = null;
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -107,20 +111,57 @@ function extractKecamatanFromText(rawText: string): {
 
     const segment = cleanRegionSegment(match[1]);
     if (!segment || segment.length < 3 || /^\d+$/.test(segment)) continue;
+    // Ignore split-label tail artifacts when OCR breaks "Kecamatan" into "Kec amatan" / "Kec anuatan"
+    if (/^(?:a[mnr]?[au]t[ae]n|amatan|anuatan|matan)$/i.test(segment)) continue;
     const normalized = normalizeKecamatanName(segment);
-    if (normalized) {
+    if (!normalized) continue;
+
+    const dict = matchWilayahKecamatan(normalized);
+    if (dict.matched && dict.similarity >= 0.8) {
       return {
-        kecamatan: normalized,
+        kecamatan: dict.matched,
         evidence: line.slice(0, 100),
       };
     }
+    // Reject digit-polluted watermark noise like "0 Io Oi" unless dictionary-verified
+    if (/\d/.test(normalized) || normalized.length < 5) {
+      continue;
+    }
+    if (!weakCandidate) {
+      weakCandidate = { kecamatan: normalized, evidence: line.slice(0, 100) };
+    }
   }
-  return { kecamatan: null, evidence: null };
+
+  // Fallback dictionary line scan when label "Kecamatan :" was separated or mangled (e.g. "0 . MEMAN BELAYANG")
+  const knownKec = getKecamatanOptions();
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (
+      !line ||
+      NOISE_SU_LINE_RE.test(line) ||
+      /^\s*(?:propinsi|provinsi|kota(?:madya)?|kabupaten|surat\s+ukur)\b/i.test(line)
+    ) {
+      continue;
+    }
+    const clean = cleanRegionSegment(line.replace(/^[^A-Za-z]+/, ""));
+    if (!clean || clean.length < 6) continue;
+    for (const k of knownKec) {
+      if (line.toLowerCase().includes(k.toLowerCase())) {
+        return { kecamatan: k, evidence: line.slice(0, 100) };
+      }
+    }
+    const fuzzy = matchWilayahKecamatan(clean);
+    if (fuzzy.matched && fuzzy.similarity >= 0.82) {
+      return { kecamatan: fuzzy.matched, evidence: line.slice(0, 100) };
+    }
+  }
+  return weakCandidate ?? { kecamatan: null, evidence: null };
 }
 
 function extractKelurahanFromText(
   rawText: string,
   suMiddleKelurahan: string | null,
+  matchedKecamatan?: string | null,
 ): string | null {
   const lines = rawText.split(/\r?\n/);
   for (const rawLine of lines) {
@@ -133,21 +174,62 @@ function extractKelurahanFromText(
     const segment = cleanRegionSegment(match[1]);
     if (!segment || segment.length < 3 || /^\d+$/.test(segment)) continue;
     const normalized = normalizeKelurahanName(segment);
-    if (normalized) return normalized;
+    if (!normalized) continue;
+
+    const dictMatch = matchWilayahKelurahan(normalized, matchedKecamatan ?? undefined);
+    if (dictMatch.matched && dictMatch.similarity >= 0.8) {
+      return dictMatch.matched;
+    }
+    // Reject digit-polluted watermark noise ("5 Tamu") and tiny junk fragments ("Ahan") unless dictionary-confirmed
+    if (/\d/.test(normalized) || normalized.length < 5) {
+      continue;
+    }
+    // Reject tiny fragment junk when SU middle segment gives a verified dictionary kelurahan
+    if (normalized.length < 5 && suMiddleKelurahan) {
+      const suDict = matchWilayahKelurahan(
+        normalizeKelurahanName(suMiddleKelurahan),
+        matchedKecamatan ?? undefined,
+      );
+      if (suDict.matched && suDict.similarity >= 0.8) {
+        return suDict.matched;
+      }
+    }
+    return normalized;
   }
 
-  if (!suMiddleKelurahan) return null;
-  const fallback = normalizeKelurahanName(suMiddleKelurahan);
-  if (!fallback) return null;
-  const dictMatch = matchWilayahKelurahan(fallback);
-  if (dictMatch.matched && dictMatch.similarity >= 0.78) {
-    return dictMatch.matched;
+  if (suMiddleKelurahan) {
+    const fallback = normalizeKelurahanName(suMiddleKelurahan);
+    if (fallback) {
+      const dictMatch = matchWilayahKelurahan(fallback, matchedKecamatan ?? undefined);
+      if (dictMatch.matched && dictMatch.similarity >= 0.78) {
+        return dictMatch.matched;
+      }
+      if (!/\d/.test(fallback)) {
+        return fallback;
+      }
+    }
   }
-  // Reject obvious garbled OCR digits mixed inside fallback SU middle segment (e.g. "Anguk9 3a")
-  if (/\d/.test(fallback)) {
-    return null;
+
+  // Fallback dictionary line scan for clean Kelurahan lines under SEBIDANG TANAH TERLETAK DALAM
+  const kelPool = getKelurahanOptions(matchedKecamatan ?? undefined);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (
+      !line ||
+      NOISE_SU_LINE_RE.test(line) ||
+      /\b(?:kecamatan|ketjamatan|propinsi|provinsi|kotamadya|surat\s+ukur|daftar\s+isian)\b/i.test(
+        line,
+      )
+    ) {
+      continue;
+    }
+    for (const kel of kelPool) {
+      if (kel.length >= 6 && new RegExp(`\\b${kel.replace(/\s+/g, "\\s+")}\\b`, "i").test(line)) {
+        return kel;
+      }
+    }
   }
-  return fallback;
+  return null;
 }
 
 interface SuCandidate {
@@ -236,12 +318,18 @@ function extractSuNumberAndYear(rawText: string): {
       const yr = parseSuYearToken(plainModern[3], false);
       const mid = cleanRegionSegment(plainModern[2]);
       if (no && yr && /[A-Za-z]{2,}/.test(mid) && !/\d{3,}/.test(mid)) {
+        const kelDict = matchWilayahKelurahan(normalizeKelurahanName(mid));
+        const normalizedMid =
+          kelDict.matched && kelDict.similarity >= 0.78 ? kelDict.matched : mid;
         candidates.push({
           nomorSu: no,
           tahunSu: yr,
-          kelurahanFromSu: mid,
+          kelurahanFromSu: normalizedMid,
           evidence: `${no}/${yr}`,
-          score: 90 + headerBoost,
+          score:
+            90 +
+            headerBoost +
+            (kelDict.matched && kelDict.similarity >= 0.78 ? 14 : 0),
         });
         continue;
       }
@@ -358,6 +446,20 @@ function extractHakAndNib(rawText: string): {
       detectedNib = formatGroupedBpnDigits(digits);
     }
   }
+  if (!detectedNib) {
+    // Also detect shorter 4-6 digit NIB on Daftar Isian 207 (~2000) blangko (e.g. "NIB : 02374")
+    const shortNibLabeled = scrubbedLines
+      .join(" ")
+      .match(
+        /\b(?:N|M)\s*[I1l|]?\s*B\b[\s.\-:|]*([0-9OoQDIZS$§GBIl!]{4,6})\b/,
+      );
+    if (shortNibLabeled) {
+      const shortDigits = repairBoxDigitToken(shortNibLabeled[1]);
+      if (shortDigits.length >= 4 && shortDigits.length <= 6) {
+        detectedNib = shortDigits;
+      }
+    }
+  }
 
   // Scored 14-digit Nomor Hak candidates (top-left BPN boxes) and unlabelled 13-digit NIBs (below Nomor hak)
   let best14: {
@@ -370,12 +472,17 @@ function extractHakAndNib(rawText: string): {
 
   for (let i = 0; i < scrubbedLines.length; i++) {
     const line = scrubbedLines[i].trim();
-    if (!line || NOISE_SU_LINE_RE.test(line)) continue;
+    if (!line) continue;
 
     const hasHakKeyword = /\b(?:hak|milik|guna|pakai|pengelolaan|wakaf|hm|hgb|hgu|hp|hpl|penunjuk)\b/i.test(
       line,
     );
     const hasNibKeyword = /\b(?:N|M)\s*[I1l|]?\s*B\b/i.test(line);
+    const lineIsOnlyNoiseDoc =
+      /\b(?:n\.?\s*i\.?\s*p\.?|telah\s+dialihmediakan|dialihmediakan|berkat\s+cahaya)\b/i.test(
+        line,
+      );
+    if (lineIsOnlyNoiseDoc) continue;
 
     const cands = line.matchAll(boxSeqRe);
     for (const m of cands) {
@@ -390,14 +497,13 @@ function extractHakAndNib(rawText: string): {
         continue;
       }
 
-      if (hasNibKeyword && !hasHakKeyword) continue;
-
       if (digits.length === 14) {
         const parsed = parseNomorHakEvidence(digits);
         if (parsed.kind === "nomor_hak_14" && parsed.kodeHak && parsed.nomorHak5) {
           const score =
             70 +
             (hasHakKeyword ? 25 : 0) +
+            (hasNibKeyword && !hasHakKeyword ? -5 : 0) +
             (i <= Math.floor(scrubbedLines.length * 0.45) ? 10 : 0);
           if (!best14 || score > best14.score) {
             best14 = {
@@ -526,31 +632,61 @@ export function parseSuratUkurOcrText(
 ): AiExtractionResult {
   const normalizedConfidence = Math.max(
     0.45,
-    Math.min(0.88, ocrMeanConfidence / 100),
+    Math.min(0.86, ocrMeanConfidence / 100),
   );
   const su = extractSuNumberAndYear(rawText);
   const hak = extractHakAndNib(rawText);
   const kec = extractKecamatanFromText(rawText);
-  const kelurahan = extractKelurahanFromText(rawText, su.kelurahanFromSu);
+  const kelurahan = extractKelurahanFromText(
+    rawText,
+    su.kelurahanFromSu,
+    kec.kecamatan,
+  );
   const luasTanah = extractLuasTanahFromText(rawText);
 
-  const hasSuHeader = /\b(?:SURAT\s+UK[UV]R|SURA[TF]\s+UKUR|GAMBAR\s+SITUASI)\b/i.test(
+  const hasSuHeader = /\b(?:SURAT\s+UK[UV]R|SURA[TF]\s+UKUR|GAMBAR\s+SITUASI|SEBIDANG\s+TANAH)\b/i.test(
     rawText,
   );
+  const hasMapSignals =
+    /\bPETA\s+BIDANG\b/i.test(rawText) ||
+    (/\bSKALA\s*1\s*:/i.test(rawText) && /\bPENJELASAN\b/i.test(rawText));
   const hasOnlyMapWords =
-    /\bPETA\s+BIDANG\b/i.test(rawText) &&
+    hasMapSignals &&
     !hasSuHeader &&
     !su.nomorSu &&
-    !hak.nomorHak;
+    !hak.nomorHak &&
+    !kec.kecamatan;
 
-  const isDataSu =
-    !hasOnlyMapWords && Boolean(hasSuHeader || su.nomorSu || hak.nomorHak);
+  const isDataSu = !hasOnlyMapWords;
+
+  const kecDict = kec.kecamatan ? matchWilayahKecamatan(kec.kecamatan) : null;
+  const kelDict = kelurahan
+    ? matchWilayahKelurahan(kelurahan, kec.kecamatan ?? undefined)
+    : null;
 
   const suScore = su.nomorSu
-    ? Math.min(0.92, normalizedConfidence + su.confidenceBonus)
+    ? Math.min(
+        su.kelurahanFromSu && kelDict?.matched ? 0.89 : 0.84,
+        normalizedConfidence + su.confidenceBonus,
+      )
     : 0;
   const hakScore = hak.nomorHak
-    ? Math.min(0.92, normalizedConfidence + (hak.explicitContext ? 0.08 : 0))
+    ? Math.min(
+        hak.explicitContext ? 0.88 : 0.74,
+        normalizedConfidence + (hak.explicitContext ? 0.08 : 0),
+      )
+    : 0;
+  const kecScore = kec.kecamatan
+    ? Math.min(
+        kecDict?.matched && kecDict.similarity >= 0.9 ? 0.86 : 0.65,
+        normalizedConfidence + (kecDict?.matched ? 0.08 : -0.05),
+      )
+    : 0;
+  const kelScore = kelurahan
+    ? Math.min(
+        kelDict?.matched && kelDict.similarity >= 0.9 ? 0.86 : 0.64,
+        normalizedConfidence + (kelDict?.matched ? 0.08 : -0.06),
+      )
     : 0;
 
   return {
@@ -572,13 +708,13 @@ export function parseSuratUkurOcrText(
     confidence: {
       nomor_su: suScore,
       tahun_su: su.tahunSu ? suScore : 0,
-      jenis_hak: hak.kodeHuruf ? Math.min(0.9, hakScore || normalizedConfidence) : 0,
+      jenis_hak: hak.kodeHuruf ? Math.min(0.88, hakScore || normalizedConfidence) : 0,
       nomor_hak: hakScore,
-      kecamatan: kec.kecamatan ? Math.min(0.86, normalizedConfidence) : 0,
-      kelurahan: kelurahan ? Math.min(0.84, normalizedConfidence) : 0,
+      kecamatan: kecScore,
+      kelurahan: kelScore,
     },
     catatan_peringatan:
-      "Diekstrak oleh OCR Lokal terstruktur (header + validasi pola). Harap verifikasi ulang sebelum ekspor.",
+      "Diekstrak oleh OCR Lokal terstruktur (header + validasi kamus/pola). Harap verifikasi angka & tulisan tangan sebelum ekspor.",
   };
 }
 
@@ -663,8 +799,31 @@ export function mergeMultiPassOcrResults(
     catatan_peringatan: h.catatan_peringatan || f.catatan_peringatan,
   };
 
+  const hHasAny = Boolean(
+    h.nomor_su_raw ||
+      h.tahun_su ||
+      h.nomor_hak_raw ||
+      h.kecamatan_raw ||
+      h.kelurahan_raw,
+  );
+  const fHasAny = Boolean(
+    f.nomor_su_raw ||
+      f.tahun_su ||
+      f.nomor_hak_raw ||
+      f.kecamatan_raw ||
+      f.kelurahan_raw,
+  );
+  const safeMeanConfidence =
+    hHasAny && fHasAny
+      ? Math.max(headerPass.meanConfidence, fullPass.meanConfidence)
+      : fHasAny
+        ? fullPass.meanConfidence
+        : hHasAny
+          ? headerPass.meanConfidence
+          : Math.min(headerPass.meanConfidence, fullPass.meanConfidence, 45);
+
   return {
     extraction: merged,
-    meanConfidence: Math.max(headerPass.meanConfidence, fullPass.meanConfidence),
+    meanConfidence: safeMeanConfidence,
   };
 }

@@ -1,4 +1,10 @@
-import type { NormalizedPoint, QuadCorners } from "./su-types.ts";
+import type { EdgeMidpoints, NormalizedPoint, QuadCorners } from "./su-types.ts";
+
+export interface AutoCropDetectionResult {
+  corners: QuadCorners;
+  edgeMidpoints?: EdgeMidpoints;
+  detected: boolean;
+}
 
 export const FULL_FRAME_CORNERS: QuadCorners = [
   { x: 0, y: 0 },
@@ -127,7 +133,7 @@ function cornerAnglesValid(q: QuadCorners): boolean {
     if (len1 < 0.1 || len2 < 0.1) return false;
     const cosTheta = clamp((v1x * v2x + v1y * v2y) / (len1 * len2), -1, 1);
     const deg = (Math.acos(cosTheta) * 180) / Math.PI;
-    if (deg < 35 || deg > 148) return false;
+    if (deg < 25 || deg > 155) return false;
   }
   return true;
 }
@@ -392,9 +398,58 @@ function findLargestComponentInfo(
   return { boundaryPts, allPts };
 }
 
+interface SideBgMarginFlags {
+  top: boolean;
+  right: boolean;
+  bottom: boolean;
+  left: boolean;
+}
+
+function computeEdgeHasBackgroundMargin(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  paperR: number,
+  paperG: number,
+  paperB: number,
+  maxBgPaperDist: number,
+): SideBgMarginFlags {
+  const colorDiffTol = Math.max(24, Math.min(48, maxBgPaperDist * 0.42));
+  const checkPoints = (coords: Array<[number, number]>): boolean => {
+    let nonPaper = 0;
+    for (const [x, y] of coords) {
+      const p = (y * w + x) * 4;
+      const d = Math.hypot(
+        data[p] - paperR,
+        data[p + 1] - paperG,
+        data[p + 2] - paperB,
+      );
+      if (d > colorDiffTol) nonPaper++;
+    }
+    return nonPaper / Math.max(1, coords.length) >= 0.3;
+  };
+
+  const xSamples: number[] = [];
+  for (let i = 0; i < 20; i++) {
+    xSamples.push(clamp(Math.round(w * (0.14 + (i / 19) * 0.72)), 0, w - 1));
+  }
+  const ySamples: number[] = [];
+  for (let i = 0; i < 20; i++) {
+    ySamples.push(clamp(Math.round(h * (0.14 + (i / 19) * 0.72)), 0, h - 1));
+  }
+
+  return {
+    top: checkPoints(xSamples.map((x) => [x, Math.min(2, h - 1)])),
+    right: checkPoints(ySamples.map((y) => [Math.max(0, w - 3), y])),
+    bottom: checkPoints(xSamples.map((x) => [x, Math.max(0, h - 3)])),
+    left: checkPoints(ySamples.map((y) => [Math.min(2, w - 1), y])),
+  };
+}
+
 function refineQuadWithBoundaryLines(
   hullQuad: QuadCorners,
   boundaryPts: NormalizedPoint[],
+  sideBg?: SideBgMarginFlags,
 ): QuadCorners {
   const lines: Array<{ a: number; b: number; c: number } | null> = [];
 
@@ -409,21 +464,21 @@ function refineQuadWithBoundaryLines(
       continue;
     }
 
-    // Preserve flush frame-edge lines directly when component reaches the viewport border
+    // Preserve flush frame-edge lines ONLY when that outer perimeter actually sits on paper
     const borderTol = 0.014;
-    if (p1.y <= borderTol && p2.y <= borderTol) {
+    if (p1.y <= borderTol && p2.y <= borderTol && !sideBg?.top) {
       lines.push({ a: 0, b: 1, c: 0 });
       continue;
     }
-    if (p1.y >= 1 - borderTol && p2.y >= 1 - borderTol) {
+    if (p1.y >= 1 - borderTol && p2.y >= 1 - borderTol && !sideBg?.bottom) {
       lines.push({ a: 0, b: 1, c: -1 });
       continue;
     }
-    if (p1.x <= borderTol && p2.x <= borderTol) {
+    if (p1.x <= borderTol && p2.x <= borderTol && !sideBg?.left) {
       lines.push({ a: 1, b: 0, c: 0 });
       continue;
     }
-    if (p1.x >= 1 - borderTol && p2.x >= 1 - borderTol) {
+    if (p1.x >= 1 - borderTol && p2.x >= 1 - borderTol && !sideBg?.right) {
       lines.push({ a: 1, b: 0, c: -1 });
       continue;
     }
@@ -674,7 +729,7 @@ export function detectPaperCornersFromRgba(
   data: Uint8ClampedArray,
   w: number,
   h: number,
-): { corners: QuadCorners; detected: boolean } {
+): AutoCropDetectionResult {
   const n = w * h;
   if (w < 16 || h < 16 || data.length < n * 4) {
     return { corners: cloneCorners(FULL_FRAME_CORNERS), detected: false };
@@ -765,6 +820,15 @@ export function detectPaperCornersFromRgba(
     paperB - darkBgB,
   );
   const maxBgPaperDist = Math.max(bgVsPaperDist, darkBgVsPaperDist);
+  const sideBg = computeEdgeHasBackgroundMargin(
+    data,
+    w,
+    h,
+    paperR,
+    paperG,
+    paperB,
+    maxBgPaperDist,
+  );
 
   // Compute 3x3 Gaussian blur + Sobel gradients
   const blurred = new Float32Array(n);
@@ -853,7 +917,7 @@ export function detectPaperCornersFromRgba(
       const hull = convexHull(comp.boundaryPts);
       const qHull = reduceHullToQuad(hull);
       if (qHull) {
-        const qFitted = refineQuadWithBoundaryLines(qHull, comp.boundaryPts);
+        const qFitted = refineQuadWithBoundaryLines(qHull, comp.boundaryPts, sideBg);
         candidates.push({ quad: qFitted, weight: 1.2 });
         if (qFitted !== qHull) {
           candidates.push({ quad: qHull, weight: 1.05 });
@@ -920,11 +984,20 @@ export function detectPaperCornersFromRgba(
     for (let e = 0; e < 4; e++) {
       const a = q[e];
       const b = q[(e + 1) % 4];
+      const sideFlag =
+        e === 0
+          ? sideBg.top
+          : e === 1
+            ? sideBg.right
+            : e === 2
+              ? sideBg.bottom
+              : sideBg.left;
       const isFlushBorder =
-        (a.x <= 0.015 && b.x <= 0.015) ||
-        (a.x >= 0.985 && b.x >= 0.985) ||
-        (a.y <= 0.015 && b.y <= 0.015) ||
-        (a.y >= 0.985 && b.y >= 0.985);
+        !sideFlag &&
+        ((a.x <= 0.015 && b.x <= 0.015) ||
+          (a.x >= 0.985 && b.x >= 0.985) ||
+          (a.y <= 0.015 && b.y <= 0.015) ||
+          (a.y >= 0.985 && b.y >= 0.985));
       if (isFlushBorder) continue;
 
       activeEdges++;
@@ -1029,5 +1102,419 @@ export function detectPaperCornersFromRgba(
     return { corners: cloneCorners(FULL_FRAME_CORNERS), detected: false };
   }
 
-  return { corners: bestQuad, detected: true };
+  // Push non-flush edges slightly inward off remaining table/blue-mat slivers, then probe middle curvature
+  const cleanedQuad = refineQuadOffBackground(
+    bestQuad,
+    data,
+    lum,
+    w,
+    h,
+    paperR,
+    paperG,
+    paperB,
+    paperLum,
+    maxBgPaperDist,
+    sideBg,
+  );
+
+  const curvedMidpoints = detectEdgeMidpointsFromRgba(
+    cleanedQuad,
+    data,
+    lum,
+    w,
+    h,
+    paperR,
+    paperG,
+    paperB,
+    paperLum,
+    maxBgPaperDist,
+    sideBg,
+  );
+
+  return {
+    corners: cleanedQuad,
+    ...(curvedMidpoints ? { edgeMidpoints: curvedMidpoints } : {}),
+    detected: true,
+  };
+}
+
+function isPixelPaperLike(
+  data: Uint8ClampedArray,
+  lum: Float32Array,
+  idx: number,
+  paperR: number,
+  paperG: number,
+  paperB: number,
+  paperLum: number,
+  colorTol: number,
+): boolean {
+  const p = idx * 4;
+  const r = data[p];
+  const g = data[p + 1];
+  const b = data[p + 2];
+  const dPaper = Math.hypot(r - paperR, g - paperG, b - paperB);
+  const dDark = lum[idx] < Math.max(55, paperLum * 0.52);
+  return !dDark && dPaper <= colorTol;
+}
+
+/**
+ * Pulls cropped document edges cleanly onto true paper pixels whenever residual
+ * table/mat pixels touch the fitted straight quad edge.
+ */
+function refineQuadOffBackground(
+  quad: QuadCorners,
+  data: Uint8ClampedArray,
+  lum: Float32Array,
+  w: number,
+  h: number,
+  paperR: number,
+  paperG: number,
+  paperB: number,
+  paperLum: number,
+  maxBgPaperDist: number,
+  sideBg: SideBgMarginFlags,
+): QuadCorners {
+  const colorTol = Math.max(30, Math.min(54, maxBgPaperDist * 0.5));
+  const refinedLines: Array<{ a: number; b: number; c: number }> = [];
+
+  for (let e = 0; e < 4; e++) {
+    const a = quad[e];
+    const b = quad[(e + 1) % 4];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+
+    const sideFlag =
+      e === 0
+        ? sideBg.top
+        : e === 1
+          ? sideBg.right
+          : e === 2
+            ? sideBg.bottom
+            : sideBg.left;
+    const isFlush =
+      !sideFlag &&
+      ((e === 0 && a.y <= 0.006 && b.y <= 0.006) ||
+        (e === 1 && a.x >= 0.994 && b.x >= 0.994) ||
+        (e === 2 && a.y >= 0.994 && b.y >= 0.994) ||
+        (e === 3 && a.x <= 0.006 && b.x <= 0.006));
+
+    // Inward normal pointing toward quad centroid (0.5, 0.5)
+    let inX = -dy / len;
+    let inY = dx / len;
+    const midX = (a.x + b.x) * 0.5;
+    const midY = (a.y + b.y) * 0.5;
+    if ((0.5 - midX) * inX + (0.5 - midY) * inY < 0) {
+      inX = -inX;
+      inY = -inY;
+    }
+
+    // Standard line ax + by + c = 0 where n = (inX, inY)
+    let lineC = -(inX * a.x + inY * a.y);
+
+    if (!isFlush && maxBgPaperDist > 20) {
+      let bestShiftPx = 0;
+      const maxSearchPx = Math.min(12, Math.round(Math.min(w, h) * 0.04));
+      const ts = 18;
+      // Check if current line already has clean paper interior right inside edge
+      const samplePassFrac = (offsetPx: number): number => {
+        let hits = 0;
+        const stepX = (inX * offsetPx) / Math.max(1, w - 1);
+        const stepY = (inY * offsetPx) / Math.max(1, h - 1);
+        for (let k = 0; k < ts; k++) {
+          const t = 0.14 + (k / (ts - 1)) * 0.72;
+          const sx = clamp(Math.round((a.x + dx * t + stepX) * (w - 1)), 0, w - 1);
+          const sy = clamp(Math.round((a.y + dy * t + stepY) * (h - 1)), 0, h - 1);
+          if (
+            isPixelPaperLike(
+              data,
+              lum,
+              sy * w + sx,
+              paperR,
+              paperG,
+              paperB,
+              paperLum,
+              colorTol,
+            )
+          ) {
+            hits++;
+          }
+        }
+        return hits / ts;
+      };
+
+      if (samplePassFrac(1) < 0.88) {
+        for (let d = 2; d <= maxSearchPx; d++) {
+          if (samplePassFrac(d) >= 0.92) {
+            bestShiftPx = d + 1;
+            break;
+          }
+        }
+      } else if (samplePassFrac(0) < 0.8) {
+        bestShiftPx = 2;
+      }
+
+      if (bestShiftPx > 0) {
+        const shiftX = (inX * bestShiftPx) / Math.max(1, w - 1);
+        const shiftY = (inY * bestShiftPx) / Math.max(1, h - 1);
+        lineC = -(inX * (a.x + shiftX) + inY * (a.y + shiftY));
+      }
+    }
+
+    refinedLines.push({ a: inX, b: inY, c: lineC });
+  }
+
+  const tl = intersectLines(refinedLines[3], refinedLines[0]);
+  const tr = intersectLines(refinedLines[0], refinedLines[1]);
+  const br = intersectLines(refinedLines[1], refinedLines[2]);
+  const bl = intersectLines(refinedLines[2], refinedLines[3]);
+  if (!tl || !tr || !br || !bl) return quad;
+
+  const candidate = orderCornersClockwise([tl, tr, br, bl]);
+  return cornerAnglesValid(candidate) && quadArea(candidate) >= 0.16
+    ? candidate
+    : quad;
+}
+
+/**
+ * Samples middle-third curvature along all 4 quad edges to populate Coons-patch
+ * `edgeMidpoints` when open book spreads or bent edges bow inward/outward.
+ */
+function detectEdgeMidpointsFromRgba(
+  quad: QuadCorners,
+  data: Uint8ClampedArray,
+  lum: Float32Array,
+  w: number,
+  h: number,
+  paperR: number,
+  paperG: number,
+  paperB: number,
+  paperLum: number,
+  maxBgPaperDist: number,
+  sideBg: SideBgMarginFlags,
+): EdgeMidpoints | undefined {
+  if (maxBgPaperDist <= 20) return undefined;
+  const colorTol = Math.max(30, Math.min(54, maxBgPaperDist * 0.5));
+
+  const midpoints: EdgeMidpoints = [
+    { x: (quad[0].x + quad[1].x) * 0.5, y: (quad[0].y + quad[1].y) * 0.5 },
+    { x: (quad[1].x + quad[2].x) * 0.5, y: (quad[1].y + quad[2].y) * 0.5 },
+    { x: (quad[2].x + quad[3].x) * 0.5, y: (quad[2].y + quad[3].y) * 0.5 },
+    { x: (quad[3].x + quad[0].x) * 0.5, y: (quad[3].y + quad[0].y) * 0.5 },
+  ];
+
+  let hasMeaningfulCurve = false;
+  const maxProbePx = Math.min(18, Math.round(Math.min(w, h) * 0.055));
+
+  for (let e = 0; e < 4; e++) {
+    const a = quad[e];
+    const b = quad[(e + 1) % 4];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const sideFlag =
+      e === 0
+        ? sideBg.top
+        : e === 1
+          ? sideBg.right
+          : e === 2
+            ? sideBg.bottom
+            : sideBg.left;
+    const isFlush =
+      !sideFlag &&
+      ((e === 0 && a.y <= 0.008 && b.y <= 0.008) ||
+        (e === 1 && a.x >= 0.992 && b.x >= 0.992) ||
+        (e === 2 && a.y >= 0.992 && b.y >= 0.992) ||
+        (e === 3 && a.x <= 0.008 && b.x <= 0.008));
+    if (isFlush) continue;
+
+    // Inward unit normal toward (0.5, 0.5)
+    let inX = -dy / len;
+    let inY = dx / len;
+    const mx = (a.x + b.x) * 0.5;
+    const my = (a.y + b.y) * 0.5;
+    if ((0.5 - mx) * inX + (0.5 - my) * inY < 0) {
+      inX = -inX;
+      inY = -inY;
+    }
+
+    const edgeOffsets: number[] = [];
+    for (const t of [0.36, 0.43, 0.5, 0.57, 0.64]) {
+      const bx = a.x + dx * t;
+      const by = a.y + dy * t;
+      // Find first transition pixel from exterior (-maxProbePx) inward to interior (+maxProbePx)
+      let foundPx: number | null = null;
+      for (let d = -maxProbePx; d <= maxProbePx; d++) {
+        const sx = clamp(Math.round((bx + (inX * d) / Math.max(1, w - 1)) * (w - 1)), 0, w - 1);
+        const sy = clamp(Math.round((by + (inY * d) / Math.max(1, h - 1)) * (h - 1)), 0, h - 1);
+        const ok0 = isPixelPaperLike(
+          data,
+          lum,
+          sy * w + sx,
+          paperR,
+          paperG,
+          paperB,
+          paperLum,
+          colorTol,
+        );
+        if (!ok0) continue;
+        // Require consecutive 2 pixels inward also paper to skip noise
+        const sx2 = clamp(Math.round((bx + (inX * (d + 2)) / Math.max(1, w - 1)) * (w - 1)), 0, w - 1);
+        const sy2 = clamp(Math.round((by + (inY * (d + 2)) / Math.max(1, h - 1)) * (h - 1)), 0, h - 1);
+        if (
+          isPixelPaperLike(
+            data,
+            lum,
+            sy2 * w + sx2,
+            paperR,
+            paperG,
+            paperB,
+            paperLum,
+            colorTol,
+          )
+        ) {
+          foundPx = d + 1;
+          break;
+        }
+      }
+      if (foundPx !== null) {
+        edgeOffsets.push(foundPx);
+      }
+    }
+
+    if (edgeOffsets.length >= 3) {
+      const medOffsetPx = medianOf(edgeOffsets);
+      const normDelta = Math.hypot(
+        (inX * medOffsetPx) / Math.max(1, w - 1),
+        (inY * medOffsetPx) / Math.max(1, h - 1),
+      );
+      if (normDelta >= 0.0055 && normDelta <= 0.055) {
+        midpoints[e] = {
+          x: clamp(mx + (inX * medOffsetPx) / Math.max(1, w - 1), 0, 1),
+          y: clamp(my + (inY * medOffsetPx) / Math.max(1, h - 1), 0, 1),
+        };
+        hasMeaningfulCurve = true;
+      }
+    }
+  }
+
+  return hasMeaningfulCurve ? midpoints : undefined;
+}
+
+/**
+ * Estimates true flat top-down (90-degree overhead) rectangular width and height
+ * from a perspective-foreshortened quadrilateral using single-view rectangle metric rectification.
+ */
+export function estimateOrthographicOutputSize(
+  pxCorners: readonly [
+    { x: number; y: number },
+    { x: number; y: number },
+    { x: number; y: number },
+    { x: number; y: number },
+  ],
+  srcW: number,
+  srcH: number,
+): { estW: number; estH: number } {
+  const topW = Math.hypot(
+    pxCorners[1].x - pxCorners[0].x,
+    pxCorners[1].y - pxCorners[0].y,
+  );
+  const botW = Math.hypot(
+    pxCorners[2].x - pxCorners[3].x,
+    pxCorners[2].y - pxCorners[3].y,
+  );
+  const leftH = Math.hypot(
+    pxCorners[3].x - pxCorners[0].x,
+    pxCorners[3].y - pxCorners[0].y,
+  );
+  const rightH = Math.hypot(
+    pxCorners[2].x - pxCorners[1].x,
+    pxCorners[2].y - pxCorners[1].y,
+  );
+
+  const baseW = Math.max(topW, botW, 64);
+  const baseH = Math.max(leftH, rightH, 64);
+  const baseAspect = baseW / baseH;
+
+  // Center coordinates at optical principal point normalized by sensor half-span
+  const cx = srcW * 0.5;
+  const cy = srcH * 0.5;
+  const normScale = Math.max(srcW, srcH, 1) * 0.5;
+  const x0 = (pxCorners[0].x - cx) / normScale;
+  const y0 = (pxCorners[0].y - cy) / normScale;
+  const x1 = (pxCorners[1].x - cx) / normScale;
+  const y1 = (pxCorners[1].y - cy) / normScale;
+  const x2 = (pxCorners[2].x - cx) / normScale;
+  const y2 = (pxCorners[2].y - cy) / normScale;
+  const x3 = (pxCorners[3].x - cx) / normScale;
+  const y3 = (pxCorners[3].y - cy) / normScale;
+
+  // Solve 3x3 linear system: k1*m1 - k2*m2 + k3*m3 = m0
+  const m = [
+    [x1, -x2, x3, x0],
+    [y1, -y2, y3, y0],
+    [1, -1, 1, 1],
+  ];
+
+  for (let col = 0; col < 3; col++) {
+    let pivotRow = col;
+    let bestVal = Math.abs(m[col][col]);
+    for (let r = col + 1; r < 3; r++) {
+      const v = Math.abs(m[r][col]);
+      if (v > bestVal) {
+        bestVal = v;
+        pivotRow = r;
+      }
+    }
+    if (bestVal < 1e-7) {
+      return { estW: baseW, estH: baseH };
+    }
+    if (pivotRow !== col) {
+      const tmp = m[col];
+      m[col] = m[pivotRow];
+      m[pivotRow] = tmp;
+    }
+    const piv = m[col][col];
+    for (let c = col; c < 4; c++) m[col][c] /= piv;
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const factor = m[r][col];
+      for (let c = col; c < 4; c++) m[r][c] -= factor * m[col][c];
+    }
+  }
+
+  const k1 = m[0][3];
+  const k3 = m[2][3];
+  const denom = (k1 - 1) * (k3 - 1);
+
+  let f = 1.45;
+  if (Math.abs(denom) > 0.004) {
+    const num = -(
+      (k1 * x1 - x0) * (k3 * x3 - x0) +
+      (k1 * y1 - y0) * (k3 * y3 - y0)
+    );
+    const fSq = num / denom;
+    if (!Number.isFinite(fSq) || fSq <= 0.35 || fSq >= 25) {
+      return { estW: baseW, estH: baseH };
+    }
+    f = Math.sqrt(fSq);
+  } else if (Math.abs(k1 - 1) <= 0.03 && Math.abs(k3 - 1) <= 0.03) {
+    // Truly parallel fronto-parallel overhead rectangle
+    return { estW: baseW, estH: baseH };
+  }
+
+  const rectW = Math.hypot(k1 * x1 - x0, k1 * y1 - y0, f * (k1 - 1));
+  const rectH = Math.hypot(k3 * x3 - x0, k3 * y3 - y0, f * (k3 - 1));
+  if (rectH <= 1e-6 || rectW <= 1e-6) {
+    return { estW: baseW, estH: baseH };
+  }
+
+  const orthoAspect = rectW / rectH;
+  const aspectCorrection = clamp(orthoAspect / baseAspect, 0.62, 1.65);
+  const targetAspect = baseAspect * aspectCorrection;
+
+  if (targetAspect >= baseAspect) {
+    return { estW: Math.max(64, Math.round(baseH * targetAspect)), estH: baseH };
+  }
+  return { estW: baseW, estH: Math.max(64, Math.round(baseW / targetAspect)) };
 }

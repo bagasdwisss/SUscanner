@@ -1181,3 +1181,182 @@ describe("PDF Landscape Orientation & OCR Coordinate Layout", () => {
     assert.ok(Math.abs(placementCw.y - (1 - 0.2) * 600) < 0.01);
   });
 });
+
+describe("Confidence Calibration, 2-Panel Daftar Isian 207 OCR, and Overhead Rectification", () => {
+  it("downgrades overconfident 99% LLM guesses on distractor evidence, overwrite ambiguity, or missing corroboration", () => {
+    const overconfidentOverwritten: AiExtractionResult = {
+      is_halaman_data_su: true,
+      nomor_su_raw: "671",
+      tahun_su: "2000",
+      kode_jenis_hak_angka: "1",
+      kode_jenis_hak_huruf: "M",
+      nomor_hak_raw: "02098",
+      kecamatan_raw: "Medan Baru",
+      kelurahan_raw: "5 Tamu",
+      nib_terdeteksi: "02374",
+      raw_evidence: {
+        teks_nomor_su: "Daftar Isian 302 tgl. 15-05-2000 No. 671/2000",
+        teks_nomor_hak: "02.01.10.02.1.02095",
+        teks_lokasi: "Kecamatan MEDAN BARU",
+      },
+      confidence: {
+        nomor_su: 0.99,
+        tahun_su: 0.99,
+        jenis_hak: 0.99,
+        nomor_hak: 0.99,
+        kecamatan: 0.99,
+        kelurahan: 0.99,
+      },
+      catatan_peringatan: "Digit ke-14 Nomor Hak (5 tertimpa 8) agak meragukan.",
+    };
+
+    const form = applyExtractionToForm(overconfidentOverwritten, 2026);
+    assert.ok((form.confidences.nomorSu.score ?? 1) <= 0.65);
+    assert.notEqual(form.confidences.nomorSu.level, "high");
+    assert.ok((form.confidences.nomorHak.score ?? 1) <= 0.72);
+    assert.notEqual(form.confidences.nomorHak.level, "high");
+    // Digit-garbled "5 Tamu" is rejected cleanly instead of leaking into folder structure
+    assert.equal(form.fields.kelurahan, "");
+    assert.equal(form.confidences.kelurahan.level, "low");
+    assert.ok(form.warnings.some((w) => w.includes("distraktor") || w.includes("Daftar Isian")));
+  });
+
+  it("extracts real 2-panel Daftar Isian 207 blangko cleanly and rejects Daftar Isian 302 distractors & digit garbage", () => {
+    const realSpreadText = `
+      Hal lain - lain : Tanah Negara
+      Daftar Isian 302 tgl. 15 - 05 - 2000 No. 671/2000
+      AM 750746                         DAFTAR ISIAN 207
+      02 · 01 · 10 · 02 · 1 · 02095     NIB : 02374
+                  SURAT UKUR
+                  71/Tanjung Sari/2000
+      Nomor : .............. / 19.......
+      SEBIDANG TANAH TERLETAK DALAM
+      Propinsi : SUMATERA UTARA
+      Kabupaten / Kotamadya : MEDAN
+      Kecamatan : MEDAN SELAYANG
+      Desa / Kelurahan : 5 Tamu
+      Telah Dialihmediakan 01/12/2023 CV. BERKAT CAHAYA ABADI
+      Luas : 138.- m2 ( seratus tigapuluh delapan meter persegi )
+    `;
+
+    const parsed = parseSuratUkurOcrText(realSpreadText, 76);
+    const form = applyExtractionToForm(parsed, 2026);
+
+    assert.equal(form.isWrongPageSlot, false);
+    assert.equal(form.fields.nomorSu, "00071");
+    assert.equal(form.fields.tahunSu, "2000");
+    assert.equal(form.fields.kodeHak, "M");
+    assert.equal(form.fields.nomorHak, "02095");
+    assert.equal(form.fields.kecamatan, "Medan Selayang");
+    assert.equal(form.fields.kelurahan, "Tanjung Sari");
+    assert.equal(form.fields.nib, "02374");
+    assert.equal(form.fields.luasTanah, "138 m2");
+    assert.equal(buildStandardFilename(form.fields), "SU.00071.2000.M.02095.pdf");
+
+    // Rejects digit-polluted Kecamatan noise like "0 Io Oi" and recovers "MEMAN BELAYANG" -> "Medan Selayang"
+    const noiseKecOcr = parseSuratUkurOcrText(
+      `SURAT UKUR\n0 . MEMAN BELAYANG\njae Kecamatan 0 io oi Ma ea\nDesa/Kelurahan Ahan\nNomor: 71/Tanjung Sari/2000`,
+      68,
+    );
+    assert.equal(noiseKecOcr.kecamatan_raw, "Medan Selayang");
+    assert.equal(noiseKecOcr.kelurahan_raw, "Tanjung Sari");
+
+    // Reconciles misread Kecamatan ("Medan Belawan") when Kelurahan ("Tanjung Sari") & 02.01.10.02 disagree
+    const mismatchedRegionAi: AiExtractionResult = {
+      is_halaman_data_su: true,
+      nomor_su_raw: "71",
+      tahun_su: "2000",
+      kode_jenis_hak_angka: "1",
+      kode_jenis_hak_huruf: "M",
+      nomor_hak_raw: "02095",
+      kecamatan_raw: "Medan Belawan",
+      kelurahan_raw: "Tanjung Sari",
+      nib_terdeteksi: "02374",
+      raw_evidence: {
+        teks_nomor_su: "71/2000",
+        teks_nomor_hak: "02.01.10.02.1.02095",
+        teks_lokasi: "Kecamatan MEDAN BELAWAN",
+      },
+      confidence: {
+        nomor_su: 0.99,
+        tahun_su: 0.99,
+        jenis_hak: 0.99,
+        nomor_hak: 0.99,
+        kecamatan: 0.99,
+        kelurahan: 0.99,
+      },
+      catatan_peringatan: null,
+    };
+    const reconciled = applyExtractionToForm(mismatchedRegionAi, 2026);
+    assert.equal(reconciled.fields.kecamatan, "Medan Selayang");
+    assert.equal(reconciled.confidences.kecamatan.level, "medium");
+    assert.ok(reconciled.warnings.some((w) => w.includes("Medan Selayang")));
+
+    // Empty secondary pass reporting fake 95% confidence must NEVER inflate merged OCR confidence
+    const passWithData = parseSuratUkurOcrText("SURAT UKUR\nKecamatan : Medan Selayang", 55);
+    const emptyPassFakeHigh = parseSuratUkurOcrText("", 95);
+    const mergedSafe = mergeMultiPassOcrResults(
+      { result: passWithData, meanConfidence: 55 },
+      { result: emptyPassFakeHigh, meanConfidence: 95 },
+    );
+    assert.equal(mergedSafe.meanConfidence, 55);
+  });
+
+  it("recovers overhead orthographic aspect ratio for tilted camera views and trims thin blue edges with edgeMidpoints", async () => {
+    const { estimateOrthographicOutputSize } = await import("./auto-crop.ts");
+
+    // Simulate a flat 400x280 landscape rectangle tilted ~40 deg backward from camera
+    const tiltedCorners = [
+      { x: 260, y: 170 },
+      { x: 540, y: 170 },
+      { x: 640, y: 310 },
+      { x: 160, y: 310 },
+    ] as const;
+    const ortho = estimateOrthographicOutputSize(tiltedCorners, 800, 500);
+    // Perspective foreshortening compressed apparent height (~140px); orthographic recovery expands height
+    assert.ok(ortho.estH > 180, `Expected un-foreshortened height > 180, got ${ortho.estH}`);
+    assert.ok(ortho.estW >= ortho.estH);
+
+    // Flat parallel rectangle preserves base dimensions untouched
+    const flatCorners = [
+      { x: 100, y: 100 },
+      { x: 500, y: 100 },
+      { x: 500, y: 380 },
+      { x: 100, y: 380 },
+    ] as const;
+    const flatOrtho = estimateOrthographicOutputSize(flatCorners, 600, 480);
+    assert.equal(Math.round(flatOrtho.estW), 400);
+    assert.equal(Math.round(flatOrtho.estH), 280);
+
+    // Thin blue edge strip (~1.5% on right) + bowed bottom fold must NOT snap right edge to 1.0
+    const w = 160;
+    const h = 120;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const nx = x / (w - 1);
+        const ny = y / (h - 1);
+        const topEdge = 0.08 + 0.015 * Math.sin(Math.PI * nx);
+        const botEdge = 0.93 - 0.02 * Math.sin(Math.PI * nx);
+        const inside = nx >= 0.04 && nx <= 0.98 && ny >= topEdge && ny <= botEdge;
+        if (inside) {
+          rgba[idx] = 205;
+          rgba[idx + 1] = 212;
+          rgba[idx + 2] = 165;
+        } else {
+          // Bright blue plastic tray border
+          rgba[idx] = 24;
+          rgba[idx + 1] = 135;
+          rgba[idx + 2] = 220;
+        }
+        rgba[idx + 3] = 255;
+      }
+    }
+    const cropRes = detectPaperCornersFromRgba(rgba, w, h);
+    assert.equal(cropRes.detected, true);
+    assert.ok(cropRes.corners[1].x < 0.992, `Right-top x should stay inside paper, got ${cropRes.corners[1].x}`);
+    assert.ok(cropRes.corners[2].x < 0.992, `Right-bot x should stay inside paper, got ${cropRes.corners[2].x}`);
+    assert.ok(cropRes.edgeMidpoints, "Expected curved edgeMidpoints on bowed booklet edges");
+  });
+});

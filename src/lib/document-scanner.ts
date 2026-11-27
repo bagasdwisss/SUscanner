@@ -2,8 +2,10 @@ import type { EdgeMidpoints, NormalizedPoint, QuadCorners, ScanFilter } from "./
 import {
   cloneCorners,
   detectPaperCornersFromRgba,
+  estimateOrthographicOutputSize,
   FULL_FRAME_CORNERS,
   orderCornersClockwise,
+  type AutoCropDetectionResult,
 } from "./auto-crop";
 import {
   analyzeRgbaImageQuality,
@@ -259,11 +261,12 @@ export function rotateCorners(
  * Automatic paper boundary detector using color-distance, tight-perimeter trim,
  * and edge-contour segmentation on a fast downscaled canvas.
  */
-export function detectPaperCornersFromCanvas(sourceCanvas: HTMLCanvasElement): {
-  corners: QuadCorners;
-  detected: boolean;
-} {
-  const MAX_WORK = 420;
+export type { AutoCropDetectionResult };
+
+export function detectPaperCornersFromCanvas(
+  sourceCanvas: HTMLCanvasElement,
+): AutoCropDetectionResult {
+  const MAX_WORK = 560;
   const scale = Math.min(
     1,
     MAX_WORK / Math.max(sourceCanvas.width, sourceCanvas.height),
@@ -705,25 +708,11 @@ export async function processDocumentPage(params: {
       { x: corners[3].x * (srcW - 1), y: corners[3].y * (srcH - 1) },
     ];
 
-    const topW = Math.hypot(
-      pxCorners[1].x - pxCorners[0].x,
-      pxCorners[1].y - pxCorners[0].y,
+    const { estW, estH } = estimateOrthographicOutputSize(
+      pxCorners,
+      srcW,
+      srcH,
     );
-    const botW = Math.hypot(
-      pxCorners[2].x - pxCorners[3].x,
-      pxCorners[2].y - pxCorners[3].y,
-    );
-    const leftH = Math.hypot(
-      pxCorners[3].x - pxCorners[0].x,
-      pxCorners[3].y - pxCorners[0].y,
-    );
-    const rightH = Math.hypot(
-      pxCorners[2].x - pxCorners[1].x,
-      pxCorners[2].y - pxCorners[1].y,
-    );
-
-    const estW = Math.max(topW, botW, 64);
-    const estH = Math.max(leftH, rightH, 64);
     const scale = Math.min(1, maxOutputSide / Math.max(estW, estH));
     const dstW = Math.max(64, Math.round(estW * scale));
     const dstH = Math.max(64, Math.round(estH * scale));
@@ -860,6 +849,11 @@ export async function processDocumentPage(params: {
     outCtx.putImageData(dstImage, 0, 0);
   }
 
+  // Fine interior printed-line deskew (-3.0..+3.0 deg) on dewarped scans to align text rows dead-level
+  if (!isIdentityFullFrame(corners)) {
+    outCanvas = applyFineLineDeskewIfNeeded(outCanvas);
+  }
+
   // Apply filter + brightness/contrast in-place and measure document sharpness/glare
   const outCtx = outCanvas.getContext("2d", { willReadFrequently: true });
   let qualityReport: ImageQualityReport = {
@@ -895,6 +889,116 @@ export async function processDocumentPage(params: {
   };
 }
 
+function applyFineLineDeskewIfNeeded(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement {
+  const sw = sourceCanvas.width;
+  const sh = sourceCanvas.height;
+  if (sw < 120 || sh < 120) return sourceCanvas;
+
+  const probeW = 300;
+  const scale = Math.min(1, probeW / Math.max(sw, sh));
+  const pw = Math.max(48, Math.round(sw * scale));
+  const ph = Math.max(48, Math.round(sh * scale));
+
+  const pCanvas = document.createElement("canvas");
+  pCanvas.width = pw;
+  pCanvas.height = ph;
+  const pCtx = pCanvas.getContext("2d", { willReadFrequently: true });
+  if (!pCtx) return sourceCanvas;
+  pCtx.drawImage(sourceCanvas, 0, 0, pw, ph);
+  const { data } = pCtx.getImageData(0, 0, pw, ph);
+
+  const lum = new Float32Array(pw * ph);
+  for (let i = 0; i < pw * ph; i++) {
+    const p = i * 4;
+    lum[i] = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+  }
+
+  const rx0 = Math.floor(pw * 0.12);
+  const rx1 = Math.ceil(pw * 0.88);
+  const ry0 = Math.floor(ph * 0.12);
+  const ry1 = Math.ceil(ph * 0.88);
+  const cx = pw * 0.5;
+  const cy = ph * 0.5;
+
+  const scoreAngle = (deg: number): number => {
+    const rad = (deg * Math.PI) / 180;
+    const cosA = Math.cos(rad);
+    const sinA = Math.sin(rad);
+    const rowMeans = new Float32Array(ry1 - ry0);
+    for (let y = ry0; y < ry1; y++) {
+      let sum = 0;
+      let cnt = 0;
+      const dy = y - cy;
+      for (let x = rx0; x < rx1; x += 2) {
+        const dx = x - cx;
+        const sx = Math.round(cx + dx * cosA - dy * sinA);
+        const sy = Math.round(cy + dx * sinA + dy * cosA);
+        if (sx >= 0 && sx < pw && sy >= 0 && sy < ph) {
+          sum += lum[sy * pw + sx];
+          cnt++;
+        }
+      }
+      rowMeans[y - ry0] = cnt > 0 ? sum / cnt : 240;
+    }
+    let energy = 0;
+    for (let k = 1; k < rowMeans.length; k++) {
+      const diff = rowMeans[k] - rowMeans[k - 1];
+      energy += diff * diff;
+    }
+    return energy;
+  };
+
+  const zeroScore = scoreAngle(0);
+  if (zeroScore <= 1) return sourceCanvas;
+
+  let bestAngle = 0;
+  let bestScore = zeroScore;
+  for (let deg = -3.0; deg <= 3.01; deg += 0.25) {
+    if (Math.abs(deg) < 0.35) continue;
+    const sc = scoreAngle(deg);
+    if (sc > bestScore) {
+      bestScore = sc;
+      bestAngle = deg;
+    }
+  }
+
+  // Require meaningful projection improvement before micro-rotating canvas
+  if (Math.abs(bestAngle) < 0.45 || bestScore < zeroScore * 1.075) {
+    return sourceCanvas;
+  }
+
+  // Compute safe perimeter paper fill color so micro-rotation corners stay clean
+  let rSum = 0;
+  let gSum = 0;
+  let bSum = 0;
+  let cCnt = 0;
+  for (let x = Math.floor(pw * 0.2); x < Math.floor(pw * 0.8); x += 4) {
+    for (const y of [Math.min(4, ph - 1), Math.max(0, ph - 5)]) {
+      const p = (y * pw + x) * 4;
+      rSum += data[p];
+      gSum += data[p + 1];
+      bSum += data[p + 2];
+      cCnt++;
+    }
+  }
+  const fillColor =
+    cCnt > 0
+      ? `rgb(${Math.round(rSum / cCnt)},${Math.round(gSum / cCnt)},${Math.round(bSum / cCnt)})`
+      : "#f5f4ee";
+
+  const out = document.createElement("canvas");
+  out.width = sw;
+  out.height = sh;
+  const oCtx = out.getContext("2d");
+  if (!oCtx) return sourceCanvas;
+  oCtx.fillStyle = fillColor;
+  oCtx.fillRect(0, 0, sw, sh);
+  oCtx.translate(sw / 2, sh / 2);
+  oCtx.rotate((-bestAngle * Math.PI) / 180);
+  oCtx.drawImage(sourceCanvas, -sw / 2, -sh / 2);
+  return out;
+}
+
 /**
  * Renders an unthresholded, perspective-cropped, upright JPEG image specifically
  * optimized for Vision AI extraction so faint typewriter ink, dots, and stamps remain crisp.
@@ -903,12 +1007,14 @@ export async function prepareCleanCropForAi(params: {
   rawUrl: string;
   rotation: 0 | 90 | 180 | 270;
   corners: QuadCorners;
+  edgeMidpoints?: EdgeMidpoints;
   maxSide?: number;
 }): Promise<string> {
   const result = await processDocumentPage({
     rawUrl: params.rawUrl,
     rotation: params.rotation,
     corners: params.corners,
+    edgeMidpoints: params.edgeMidpoints,
     filter: "original",
     brightness: 0,
     contrast: 0,
@@ -916,6 +1022,81 @@ export async function prepareCleanCropForAi(params: {
     jpegQuality: 0.9,
   });
   return result.dataUrl;
+}
+
+/**
+ * Prepares both the full perspective-rectified page AND a zoomed high-detail
+ * header crop (right SURAT UKUR panel on 2-page spreads, or upper header on 1-page sheets)
+ * so Vision AI can verify tiny handwritten box digits & faint typewriter NIB/SU lines.
+ */
+export async function prepareAiImageBundle(params: {
+  rawUrl?: string;
+  rotation?: 0 | 90 | 180 | 270;
+  corners?: QuadCorners;
+  edgeMidpoints?: EdgeMidpoints;
+  processedDataUrl: string;
+  maxSide?: number;
+}): Promise<{ overviewDataUrl: string; headerCropDataUrl?: string }> {
+  const maxSide = params.maxSide ?? 1920;
+  let overviewDataUrl: string;
+  let ovWidth = 0;
+  let ovHeight = 0;
+
+  if (params.rawUrl && params.corners) {
+    const clean = await processDocumentPage({
+      rawUrl: params.rawUrl,
+      rotation: params.rotation ?? 0,
+      corners: params.corners,
+      edgeMidpoints: params.edgeMidpoints,
+      filter: "original",
+      brightness: 0,
+      contrast: 0,
+      maxOutputSide: maxSide,
+      jpegQuality: 0.91,
+    });
+    overviewDataUrl = clean.dataUrl;
+    ovWidth = clean.width;
+    ovHeight = clean.height;
+  } else {
+    overviewDataUrl = await prepareImageForAi(params.processedDataUrl, maxSide);
+  }
+
+  try {
+    const ovImg = await loadImageElement(overviewDataUrl);
+    ovWidth = ovImg.naturalWidth;
+    ovHeight = ovImg.naturalHeight;
+    if (ovWidth < 120 || ovHeight < 120) {
+      return { overviewDataUrl };
+    }
+
+    const isWideSpread = ovWidth / Math.max(1, ovHeight) >= 1.24;
+    const sx = isWideSpread ? Math.floor(ovWidth * 0.45) : 0;
+    const sy = 0;
+    const sw = ovWidth - sx;
+    const sh = isWideSpread
+      ? Math.round(ovHeight * 0.84)
+      : Math.round(ovHeight * 0.58);
+
+    const cropMaxSide = 1600;
+    const scale = Math.min(2.0, cropMaxSide / Math.max(sw, sh, 1));
+    const dw = Math.max(64, Math.round(sw * scale));
+    const dh = Math.max(64, Math.round(sh * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = dw;
+    canvas.height = dh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { overviewDataUrl };
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(ovImg, sx, sy, sw, sh, 0, 0, dw, dh);
+    return {
+      overviewDataUrl,
+      headerCropDataUrl: canvas.toDataURL("image/jpeg", 0.93),
+    };
+  } catch {
+    return { overviewDataUrl };
+  }
 }
 
 /**

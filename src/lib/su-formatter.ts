@@ -7,8 +7,10 @@ import type {
   SuNamingFields,
 } from "./su-types.ts";
 import {
+  findKecamatanByKelurahanAndCode,
   matchWilayahKecamatan,
   matchWilayahKelurahan,
+  validateHakRegionCrossCheck,
 } from "./wilayah-dict.ts";
 
 export interface HakOption {
@@ -561,13 +563,38 @@ export function applyExtractionToForm(
     );
   }
 
-  const kelurahanRawNormalized =
+  const kelurahanCandidate =
     normalizeKelurahanName(extraction.kelurahan_raw) ||
     normalizeKelurahanName(kelFromLokasi) ||
     normalizeKelurahanName(suMiddleIsKelurahan);
-  const kelMatch = kelurahanRawNormalized
+  // Reject digit-garbled OCR kelurahan tokens (e.g. "5 Tamu") unless dictionary-confirmed
+  const kelGlobalFirst = kelurahanCandidate
+    ? matchWilayahKelurahan(kelurahanCandidate)
+    : null;
+  const kelFromDictFirst = kelurahanCandidate
+    ? matchWilayahKelurahan(kelurahanCandidate, kecamatanNormalized)
+    : null;
+  const bestKelDictFirst =
+    kelFromDictFirst?.matched && kelFromDictFirst.similarity >= 0.82
+      ? kelFromDictFirst
+      : kelGlobalFirst;
+  const kelurahanRawNormalized =
+    kelurahanCandidate &&
+    (/\d/.test(kelurahanCandidate) &&
+      (!bestKelDictFirst?.matched || bestKelDictFirst.similarity < 0.85))
+      ? suMiddleIsKelurahan
+        ? normalizeKelurahanName(suMiddleIsKelurahan)
+        : ""
+      : kelurahanCandidate;
+  const kelScopedMatch = kelurahanRawNormalized
     ? matchWilayahKelurahan(kelurahanRawNormalized, kecamatanNormalized)
     : null;
+  const kelMatch =
+    kelScopedMatch?.matched && kelScopedMatch.similarity >= 0.82
+      ? kelScopedMatch
+      : kelurahanRawNormalized
+        ? matchWilayahKelurahan(kelurahanRawNormalized)
+        : null;
   const kelurahanNormalized =
     kelMatch?.matched && kelMatch.similarity >= 0.8
       ? kelMatch.matched
@@ -583,6 +610,39 @@ export function applyExtractionToForm(
     );
   }
 
+  // Reconcile Kecamatan against unique Kelurahan owner + 14-digit Kantah code when AI misreads Kecamatan (e.g. Medan Belawan vs Tanjung Sari)
+  const hakEvRawForRegion = extraction.raw_evidence.teks_nomor_hak || "";
+  const preCrossCheck = validateHakRegionCrossCheck({
+    rawNomorHak: hakEvRawForRegion,
+    kecamatan: kecamatanNormalized,
+    kelurahan: kelurahanNormalized,
+  });
+  let resolvedKecamatan = kecamatanNormalized;
+  let kecAutoReconciledNote: string | null = null;
+  if (kelurahanNormalized) {
+    const ownerInfo = findKecamatanByKelurahanAndCode(
+      kelurahanNormalized,
+      preCrossCheck.kecCode,
+    );
+    if (
+      ownerInfo &&
+      (!resolvedKecamatan ||
+        (preCrossCheck.status === "mismatch" &&
+          preCrossCheck.suggestedKecamatan === ownerInfo.kecamatan))
+    ) {
+      if (resolvedKecamatan && resolvedKecamatan !== ownerInfo.kecamatan) {
+        kecAutoReconciledNote = `Kecamatan "${resolvedKecamatan}" diselaraskan ke "${ownerInfo.kecamatan}" sesuai Kelurahan "${kelurahanNormalized}" & kode Nomor Hak`;
+        warnings.push(`${kecAutoReconciledNote}. Harap cek kembali.`);
+      } else if (!resolvedKecamatan && ownerInfo.uniqueOwner) {
+        kecAutoReconciledNote = `Kecamatan dilengkapi otomatis dari Kelurahan "${kelurahanNormalized}"`;
+      }
+      if (resolvedKecamatan || ownerInfo.uniqueOwner) {
+        resolvedKecamatan = ownerInfo.kecamatan;
+      }
+    }
+  }
+
+  // 5. Calibrate confidence deterministically (prevents blanket overconfident 95%-99% LLM/OCR guesses)
   const makeMeta = (
     score: number,
     hasValue: boolean,
@@ -596,21 +656,167 @@ export function applyExtractionToForm(
     };
   };
 
-  let tahunScore = extraction.confidence.tahun_su;
-  let tahunReason: string | null = null;
-  if (tahunClean.length === 4 && !tahunInRange) {
-    tahunScore = Math.min(tahunScore, 0.72);
-    tahunReason = `Tahun di luar rentang ${MIN_VALID_SU_YEAR}–${currentYear}`;
+  const clampScore = (s: number): number =>
+    Math.max(0, Math.min(0.96, Math.round(s * 100) / 100));
+
+  const noteText = (extraction.catatan_peringatan || "").toLowerCase();
+  const hasAmbiguityCue =
+    /(?:ragu|timpa|tumpang|coret|buram|kabur|samar|tidak\s+(?:terbaca|jelas)|terpotong|kemungkinan|\?|\batau\b)/i.test(
+      noteText,
+    );
+
+  // 5a. Nomor SU calibration
+  let suScore = clampScore(extraction.confidence.nomor_su);
+  let suReason: string | null = null;
+  const suEvRaw = extraction.raw_evidence.teks_nomor_su || "";
+  const suEvNoDistractor = !/\b(?:daftar\s+isian|d\.?\s*i\.?\s*30\d|302|307|207|dialihmediakan|nip)\b/i.test(
+    suEvRaw,
+  );
+  const suNumNoZero = nomorSuClean.replace(/^0+/, "") || nomorSuClean;
+  const suEvDigits = sanitizeDigits(suEvRaw);
+  const suCorroborated =
+    Boolean(nomorSuFormatted) &&
+    Boolean(suEvRaw.trim()) &&
+    suEvNoDistractor &&
+    suEvDigits.includes(suNumNoZero);
+
+  if (nomorSuFormatted && !suEvNoDistractor) {
+    suScore = Math.min(suScore, 0.58);
+    suReason = "Bukti mirip nomor Daftar Isian/stempel, wajib cek visual";
+    warnings.push(
+      `Nomor SU (${nomorSuFormatted}) tampak berasal dari baris distraktor ("${suEvRaw}") — mohon periksa ulang.`,
+    );
+  } else if (nomorSuFormatted && !suCorroborated) {
+    suScore = Math.min(suScore, 0.72);
+    suReason = "Bukti teks Nomor SU belum terkonfirmasi";
+  } else if (
+    hasAmbiguityCue &&
+    /(?:\bsu\b|nomor\s+su|surat\s+ukur|tahun)/i.test(noteText)
+  ) {
+    suScore = Math.min(suScore, 0.74);
+    suReason = "Catatan AI menandai tulisan SU kurang jelas";
+  } else if (suCorroborated) {
+    const strongSuContext =
+      Boolean(suEvidenceSlash && kelMatch?.matched) ||
+      (Boolean(suEvidenceSimple) && tahunInRange);
+    suScore = Math.min(suScore, strongSuContext ? 0.94 : 0.9);
   }
 
-  let hakScore = extraction.confidence.nomor_hak;
+  // 5b. Tahun SU calibration
+  let tahunScore = clampScore(extraction.confidence.tahun_su);
+  let tahunReason: string | null = null;
+  if (tahunClean.length === 4 && !tahunInRange) {
+    tahunScore = Math.min(tahunScore, 0.68);
+    tahunReason = `Tahun di luar rentang ${MIN_VALID_SU_YEAR}–${currentYear}`;
+  } else if (tahunClean && (!suEvNoDistractor || !suEvDigits.includes(tahunClean))) {
+    tahunScore = Math.min(tahunScore, suEvNoDistractor ? 0.74 : 0.58);
+    tahunReason = suEvNoDistractor
+      ? "Tahun SU belum terkonfirmasi di teks bukti"
+      : "Tahun terdeteksi dari baris distraktor";
+  }
+
+  // 5c. Kode & Nomor Hak calibration (+ 8-digit prefix cross-check)
+  let hakScore = clampScore(extraction.confidence.nomor_hak);
   let hakReason: string | null = null;
+  let jenisHakScore = clampScore(extraction.confidence.jenis_hak);
+  let jenisHakReason: string | null = null;
+
+  const hakEvRaw = extraction.raw_evidence.teks_nomor_hak || "";
+  const hakEvContainsDigits =
+    Boolean(nomorHakDigits) &&
+    sanitizeDigits(hakEvRaw).includes(nomorHakDigits.replace(/^0+/, "") || nomorHakDigits);
+  const hakHasAmbiguityInEvidence =
+    /(?:\?|\batau\b|\/.*\/|timpa|coret)/i.test(hakEvRaw) ||
+    (hasAmbiguityCue && /(?:\bhak\b|digit|kotak|14\s*digit)/i.test(noteText));
+
+  const regionCrossCheck = validateHakRegionCrossCheck({
+    rawNomorHak: hakEvRaw,
+    kecamatan: resolvedKecamatan,
+    kelurahan: kelurahanNormalized,
+  });
+
   if (duplicateSuHakRejected) {
     hakScore = 0;
     hakReason = "Dibersihkan karena identik dengan Nomor SU";
   } else if (parsedEvidence.kind === "nib_13" && !nomorHakFormatted) {
     hakScore = 0;
     hakReason = "Hanya NIB 13 digit yang terlihat";
+  } else if (regionCrossCheck.status === "mismatch" && regionCrossCheck.message) {
+    hakScore = Math.min(hakScore, 0.58);
+    hakReason = "Kode wilayah Nomor Hak berbeda dengan Kecamatan/Kelurahan";
+    warnings.push(regionCrossCheck.message);
+  } else if (hakHasAmbiguityInEvidence) {
+    hakScore = Math.min(hakScore, 0.72);
+    hakReason = "Digit tulisan tangan tertimpa/meragukan — cek visual";
+  } else if (nomorHakFormatted) {
+    if (parsedEvidence.kind === "nomor_hak_14") {
+      if (parsedEvidence.nomorHak5 !== nomorHakFormatted) {
+        hakScore = Math.min(hakScore, 0.68);
+        hakReason = "5 digit akhir berbeda dengan bukti 14 digit";
+      } else {
+        // Handwritten 14-digit cells often carry ambiguous strokes on the last digit; cap realistically at 0.92
+        hakScore = Math.min(hakScore, 0.92);
+      }
+      if (parsedEvidence.kodeHak && resolvedHak && parsedEvidence.kodeHak !== resolvedHak) {
+        jenisHakScore = Math.min(jenisHakScore, 0.62);
+        jenisHakReason = `Digit ke-9 (${parsedEvidence.kodeHak}) berbeda dengan pilihan (${resolvedHak})`;
+      } else if (parsedEvidence.kodeHak === resolvedHak) {
+        jenisHakScore = Math.min(jenisHakScore, 0.94);
+      }
+    } else if (parsedEvidence.kind === "short_hak" && hakEvContainsDigits) {
+      hakScore = Math.min(hakScore, 0.87);
+      jenisHakScore = Math.min(jenisHakScore, 0.9);
+    } else if (!hakEvContainsDigits) {
+      hakScore = Math.min(hakScore, 0.68);
+      hakReason = "Angka Nomor Hak belum terkonfirmasi di teks bukti";
+    } else {
+      hakScore = Math.min(hakScore, 0.82);
+    }
+  }
+
+  // 5d. Kecamatan & Kelurahan dictionary & hierarchy calibration
+  let kecScore = clampScore(extraction.confidence.kecamatan);
+  let kecReason: string | null = null;
+  if (resolvedKecamatan) {
+    if (kecAutoReconciledNote) {
+      kecScore = Math.min(kecScore || 0.78, 0.78);
+      kecReason = "Diselaraskan dengan Kelurahan & kode wilayah — cek visual";
+    } else if (regionCrossCheck.status === "mismatch") {
+      kecScore = Math.min(kecScore, 0.65);
+      kecReason = "Tidak cocok dengan prefiks kode wilayah Nomor Hak";
+    } else if (kecMatch?.matched && kecMatch.corrected && kecMatch.similarity < 0.99) {
+      kecScore = Math.min(kecScore, 0.78);
+      kecReason = "Hasil koreksi kamus wilayah";
+    } else if (!kecMatch?.matched || kecMatch.similarity < 0.85) {
+      kecScore = Math.min(kecScore, 0.68);
+      kecReason = "Kecamatan belum ada di kamus referensi";
+    } else {
+      kecScore = Math.min(kecScore, regionCrossCheck.status === "match" ? 0.95 : 0.93);
+    }
+  }
+
+  let kelScore = clampScore(extraction.confidence.kelurahan);
+  let kelReason: string | null = null;
+  if (kelurahanNormalized) {
+    const strictKelInKec = resolvedKecamatan
+      ? matchWilayahKelurahan(kelurahanNormalized, resolvedKecamatan)
+      : kelMatch;
+    if (kelMatch?.matched && kelMatch.corrected && kelMatch.similarity < 0.99) {
+      kelScore = Math.min(kelScore, 0.78);
+      kelReason = "Hasil koreksi kamus Kelurahan";
+    } else if (!kelMatch?.matched || kelMatch.similarity < 0.85) {
+      kelScore = Math.min(kelScore, 0.66);
+      kelReason = "Kelurahan belum ada di kamus referensi";
+    } else if (
+      resolvedKecamatan &&
+      matchWilayahKecamatan(resolvedKecamatan).matched &&
+      (!strictKelInKec?.matched || strictKelInKec.similarity < 0.85)
+    ) {
+      kelScore = Math.min(kelScore, 0.7);
+      kelReason = `Kelurahan tidak umum di ${resolvedKecamatan}`;
+    } else {
+      kelScore = Math.min(kelScore, suMiddleIsKelurahan ? 0.95 : 0.93);
+    }
   }
 
   const normalizedTeksNomorSu =
@@ -629,27 +835,18 @@ export function applyExtractionToForm(
       nomorHak: nomorHakFormatted,
       isCustomHak: false,
       customHak: "",
-      kecamatan: kecamatanNormalized,
+      kecamatan: resolvedKecamatan,
       kelurahan: kelurahanNormalized,
       nib: extraction.nib_terdeteksi || "",
       luasTanah: cleanedLuasTanah,
     },
     confidences: {
-      nomorSu: makeMeta(extraction.confidence.nomor_su, Boolean(nomorSuFormatted)),
+      nomorSu: makeMeta(suScore, Boolean(nomorSuFormatted), suReason),
       tahunSu: makeMeta(tahunScore, tahunClean.length === 4, tahunReason),
-      kodeHak: makeMeta(
-        extraction.confidence.jenis_hak,
-        Boolean(resolvedHak),
-      ),
+      kodeHak: makeMeta(jenisHakScore, Boolean(resolvedHak), jenisHakReason),
       nomorHak: makeMeta(hakScore, Boolean(nomorHakFormatted), hakReason),
-      kecamatan: makeMeta(
-        extraction.confidence.kecamatan,
-        Boolean(kecamatanNormalized),
-      ),
-      kelurahan: makeMeta(
-        extraction.confidence.kelurahan,
-        Boolean(kelurahanNormalized),
-      ),
+      kecamatan: makeMeta(kecScore, Boolean(resolvedKecamatan), kecReason),
+      kelurahan: makeMeta(kelScore, Boolean(kelurahanNormalized), kelReason),
     },
     isWrongPageSlot: !extraction.is_halaman_data_su,
     warnings,

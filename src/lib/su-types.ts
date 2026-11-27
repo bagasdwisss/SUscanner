@@ -273,6 +273,7 @@ export interface BatchQueuePair {
   page1Width: number;
   page1Height: number;
   page1Corners: QuadCorners;
+  page1EdgeMidpoints?: EdgeMidpoints;
   page1ProcessedUrl: string;
   page1Quality?: ImageQualityReport;
   page1OcrWords?: OcrWordBox[];
@@ -281,6 +282,7 @@ export interface BatchQueuePair {
   page2Width?: number;
   page2Height?: number;
   page2Corners?: QuadCorners;
+  page2EdgeMidpoints?: EdgeMidpoints;
   page2ProcessedUrl?: string;
   page2Quality?: ImageQualityReport;
   page2OcrWords?: OcrWordBox[];

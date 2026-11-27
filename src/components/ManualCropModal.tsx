@@ -341,7 +341,10 @@ export function ManualCropModal({
     if (!rotatedCanvasRef.current) return;
     const result = detectPaperCornersFromCanvas(rotatedCanvasRef.current);
     setCorners(result.corners);
-    setMidpoints(computeDefaultEdgeMidpoints(result.corners));
+    setCurvedMode(Boolean(result.edgeMidpoints));
+    setMidpoints(
+      result.edgeMidpoints ?? computeDefaultEdgeMidpoints(result.corners),
+    );
     setActiveIdx(null);
   };
 
