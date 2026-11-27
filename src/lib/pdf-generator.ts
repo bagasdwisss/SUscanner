@@ -1,6 +1,15 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 import { loadImageElement } from "./document-scanner";
-import type { OcrWordBox, PdfQualityPreset } from "./su-types";
+import {
+  computeOcrWordPdfPlacement,
+  computePdfPageMetrics,
+  type PdfPageRotationDeg,
+} from "./pdf-layout";
+import type {
+  OcrWordBox,
+  PdfOrientationMode,
+  PdfQualityPreset,
+} from "./su-types";
 
 export interface PdfPageInput {
   dataUrl: string;
@@ -49,17 +58,25 @@ async function reencodeJpegBytes(
   img: HTMLImageElement,
   maxSide: number,
   quality: number,
-): Promise<{ bytes: Uint8Array; width: number; height: number }> {
-  const scale = Math.min(
-    1,
-    maxSide / Math.max(img.naturalWidth, img.naturalHeight),
+  orientationMode: PdfOrientationMode,
+): Promise<{
+  bytes: Uint8Array;
+  width: number;
+  height: number;
+  pageWidth: number;
+  pageHeight: number;
+  rotationDeg: PdfPageRotationDeg;
+}> {
+  const metrics = computePdfPageMetrics(
+    img.naturalWidth,
+    img.naturalHeight,
+    maxSide,
+    orientationMode,
   );
-  const w = Math.max(1, Math.round(img.naturalWidth * scale));
-  const h = Math.max(1, Math.round(img.naturalHeight * scale));
 
   const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = metrics.outW;
+  canvas.height = metrics.outH;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("Kanvas 2D tidak tersedia untuk kompresi PDF.");
@@ -67,8 +84,23 @@ async function reencodeJpegBytes(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
+  ctx.fillRect(0, 0, metrics.outW, metrics.outH);
+
+  if (metrics.rotationDeg === -90) {
+    ctx.save();
+    ctx.translate(0, metrics.srcScaledW);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(img, 0, 0, metrics.srcScaledW, metrics.srcScaledH);
+    ctx.restore();
+  } else if (metrics.rotationDeg === 90) {
+    ctx.save();
+    ctx.translate(metrics.srcScaledH, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, 0, 0, metrics.srcScaledW, metrics.srcScaledH);
+    ctx.restore();
+  } else {
+    ctx.drawImage(img, 0, 0, metrics.srcScaledW, metrics.srcScaledH);
+  }
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
@@ -82,8 +114,11 @@ async function reencodeJpegBytes(
   const buffer = await blob.arrayBuffer();
   return {
     bytes: new Uint8Array(buffer),
-    width: w,
-    height: h,
+    width: metrics.outW,
+    height: metrics.outH,
+    pageWidth: metrics.pageWidth,
+    pageHeight: metrics.pageHeight,
+    rotationDeg: metrics.rotationDeg,
   };
 }
 
@@ -93,9 +128,12 @@ async function encodePdfDocument(
   maxSide: number,
   quality: number,
   metadata?: PdfGenerationMetadata,
+  orientationMode: PdfOrientationMode = "landscape-ccw",
 ): Promise<{ bytes: Uint8Array; searchableWordCount: number }> {
   const encodedPages = await Promise.all(
-    loadedImages.map((img) => reencodeJpegBytes(img, maxSide, quality)),
+    loadedImages.map((img) =>
+      reencodeJpegBytes(img, maxSide, quality, orientationMode),
+    ),
   );
 
   const pdfDoc = await PDFDocument.create();
@@ -116,10 +154,7 @@ async function encodePdfDocument(
     const ep = encodedPages[i];
     const sourceWords = pages[i].ocrWords;
     const embedded = await pdfDoc.embedJpg(ep.bytes);
-    const longSidePx = Math.max(ep.width, ep.height);
-    const ptScale = 841.89 / Math.max(1, longSidePx);
-    const pageWidth = ep.width * ptScale;
-    const pageHeight = ep.height * ptScale;
+    const { pageWidth, pageHeight } = ep;
 
     const page = pdfDoc.addPage([pageWidth, pageHeight]);
     page.drawImage(embedded, {
@@ -129,23 +164,28 @@ async function encodePdfDocument(
       height: pageHeight,
     });
 
-    // Embed invisible selectable & Ctrl+F searchable OCR text overlay aligned to coordinates
+    // Embed invisible selectable & Ctrl+F searchable OCR text overlay aligned to rotated/landscape coordinates
     if (hiddenFont && sourceWords && sourceWords.length > 0) {
       for (const word of sourceWords) {
         const clean = sanitizeWinAnsiText(word.text);
         if (!clean) continue;
-        const boxH = Math.max(4, (word.y1 - word.y0) * pageHeight);
-        const fontSize = Math.max(4, Math.min(36, boxH * 0.85));
-        const x = Math.max(0, Math.min(pageWidth - 4, word.x0 * pageWidth));
-        const y = Math.max(2, Math.min(pageHeight - 4, pageHeight - word.y1 * pageHeight));
+        const placement = computeOcrWordPdfPlacement(
+          word,
+          pageWidth,
+          pageHeight,
+          ep.rotationDeg,
+        );
         try {
           page.drawText(clean, {
-            x,
-            y,
-            size: fontSize,
+            x: placement.x,
+            y: placement.y,
+            size: placement.fontSize,
             font: hiddenFont,
             color: rgb(0, 0, 0),
             opacity: 0,
+            ...(placement.rotateDeg !== 0
+              ? { rotate: degrees(placement.rotateDeg) }
+              : {}),
           });
           searchableWordCount++;
         } catch {
@@ -162,14 +202,15 @@ async function encodePdfDocument(
 }
 
 /**
- * Generates a mixed-orientation multi-page PDF matching each page's natural
- * aspect ratio with optional invisible OCR searchable text layer (Ctrl+F ready).
+ * Generates a multi-page PDF with always-landscape orientation by default (auto-rotating
+ * portrait scans 90° to fill the landscape sheet) and optional invisible Ctrl+F OCR layer.
  */
 export async function generateSuPdf(
   pages: PdfPageInput[],
   preset: PdfQualityPreset,
   maxBytesOverride?: number,
   metadata?: PdfGenerationMetadata,
+  orientationMode: PdfOrientationMode = "landscape-ccw",
 ): Promise<PdfGenerationResult> {
   if (pages.length === 0) {
     throw new Error("Minimal 1 halaman diperlukan untuk membuat PDF.");
@@ -213,6 +254,7 @@ export async function generateSuPdf(
       effectiveMaxSide,
       q,
       metadata,
+      orientationMode,
     );
     lastBytes = encoded.bytes;
     lastQuality = q;
@@ -231,6 +273,7 @@ export async function generateSuPdf(
       1650,
       0.76,
       metadata,
+      orientationMode,
     );
     lastBytes = fallback.bytes;
     lastQuality = 0.76;

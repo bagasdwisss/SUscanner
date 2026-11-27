@@ -53,6 +53,7 @@ import type {
   DriveUploadResult,
   FieldConfidenceMeta,
   NamingMode,
+  PdfOrientationMode,
   PdfQualityPreset,
   SuFieldConfidences,
   SuNamingFields,
@@ -82,6 +83,8 @@ interface NamingExportPanelProps {
   warnings: string[];
   pdfQuality: PdfQualityPreset;
   onChangePdfQuality: (q: PdfQualityPreset) => void;
+  pdfOrientation?: PdfOrientationMode;
+  onChangePdfOrientation?: (mode: PdfOrientationMode) => void;
   isGeneratingPdf: boolean;
   isUploadingDrive: boolean;
   driveUploadedForCurrent?: boolean;
@@ -180,6 +183,8 @@ export function NamingExportPanel({
   warnings,
   pdfQuality,
   onChangePdfQuality,
+  pdfOrientation = "landscape-ccw",
+  onChangePdfOrientation,
   isGeneratingPdf,
   isUploadingDrive,
   driveUploadedForCurrent = false,
@@ -289,6 +294,7 @@ export function NamingExportPanel({
   const customFileHintId = useId();
   const customFileErrorId = useId();
   const qualityId = useId();
+  const orientationId = useId();
   const conflictPolicyId = useId();
 
   const [cloudDupState, setCloudDupState] = useState<{
@@ -1403,6 +1409,31 @@ export function NamingExportPanel({
               </option>
               <option value="high">
                 Tinggi (Otomatis · 2800px paling jernih untuk Unduh &amp; Drive)
+              </option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor={orientationId} className="nb-micro text-[#111114]">
+              Orientasi Halaman PDF
+            </label>
+            <select
+              id={orientationId}
+              name="pdfOrientation"
+              value={pdfOrientation}
+              onChange={(e) =>
+                onChangePdfOrientation?.(e.target.value as PdfOrientationMode)
+              }
+              className="su-control w-full rounded-xl px-3 py-2 text-sm font-semibold"
+            >
+              <option value="landscape-ccw">
+                Selalu Landscape (Putar foto berdiri 90° kiri — standar)
+              </option>
+              <option value="landscape-cw">
+                Selalu Landscape (Putar foto berdiri 90° kanan)
+              </option>
+              <option value="auto">
+                Otomatis (Ikuti posisi asli foto)
               </option>
             </select>
           </div>

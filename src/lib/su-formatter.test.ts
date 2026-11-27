@@ -1108,3 +1108,76 @@ Luas : 872.- m2 (delapanratus tujuhpuluh dua meter persegi).
     }
   });
 });
+
+describe("PDF Landscape Orientation & OCR Coordinate Layout", () => {
+  it("rotates portrait pages 90 degrees into landscape dimensions by default", async () => {
+    const { resolvePageRotationForOrientation, computePdfPageMetrics } =
+      await import("./pdf-layout.ts");
+
+    assert.equal(resolvePageRotationForOrientation(768, 1024, "landscape-ccw"), -90);
+    assert.equal(resolvePageRotationForOrientation(768, 1024, "landscape-cw"), 90);
+    assert.equal(resolvePageRotationForOrientation(768, 1024, "auto"), 0);
+    assert.equal(resolvePageRotationForOrientation(1200, 800, "landscape-ccw"), 0);
+    assert.equal(resolvePageRotationForOrientation(1200, 800, "landscape-cw"), 0);
+
+    const portraitToLandscapeCcw = computePdfPageMetrics(
+      768,
+      1024,
+      2800,
+      "landscape-ccw",
+    );
+    assert.equal(portraitToLandscapeCcw.rotationDeg, -90);
+    assert.equal(portraitToLandscapeCcw.outW > portraitToLandscapeCcw.outH, true);
+    assert.equal(portraitToLandscapeCcw.outW, 1024);
+    assert.equal(portraitToLandscapeCcw.outH, 768);
+    assert.equal(
+      portraitToLandscapeCcw.pageWidth > portraitToLandscapeCcw.pageHeight,
+      true,
+    );
+    assert.equal(Math.round(portraitToLandscapeCcw.pageWidth), 842);
+
+    const portraitToLandscapeCw = computePdfPageMetrics(
+      768,
+      1024,
+      2800,
+      "landscape-cw",
+    );
+    assert.equal(portraitToLandscapeCw.rotationDeg, 90);
+    assert.equal(portraitToLandscapeCw.outW > portraitToLandscapeCw.outH, true);
+    assert.equal(
+      portraitToLandscapeCw.pageWidth > portraitToLandscapeCw.pageHeight,
+      true,
+    );
+
+    const autoPortrait = computePdfPageMetrics(768, 1024, 2800, "auto");
+    assert.equal(autoPortrait.rotationDeg, 0);
+    assert.equal(autoPortrait.outH > autoPortrait.outW, true);
+    assert.equal(autoPortrait.pageHeight > autoPortrait.pageWidth, true);
+  });
+
+  it("transforms normalized OCR word coordinates accurately when rotating portrait to landscape", async () => {
+    const { computeOcrWordPdfPlacement } = await import("./pdf-layout.ts");
+    const sampleWord = {
+      text: "SURAT",
+      x0: 0.2,
+      y0: 0.1,
+      x1: 0.4,
+      y1: 0.15,
+    };
+
+    const placementZero = computeOcrWordPdfPlacement(sampleWord, 842, 600, 0);
+    assert.equal(placementZero.rotateDeg, 0);
+    assert.ok(Math.abs(placementZero.x - 0.2 * 842) < 0.01);
+    assert.ok(Math.abs(placementZero.y - (1 - 0.15) * 600) < 0.01);
+
+    const placementCcw = computeOcrWordPdfPlacement(sampleWord, 842, 600, -90);
+    assert.equal(placementCcw.rotateDeg, 90);
+    assert.ok(Math.abs(placementCcw.x - 0.15 * 842) < 0.01);
+    assert.ok(Math.abs(placementCcw.y - 0.2 * 600) < 0.01);
+
+    const placementCw = computeOcrWordPdfPlacement(sampleWord, 842, 600, 90);
+    assert.equal(placementCw.rotateDeg, -90);
+    assert.ok(Math.abs(placementCw.x - (1 - 0.15) * 842) < 0.01);
+    assert.ok(Math.abs(placementCw.y - (1 - 0.2) * 600) < 0.01);
+  });
+});

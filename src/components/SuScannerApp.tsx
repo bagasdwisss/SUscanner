@@ -109,6 +109,7 @@ import type {
   OcrWordBox,
   OfflineUploadJob,
   PageSlot,
+  PdfOrientationMode,
   PdfQualityPreset,
   QuadCorners,
   ScanFilter,
@@ -117,6 +118,8 @@ import type {
   SuFieldConfidences,
   SuNamingFields,
 } from "@/lib/su-types";
+
+const PDF_ORIENTATION_STORAGE_KEY = "su_scanner_pdf_orientation_v1";
 
 interface ToastNotice {
   id: number;
@@ -211,8 +214,10 @@ export function SuScannerApp() {
       wilayahCodes: [],
     });
 
-  // Export & Modals (default to highest image quality for download & Drive upload)
+  // Export & Modals (default to highest image quality and landscape PDF orientation)
   const [pdfQuality, setPdfQuality] = useState<PdfQualityPreset>("high");
+  const [pdfOrientation, setPdfOrientation] =
+    useState<PdfOrientationMode>("landscape-ccw");
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [sessionHistory, setSessionHistory] = useState<SessionHistoryItem[]>(
     [],
@@ -279,6 +284,9 @@ export function SuScannerApp() {
         const storedPolicy = localStorage.getItem(
           DRIVE_CONFLICT_POLICY_KEY,
         ) as DriveConflictPolicy | null;
+        const storedOrientation = localStorage.getItem(
+          PDF_ORIENTATION_STORAGE_KEY,
+        ) as PdfOrientationMode | null;
         const storedSheet = localStorage.getItem(DRIVE_SYNC_SHEET_KEY);
         const storedSheetUrl = localStorage.getItem(DRIVE_SHEET_URL_KEY);
 
@@ -299,6 +307,13 @@ export function SuScannerApp() {
           storedPolicy === "skip"
         ) {
           setConflictPolicy(storedPolicy);
+        }
+        if (
+          storedOrientation === "landscape-ccw" ||
+          storedOrientation === "landscape-cw" ||
+          storedOrientation === "auto"
+        ) {
+          setPdfOrientation(storedOrientation);
         }
         if (storedSheet === "false") {
           setSyncToSheet(false);
@@ -1413,7 +1428,7 @@ export function SuScannerApp() {
           normalizeKelurahanName(fields.kelurahan),
         ].filter(Boolean),
       };
-      const result = await generateSuPdf(pages, pdfQuality, undefined, pdfMeta);
+      const result = await generateSuPdf(pages, pdfQuality, undefined, pdfMeta, pdfOrientation);
       triggerPdfDownload(result.blob, currentFilename);
 
       const kecamatanClean = normalizeKecamatanName(fields.kecamatan);
@@ -1432,7 +1447,7 @@ export function SuScannerApp() {
       if (autoUploadOnExport && driveReady && kecamatanClean) {
         const uploadBytes =
           result.bytes.byteLength > 2_850_000
-            ? (await generateSuPdf(pages, pdfQuality, 2_850_000, pdfMeta)).bytes
+            ? (await generateSuPdf(pages, pdfQuality, 2_850_000, pdfMeta, pdfOrientation)).bytes
             : result.bytes;
         uploaded = await performDriveUpload(
           uploadBytes,
@@ -1501,6 +1516,7 @@ export function SuScannerApp() {
     driveDocSignature,
     driveReady,
     fields,
+    pdfOrientation,
     pdfQuality,
     performDriveUpload,
     preparePagesForPdfExport,
@@ -1555,7 +1571,7 @@ export function SuScannerApp() {
         author: "SU-Scanner",
         subject: `Surat Ukur ${padFiveDigits(fields.nomorSu)}/${sanitizeDigits(fields.tahunSu)} - ${kecamatanClean}`,
       };
-      const result = await generateSuPdf(pages, pdfQuality, 2_850_000, pdfMeta);
+      const result = await generateSuPdf(pages, pdfQuality, 2_850_000, pdfMeta, pdfOrientation);
       const uploaded = await performDriveUpload(
         result.bytes,
         currentFilename,
@@ -1609,6 +1625,7 @@ export function SuScannerApp() {
     driveLockedSignature,
     driveReady,
     fields,
+    pdfOrientation,
     pdfQuality,
     performDriveUpload,
     preparePagesForPdfExport,
@@ -2059,6 +2076,15 @@ export function SuScannerApp() {
                 warnings={warnings}
                 pdfQuality={pdfQuality}
                 onChangePdfQuality={setPdfQuality}
+                pdfOrientation={pdfOrientation}
+                onChangePdfOrientation={(mode) => {
+                  setPdfOrientation(mode);
+                  try {
+                    localStorage.setItem(PDF_ORIENTATION_STORAGE_KEY, mode);
+                  } catch {
+                    // Ignore
+                  }
+                }}
                 isGeneratingPdf={isGeneratingPdf}
                 isUploadingDrive={isUploadingDrive}
                 driveUploadedForCurrent={driveUploadedForCurrent}
@@ -2351,6 +2377,7 @@ export function SuScannerApp() {
         initialFiles={pendingBatchFiles}
         onConsumedInitialFiles={() => setPendingBatchFiles(null)}
         pdfQuality={pdfQuality}
+        pdfOrientation={pdfOrientation}
         conflictPolicy={conflictPolicy}
         appsScriptUrl={appsScriptUrl}
         rootFolderId={driveRootFolderId}

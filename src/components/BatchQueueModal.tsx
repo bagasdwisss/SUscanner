@@ -57,6 +57,7 @@ import type {
   DriveConflictPolicy,
   DriveUploadResult,
   OfflineUploadJob,
+  PdfOrientationMode,
   PdfQualityPreset,
   SessionHistoryItem,
   StandardHakCode,
@@ -71,6 +72,7 @@ interface BatchQueueModalProps {
   initialFiles?: File[] | null;
   onConsumedInitialFiles?: () => void;
   pdfQuality: PdfQualityPreset;
+  pdfOrientation?: PdfOrientationMode;
   conflictPolicy: DriveConflictPolicy;
   appsScriptUrl: string;
   rootFolderId: string;
@@ -114,6 +116,7 @@ export function BatchQueueModal({
   initialFiles,
   onConsumedInitialFiles,
   pdfQuality,
+  pdfOrientation: defaultPdfOrientation = "landscape-ccw",
   conflictPolicy: defaultConflictPolicy,
   appsScriptUrl,
   rootFolderId,
@@ -139,6 +142,9 @@ export function BatchQueueModal({
   const [conflictPolicy, setConflictPolicy] = useState<DriveConflictPolicy>(
     defaultConflictPolicy,
   );
+  const [orientationOverride, setOrientationOverride] =
+    useState<PdfOrientationMode | null>(null);
+  const activePdfOrientation = orientationOverride ?? defaultPdfOrientation;
   const [searchablePdf, setSearchablePdf] = useState<boolean>(true);
   const [isIngesting, setIsIngesting] = useState(false);
   const [ingestMessage, setIngestMessage] = useState<string | null>(null);
@@ -520,14 +526,20 @@ export function BatchQueueModal({
     ];
 
     const filename = buildStandardFilename(item.fields);
-    return generateSuPdf(pages, pdfQuality, maxBytesForDrive, {
-      title: filename,
-      author: "SU-Scanner",
-      subject: `Surat Ukur ${item.fields.kecamatan}${item.fields.kelurahan ? ` / ${item.fields.kelurahan}` : ""}`,
-      keywords: [item.fields.nib || "", item.fields.luasTanah || ""].filter(
-        Boolean,
-      ),
-    });
+    return generateSuPdf(
+      pages,
+      pdfQuality,
+      maxBytesForDrive,
+      {
+        title: filename,
+        author: "SU-Scanner",
+        subject: `Surat Ukur ${item.fields.kecamatan}${item.fields.kelurahan ? ` / ${item.fields.kelurahan}` : ""}`,
+        keywords: [item.fields.nib || "", item.fields.luasTanah || ""].filter(
+          Boolean,
+        ),
+      },
+      activePdfOrientation,
+    );
   };
 
   const handleUploadAllReady = async () => {
@@ -886,6 +898,18 @@ export function BatchQueueModal({
               <option value="single">1 Lembar per PDF (SU Tahun 60-an)</option>
             </select>
 
+            <select
+              aria-label="Orientasi Halaman PDF Batch"
+              value={activePdfOrientation}
+              onChange={(e) =>
+                setOrientationOverride(e.target.value as PdfOrientationMode)
+              }
+              className="su-control min-h-10 rounded-xl px-3 py-1.5 text-xs font-semibold"
+            >
+              <option value="landscape-ccw">Orientasi: Selalu Landscape (-90°)</option>
+              <option value="landscape-cw">Orientasi: Selalu Landscape (+90°)</option>
+              <option value="auto">Orientasi: Otomatis Asli</option>
+            </select>
             <select
               aria-label="Kebijakan Konflik Drive"
               value={conflictPolicy}

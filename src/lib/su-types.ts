@@ -8,6 +8,8 @@ export type PageSlot = "page1" | "page2";
 
 export type PdfQualityPreset = "high" | "standard" | "compact";
 
+export type PdfOrientationMode = "landscape-ccw" | "landscape-cw" | "auto";
+
 export type ConfidenceLevel = "high" | "medium" | "low";
 
 export type NamingMode = "standard" | "custom";
